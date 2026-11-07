@@ -208,15 +208,16 @@ class RuleFinding(BaseModel):
 class CategoryScore(BaseModel):
     category: str
     label: str
-    score: float = Field(ge=0.0, le=100.0)
+    score: float | None = Field(default=None, ge=0.0, le=100.0)
     weight: float
     deductions: float
     findings_count: int
 
 
 class ArchitectureHealthReport(BaseModel):
-    overall_score: float = Field(ge=0.0, le=100.0)
-    grade: str  # "A", "B", "C", "D", "F"
+    overall_score: float | None = Field(default=None, ge=0.0, le=100.0)
+    grade: str  # "A", "B", "C", "D", "F", "N/A"
+    status: str = Field(default="evaluated", description="Either 'evaluated' or 'insufficient_data'.")
     methodology: str
     category_scores: list[CategoryScore] = Field(default_factory=list)
     findings: list[RuleFinding] = Field(default_factory=list)
@@ -228,8 +229,11 @@ class GraphMetrics(BaseModel):
     total_nodes: int = 0
     total_edges: int = 0
     connected_components: int = 0
+    scc_count: int = 0
     cycle_count: int = 0
     nodes_in_cycles: int = 0
+    cycles_truncated: bool = False
+    cycle_truncation_reason: str | None = None
     orphan_files_count: int = 0
     hub_files_count: int = 0
     max_fan_in: int = 0

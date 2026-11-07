@@ -26,6 +26,11 @@ def _format_summary_table(result: AnalysisResult) -> str:
     gm = result.graph_metrics
     tr = result.transparency
 
+    score_str = (
+        f"{hr.overall_score:.1f} / 100 (Grade {hr.grade})"
+        if hr.overall_score is not None
+        else f"N/A — Insufficient Data ({hr.grade})"
+    )
     lines = [
         "=" * 76,
         f"RepoDNA Architectural Analysis — {result.repo_name}",
@@ -33,8 +38,8 @@ def _format_summary_table(result: AnalysisResult) -> str:
         f"Target         : {result.target_display} ({result.source_type.value})",
         f"Duration       : {result.duration_ms} ms",
         f"Files Scanned  : {result.total_files:,} ({result.total_lines_code:,} LOC / {result.total_size_bytes:,} bytes)",
-        f"Health Score   : {hr.overall_score:.1f} / 100 (Grade {hr.grade})",
-        f"Graph Metrics  : {gm.total_nodes} nodes, {gm.total_edges} internal edges, {gm.cycle_count} cycles, avg instability {gm.average_instability:.2f}",
+        f"Health Score   : {score_str}",
+        f"Graph Metrics  : {gm.total_nodes} nodes, {gm.total_edges} internal edges, {gm.scc_count} cyclic SCCs, {gm.cycle_count} cycles, avg instability {gm.average_instability:.2f}",
         f"Supported AST  : {', '.join(tr.supported_languages_detected) or 'None'}",
         f"Unsupported    : {', '.join(tr.unsupported_languages_detected) or 'None'} ({tr.unsupported_files_count} files)",
         "-" * 76,

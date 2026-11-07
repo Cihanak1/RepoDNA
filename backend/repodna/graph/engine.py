@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections import defaultdict, deque
 
 from repodna.schemas.models import (
@@ -75,14 +76,36 @@ def build_dependency_graph(
     cyclic_sccs = [comp for comp in sccs if len(comp) > 1]
 
     # Extract deterministic elementary cycles within each non-trivial SCC
+    # with explicit max_total_cycles, per-SCC max_cycles, operation budget, and timeout
+    max_total_cycles = 100
+    max_cycles_per_scc = 25
+    max_ops_per_scc = 25000
+    max_time_per_scc_sec = 0.75
+
     cycles: list[CycleGroup] = []
     edge_in_cycle: set[tuple[str, str]] = set()
     node_to_cycles: dict[str, list[str]] = defaultdict(list)
+    truncation_reasons: list[str] = []
 
     cycle_counter = 1
     for scc in cyclic_sccs:
         scc_set = set(scc)
-        found_cycles = _extract_cycles_in_scc(sorted(scc), scc_set, adj, max_cycles=25)
+        remaining_cap = max(0, max_total_cycles - len(cycles))
+        if remaining_cap == 0:
+            truncation_reasons.append(f"Reached global cycle reporting cap ({max_total_cycles} cycles).")
+            found_cycles: list[list[str]] = []
+        else:
+            found_cycles, scc_trunc_reason = _extract_cycles_in_scc(
+                sorted(scc),
+                scc_set,
+                adj,
+                max_cycles=min(max_cycles_per_scc, remaining_cap),
+                max_ops=max_ops_per_scc,
+                timeout_sec=max_time_per_scc_sec,
+            )
+            if scc_trunc_reason:
+                truncation_reasons.append(scc_trunc_reason)
+
         for cyc_nodes in found_cycles:
             cid = f"CYCLE-{cycle_counter:03d}"
             cycle_counter += 1
@@ -104,7 +127,7 @@ def build_dependency_graph(
                 if cid not in node_to_cycles[u]:
                     node_to_cycles[u].append(cid)
 
-        # Ensure every node in a cyclic SCC is marked even if cycle cap was hit
+        # Ensure every node in a cyclic SCC is marked even if cycle cap or budget was hit
         fallback_cid = f"CYCLE-SCC-{cycle_counter:03d}"
         for u in scc:
             for v in adj.get(u, []):
@@ -181,12 +204,16 @@ def build_dependency_graph(
     density = round(n_edges / (n_nodes * (n_nodes - 1)), 4) if n_nodes > 1 else 0.0
     avg_instability = round(instability_sum / instability_count, 3) if instability_count > 0 else 0.0
 
+    unique_trunc = list(dict.fromkeys(truncation_reasons))
     metrics = GraphMetrics(
         total_nodes=n_nodes,
         total_edges=n_edges,
         connected_components=components,
+        scc_count=len(cyclic_sccs),
         cycle_count=len(cycles),
         nodes_in_cycles=sum(1 for f in files if f.in_cycle),
+        cycles_truncated=len(unique_trunc) > 0,
+        cycle_truncation_reason="; ".join(unique_trunc) if unique_trunc else None,
         orphan_files_count=orphan_count,
         hub_files_count=hub_count,
         max_fan_in=max_fan_in,
@@ -254,14 +281,22 @@ def _extract_cycles_in_scc(
     scc_set: set[str],
     adj: dict[str, list[str]],
     max_cycles: int = 25,
-) -> list[list[str]]:
-    """Find canonical elementary cycles within an SCC using Johnson's blocked-set algorithm."""
+    max_ops: int = 25000,
+    timeout_sec: float = 0.75,
+) -> tuple[list[list[str]], str | None]:
+    """
+    Find canonical elementary cycles within an SCC using Johnson's blocked-set algorithm,
+    bounded by `max_cycles`, `max_ops` operation budget, and `timeout_sec` wall-clock budget.
+    """
     seen_canonical: set[tuple[str, ...]] = set()
     results: list[list[str]] = []
     node_order = {n: idx for idx, n in enumerate(scc_nodes)}
+    ops_used = 0
+    truncation_reason: str | None = None
+    deadline = time.monotonic() + timeout_sec
 
     for start in scc_nodes:
-        if len(results) >= max_cycles:
+        if len(results) >= max_cycles or truncation_reason is not None:
             break
         start_rank = node_order[start]
         path: list[str] = [start]
@@ -273,8 +308,10 @@ def _extract_cycles_in_scc(
             _blocked: set[str] = blocked,
             _blocked_map: dict[str, set[str]] = blocked_map,
         ) -> None:
+            nonlocal ops_used
             stack = [u]
             while stack:
+                ops_used += 1
                 curr = stack.pop()
                 if curr in _blocked:
                     _blocked.remove(curr)
@@ -291,9 +328,20 @@ def _extract_cycles_in_scc(
             _blocked: set[str] = blocked,
             _blocked_map: dict[str, set[str]] = blocked_map,
         ) -> bool:
+            nonlocal ops_used, truncation_reason
             found_cycle = False
+            ops_used += 1
+
             if len(results) >= max_cycles:
+                truncation_reason = f"Reached per-SCC cycle cap ({max_cycles} cycles)."
                 return True
+            if ops_used >= max_ops:
+                truncation_reason = f"Reached Johnson cycle enumeration operation budget ({max_ops} ops)."
+                return True
+            if (ops_used & 63) == 0 and time.monotonic() > deadline:
+                truncation_reason = f"Reached Johnson cycle enumeration timeout ({timeout_sec:.2f}s)."
+                return True
+
             for nxt in adj.get(curr, []):
                 if nxt not in scc_set or node_order[nxt] < _start_rank:
                     continue
@@ -303,12 +351,17 @@ def _extract_cycles_in_scc(
                         seen_canonical.add(canon)
                         results.append([*list(canon), canon[0]])
                     found_cycle = True
+                    if len(results) >= max_cycles:
+                        truncation_reason = f"Reached per-SCC cycle cap ({max_cycles} cycles)."
+                        break
                 elif nxt not in _blocked and len(_path) < 16:
                     _blocked.add(nxt)
                     _path.append(nxt)
                     if circuit(nxt, _start, _start_rank, _path, _blocked, _blocked_map):
                         found_cycle = True
                     _path.pop()
+                    if truncation_reason is not None:
+                        break
 
             if found_cycle:
                 unblock(curr)
@@ -320,7 +373,7 @@ def _extract_cycles_in_scc(
 
         circuit(start)
 
-    return results
+    return results, truncation_reason
 
 
 def _canonicalize_cycle(cycle_nodes: list[str]) -> tuple[str, ...]:

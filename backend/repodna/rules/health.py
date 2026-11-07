@@ -30,6 +30,44 @@ def evaluate_architecture_health(
     passed_rules: list[str] = []
     node_map = {f.id: f for f in files}
 
+    category_meta = [
+        ("cycles", "Acyclicity & Layering", 30.0),
+        ("coupling", "Coupling & Stability", 30.0),
+        ("complexity", "Module Size & Complexity", 15.0),
+        ("hygiene", "Structural Hygiene", 15.0),
+        ("security", "Secret & Config Safety", 10.0),
+    ]
+
+    if not files:
+        return ArchitectureHealthReport(
+            overall_score=None,
+            grade="N/A",
+            status="insufficient_data",
+            methodology=(
+                "Insufficient data: repository contains 0 analyzable files. "
+                "RepoDNA reports N/A rather than a synthetic 100/100 score when no source modules are present."
+            ),
+            category_scores=[
+                CategoryScore(
+                    category=cat_key,
+                    label=cat_label,
+                    score=None,
+                    weight=weight,
+                    deductions=0.0,
+                    findings_count=0,
+                )
+                for cat_key, cat_label, weight in category_meta
+            ],
+            findings=[],
+            passed_rules=[],
+            summary_metrics={
+                "total_deductions": 0.0,
+                "rules_evaluated": 0,
+                "rules_passed": 0,
+                "rules_triggered": 0,
+            },
+        )
+
     # --- RULE ARCH-001: Acyclic Dependencies Principle (ADP) ---
     if cycles:
         deduction = min(30.0, round(len(cycles) * 6.0 + metrics.nodes_in_cycles * 1.2, 1))
@@ -214,13 +252,6 @@ def evaluate_architecture_health(
         passed_rules.append("SEC-001: Credential & Secret Hygiene (No sensitive files or token patterns detected)")
 
     # Calculate category scores and overall health score
-    category_meta = [
-        ("cycles", "Acyclicity & Layering", 30.0),
-        ("coupling", "Coupling & Stability", 30.0),
-        ("complexity", "Module Size & Complexity", 15.0),
-        ("hygiene", "Structural Hygiene", 15.0),
-        ("security", "Secret & Config Safety", 10.0),
-    ]
     category_scores: list[CategoryScore] = []
     total_deduction = 0.0
 
@@ -256,6 +287,7 @@ def evaluate_architecture_health(
     return ArchitectureHealthReport(
         overall_score=overall_score,
         grade=grade,
+        status="evaluated",
         methodology=(
             "Deterministic, rule-based engineering rubric starting at 100.0 points. "
             "Deductions are computed strictly from static AST dependency topology (Tarjan SCC cycles, "

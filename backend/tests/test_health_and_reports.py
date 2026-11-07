@@ -29,6 +29,7 @@ def test_analyze_temp_repo_with_cycles_and_unsupported_files(tmp_path: Path) -> 
 
     rule_ids = [f.rule_id for f in result.health_report.findings]
     assert "ARCH-001" in rule_ids
+    assert result.health_report.overall_score is not None
     assert result.health_report.overall_score < 100.0
 
     # Test JSON & HTML export

@@ -123,6 +123,21 @@ def export_analysis_to_html(result: AnalysisResult) -> str:
 
     passed_list = "".join(f"<li>{esc(pr)}</li>" for pr in hr.passed_rules)
     unsupported_str = ", ".join(esc(u) for u in tr.unsupported_languages_detected) or "None"
+    score_display = (
+        f"{hr.overall_score:.1f} / 100 (Grade {esc(hr.grade)})"
+        if hr.overall_score is not None
+        else f"N/A — Insufficient Data ({esc(hr.grade)})"
+    )
+    cycle_kpi_display = (
+        f"{gm.cycle_count} (in {gm.scc_count} SCCs)"
+        if gm.scc_count > 0
+        else "0"
+    )
+    cycle_trunc_note = (
+        f'<p class="methodology" style="color:#f59e0b;"><strong>Cycle Enumeration Truncated:</strong> {esc(gm.cycle_truncation_reason or "Reached cap")}</p>'
+        if gm.cycles_truncated
+        else ""
+    )
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -225,7 +240,7 @@ def export_analysis_to_html(result: AnalysisResult) -> str:
       </div>
       <div class="card" style="text-align:center;min-width:160px;">
         <div class="kpi-label">Architecture Health</div>
-        <div class="kpi-value">{hr.overall_score:.1f} / 100 (Grade {esc(hr.grade)})</div>
+        <div class="kpi-value">{score_display}</div>
       </div>
     </header>
 
@@ -235,7 +250,7 @@ def export_analysis_to_html(result: AnalysisResult) -> str:
         <div class="card"><div class="kpi-label">Total Files</div><div class="kpi-value">{result.total_files:,}</div></div>
         <div class="card"><div class="kpi-label">Lines of Code</div><div class="kpi-value">{result.total_lines_code:,}</div></div>
         <div class="card"><div class="kpi-label">Internal Dependency Edges</div><div class="kpi-value">{gm.total_edges:,}</div></div>
-        <div class="card"><div class="kpi-label">Circular Dependencies</div><div class="kpi-value">{gm.cycle_count}</div></div>
+        <div class="card"><div class="kpi-label">Circular Dependencies (SCCs)</div><div class="kpi-value">{cycle_kpi_display}</div></div>
         <div class="card"><div class="kpi-label">Avg Instability Index</div><div class="kpi-value">{gm.average_instability:.2f}</div></div>
         <div class="card"><div class="kpi-label">Git Commits Scanned</div><div class="kpi-value">{result.git_insights.total_commits_scanned}</div></div>
       </div>
@@ -268,7 +283,8 @@ def export_analysis_to_html(result: AnalysisResult) -> str:
     </section>
 
     <section aria-labelledby="cycles-heading">
-      <h2 id="cycles-heading">Circular Dependency Chains ({ len(result.cycles) })</h2>
+      <h2 id="cycles-heading">Circular Dependency Chains ({len(result.cycles)} Cycles in {gm.scc_count} SCCs)</h2>
+      {cycle_trunc_note}
       <div class="table-wrapper" tabindex="0" role="region" aria-labelledby="cycles-heading">
         <table>
           <caption>Detected strongly connected circular dependency chains</caption>

@@ -183,13 +183,16 @@ def test_7_disconnected_graph(tmp_path: Path) -> None:
 
 
 def test_8_empty_repository(tmp_path: Path) -> None:
-    """Verify empty repository completes cleanly with 0 nodes and 100.0 health score."""
+    """Verify empty repository completes cleanly with 0 nodes and N/A insufficient_data health status."""
     res = _scan_dir(tmp_path)
     assert len(res.files) == 0
     assert len(res.edges) == 0
     assert res.graph_metrics.total_nodes == 0
     assert res.graph_metrics.graph_density == 0.0
-    assert res.health_report.overall_score == 100.0
+    assert res.health_report.overall_score is None
+    assert res.health_report.grade == "N/A"
+    assert res.health_report.status == "insufficient_data"
+    assert "N/A — Insufficient Data" in export_analysis_to_html(res)
 
 
 def test_9_monorepo_workspace(tmp_path: Path) -> None:
@@ -334,3 +337,49 @@ def test_15_deterministic_export(tmp_path: Path) -> None:
     html_out = export_analysis_to_html(res1)
     assert "<!DOCTYPE html>" in html_out
     assert "alpha.py" in html_out
+
+
+def test_16_adversarial_dense_scc_cycle_budget_and_truncation(tmp_path: Path) -> None:
+    """
+    Verify Johnson cycle enumeration budget/cap on an adversarial dense 18-node bidirectional mesh
+    (thousands of overlapping elementary cycles in 1 SCC) completes rapidly, marks all 18 nodes in_cycle,
+    separates scc_count=1 from cycle_count=25, and sets cycles_truncated=True.
+    """
+    n_mesh = 18
+    for i in range(n_mesh):
+        # Connect each node to 5 successors mod n_mesh -> dense overlapping cycles
+        imports = [f"import m_{(i + step) % n_mesh:02d}" for step in range(1, 6)]
+        (tmp_path / f"m_{i:02d}.py").write_text(
+            "\n".join(imports) + f"\ndef f_{i}(): return {i}\n",
+            encoding="utf-8",
+        )
+
+    t0 = time.monotonic()
+    res = _scan_dir(tmp_path)
+    elapsed_ms = (time.monotonic() - t0) * 1000.0
+
+    assert elapsed_ms < 2000.0
+    assert res.graph_metrics.scc_count == 1
+    assert res.graph_metrics.cycle_count == 25
+    assert res.graph_metrics.nodes_in_cycles == n_mesh
+    assert res.graph_metrics.cycles_truncated is True
+    assert res.graph_metrics.cycle_truncation_reason is not None
+
+
+def test_17_hardened_git_environment_isolation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify build_hardened_git_env strips ambient secret env vars and isolates global/system gitconfig."""
+    from repodna.storage.workspace import build_hardened_git_env
+
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_secret_ambient_token")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "aws_super_secret")
+    empty_cfg = tmp_path / "_empty_gitconfig"
+    empty_cfg.write_text("", encoding="utf-8")
+
+    env = build_hardened_git_env(empty_config_file=empty_cfg, home_dir=tmp_path)
+    assert "GITHUB_TOKEN" not in env
+    assert "AWS_SECRET_ACCESS_KEY" not in env
+    assert env["GIT_CONFIG_NOSYSTEM"] == "1"
+    assert env["GIT_CONFIG_GLOBAL"] == str(empty_cfg)
+    assert env["GIT_TERMINAL_PROMPT"] == "0"
+    assert env["GIT_LFS_SKIP_SMUDGE"] == "1"
+
