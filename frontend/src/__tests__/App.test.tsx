@@ -1,0 +1,191 @@
+import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { App } from '../App';
+import { buildFlowElements, filterFiles } from '../utils/graphLayout';
+import type { DependencyEdge, FileNode } from '../types/repodna';
+
+const sampleFiles: FileNode[] = [
+  {
+    id: 'src/api.py',
+    name: 'api.py',
+    directory: 'src',
+    extension: '.py',
+    language: 'Python',
+    support_level: 'full_ast',
+    size_bytes: 1200,
+    lines_total: 50,
+    lines_code: 40,
+    lines_comment: 5,
+    lines_blank: 5,
+    imports_internal: ['src/service.py'],
+    imported_by: [],
+    imports_external: ['fastapi'],
+    unresolved_imports: [],
+    symbols: [{ name: 'create_app', kind: 'function', line: 10 }],
+    fan_in: 0,
+    fan_out: 1,
+    instability: 1.0,
+    in_cycle: false,
+    cycle_ids: [],
+    is_orphan: false,
+    is_hub: false,
+    git_commits: 5,
+    secret_warnings: [],
+  },
+  {
+    id: 'src/service.py',
+    name: 'service.py',
+    directory: 'src',
+    extension: '.py',
+    language: 'Python',
+    support_level: 'full_ast',
+    size_bytes: 2400,
+    lines_total: 90,
+    lines_code: 75,
+    lines_comment: 5,
+    lines_blank: 10,
+    imports_internal: ['src/billing.py'],
+    imported_by: ['src/api.py', 'src/billing.py'],
+    imports_external: [],
+    unresolved_imports: [],
+    symbols: [{ name: 'OrderService', kind: 'class', line: 8 }],
+    fan_in: 2,
+    fan_out: 1,
+    instability: 0.33,
+    in_cycle: true,
+    cycle_ids: ['CYCLE-001'],
+    is_orphan: false,
+    is_hub: true,
+    git_commits: 12,
+    secret_warnings: [],
+  },
+  {
+    id: 'src/billing.py',
+    name: 'billing.py',
+    directory: 'src',
+    extension: '.py',
+    language: 'Python',
+    support_level: 'full_ast',
+    size_bytes: 1800,
+    lines_total: 60,
+    lines_code: 50,
+    lines_comment: 5,
+    lines_blank: 5,
+    imports_internal: ['src/service.py'],
+    imported_by: ['src/service.py'],
+    imports_external: [],
+    unresolved_imports: [],
+    symbols: [],
+    fan_in: 1,
+    fan_out: 1,
+    instability: 0.5,
+    in_cycle: true,
+    cycle_ids: ['CYCLE-001'],
+    is_orphan: false,
+    is_hub: false,
+    git_commits: 8,
+    secret_warnings: [],
+  },
+];
+
+const sampleEdges: DependencyEdge[] = [
+  {
+    id: 'src/api.py->src/service.py',
+    source: 'src/api.py',
+    target: 'src/service.py',
+    import_names: ['OrderService'],
+    line: 3,
+    in_cycle: false,
+  },
+  {
+    id: 'src/service.py->src/billing.py',
+    source: 'src/service.py',
+    target: 'src/billing.py',
+    import_names: ['charge'],
+    line: 5,
+    in_cycle: true,
+  },
+  {
+    id: 'src/billing.py->src/service.py',
+    source: 'src/billing.py',
+    target: 'src/service.py',
+    import_names: ['OrderService'],
+    line: 6,
+    in_cycle: true,
+  },
+];
+
+describe('graphLayout utilities', () => {
+  it('filters by cycle participation and symbol search', () => {
+    const cycleRes = filterFiles(sampleFiles, sampleEdges, {
+      searchQuery: '',
+      languageFilter: 'ALL',
+      supportFilter: 'ALL',
+      cyclesOnly: true,
+      hubsOnly: false,
+      orphansOnly: false,
+      focusSelectedNeighborhood: false,
+      selectedFileId: null,
+      highlightCycles: true,
+    });
+    expect(cycleRes.filteredFiles.map((f) => f.id)).toEqual(['src/service.py', 'src/billing.py']);
+    expect(cycleRes.filteredEdges.length).toBe(2);
+
+    const symRes = filterFiles(sampleFiles, sampleEdges, {
+      searchQuery: 'create_app',
+      languageFilter: 'ALL',
+      supportFilter: 'ALL',
+      cyclesOnly: false,
+      hubsOnly: false,
+      orphansOnly: false,
+      focusSelectedNeighborhood: false,
+      selectedFileId: null,
+      highlightCycles: true,
+    });
+    expect(symRes.filteredFiles.map((f) => f.id)).toEqual(['src/api.py']);
+  });
+
+  it('builds deterministic coordinates for layered, cluster, and radial layouts', () => {
+    for (const mode of ['layered', 'cluster', 'radial'] as const) {
+      const { nodes, edges } = buildFlowElements(
+        sampleFiles,
+        sampleEdges,
+        mode,
+        'src/service.py',
+        new Set(['src/api.py', 'src/billing.py']),
+        true
+      );
+      expect(nodes.length).toBe(3);
+      expect(edges.length).toBe(3);
+      for (const n of nodes) {
+        expect(Number.isFinite(n.position.x)).toBe(true);
+        expect(Number.isFinite(n.position.y)).toBe(true);
+      }
+    }
+  });
+});
+
+describe('App Explicit Consent Launchpad', () => {
+  it('renders launchpad without auto-scanning local files until user clicks Analyze', () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        status: 'ok',
+        version: '1.0.0',
+        parsers: { Python: 'tree-sitter' },
+        default_workspace: 'C:/RepoDNA',
+      }),
+    } as Response);
+
+    render(<App />);
+    expect(screen.getByTestId('welcome-launchpad')).toBeInTheDocument();
+    expect(screen.getByText(/Zero Unsolicited Scanning/i)).toBeInTheDocument();
+
+    // Verify empty target shows validation alert if user clears input and submits
+    const input = screen.getByLabelText(/Local Repository Directory Path/i);
+    fireEvent.change(input, { target: { value: '   ' } });
+    const submitBtn = screen.getByTestId('analyze-submit-btn');
+    fireEvent.click(submitBtn);
+    expect(screen.getByTestId('error-alert-banner')).toHaveTextContent('EMPTY_TARGET');
+  });
+});
