@@ -12,9 +12,9 @@ Built for software architects, staff engineers, and open-source maintainers, Rep
 | :---: | :---: |
 | ![Architecture Studio Dark](./docs/screenshots/repodna-studio-dark.png) | ![Architecture Studio Light](./docs/screenshots/repodna-studio-light.png) |
 
-| Command Palette (`Ctrl+K`) | Explainable Health & Transparency Report |
-| :---: | :---: |
-| ![Command Palette](./docs/screenshots/repodna-command-palette.png) | ![Health Report](./docs/screenshots/repodna-health-report.png) |
+| Command Palette (`Ctrl+K`) | Explainable Health & Transparency Report | Responsive Mobile View |
+| :---: | :---: | :---: |
+| ![Command Palette](./docs/screenshots/repodna-command-palette.png) | ![Health Report](./docs/screenshots/repodna-health-report.png) | ![Mobile Responsive](./docs/screenshots/repodna-mobile.png) |
 
 ---
 
@@ -107,14 +107,15 @@ RepoDNA/
    - **Partial Static Support (`partial_static`)**: C/C++ (`.c`, `.h`, `.cpp`, `.hpp`), Java (`.java`), Kotlin (`.kt`), and C# (`.cs`).
    - **Full Transparency (`unsupported`)**: Files in other languages (`.rb`, `.php`, `.swift`, `.sql`, `.yaml`, `.md`, etc.) are counted in LOC and language distribution and explicitly listed under **Unsupported Languages** in the Transparency Report. Dynamic imports (`__import__`, `import(expr)`) and unresolved relative paths are explicitly reported with line numbers.
 3. **Explainable, Rule-Based Architecture Health Rubric**:
-   - Zero hallucinated AI scores. Starts at `100.0` points and evaluates deterministic engineering rules with explicit mathematical formulas, thresholds, evidence, and remediation:
-     - `ARCH-001`: **Circular Dependency Violations (ADP)** — Tarjan SCC & elementary cycle detection.
-     - `ARCH-002`: **Excessive Efferent Coupling (High Fan-Out)** — Flags modules importing $\ge 8$ internal modules.
-     - `ARCH-003`: **Stable Dependencies Principle (SDP) Inversion** — Flags stable modules ($I \le 0.35$) depending on volatile modules ($I \ge 0.70$).
-     - `ARCH-004`: **Oversized Modules / God File Risk** — Flags code modules exceeding `450` non-comment LOC.
-     - `ARCH-005`: **Isolated / Orphaned Modules** — Flags non-entrypoint modules with zero internal graph edges.
-     - `ARCH-006`: **Excessive Directory Hierarchy Depth** — Flags paths nested $\ge 6$ levels deep.
-     - `SEC-001`: **Potential Secret or Sensitive File Exposure** — Flags committed `.env` / private key files or high-confidence token patterns (with values redacted).
+   - Zero hallucinated AI scores. For non-empty repositories, the rubric starts at `100.0` points (`status="evaluated"`); for empty repositories (`0` files), RepoDNA reports `overall_score=null`, `grade="N/A"`, and `status="insufficient_data"` so missing data is never misrepresented as a perfect 100/100 score.
+   - Evaluates deterministic engineering rules with explicit mathematical formulas, thresholds, evidence, and remediation:
+     - `ARCH-001`: **Circular Dependency Violations (ADP)** — Tarjan SCC (`scc_count`) & Johnson blocked-set elementary cycle enumeration (`cycle_count`, bounded by `max_cycles=25` per SCC, `max_total_cycles=100`, `25,000` operations, and `0.75s` timeout per SCC with `cycles_truncated` disclosure). `deduction = min(30.0, 6.0 * cycle_count + 1.2 * nodes_in_cycles)`.
+     - `ARCH-002`: **Excessive Efferent Coupling (High Fan-Out)** — Flags modules importing $\ge 8$ internal modules. `deduction = min(15.0, sum((fan_out - 7) * 1.5))`.
+     - `ARCH-003`: **Stable Dependencies Principle (SDP) Inversion** — Flags stable modules ($I \le 0.35$, `fan_in >= 2`) depending on volatile modules ($I \ge 0.70$, $\Delta I \ge 0.40$). `deduction = min(15.0, 3.0 * sdp_violation_edges)`.
+     - `ARCH-004`: **Oversized Modules / God File Risk** — Flags code modules exceeding `450` non-comment LOC. `deduction = min(15.0, max(2.0, sum((lines_code - 450) / 100 * 2.0)))`.
+     - `ARCH-005`: **Isolated / Orphaned Modules** — Flags non-entrypoint modules with zero internal graph edges when $\ge 3$ orphans or $> 25\%$ of code files. `deduction = min(10.0, 1.5 * orphan_files_count)`.
+     - `ARCH-006`: **Excessive Directory Hierarchy Depth** — Flags paths nested $\ge 6$ levels deep. `deduction = min(5.0, max(1.0, 0.5 * files_with_depth_ge_6))`.
+     - `SEC-001`: **Potential Secret or Sensitive File Exposure** — Flags committed `.env` / private key files or high-confidence token patterns (with values redacted). `deduction = min(20.0, 7.5 * files_with_secret_warnings)`.
 4. **Interactive 3-Pane Architecture Studio**:
    - **Left (Repository Explorer)**: Search by file path or AST symbol name, filter by language or AST support level, and toggle quick filters for **In Cycle**, **Hubs**, and **Orphans**.
    - **Center (Interactive Dependency Graph)**: Powered by `@xyflow/react` with **Layered Hierarchy**, **Directory Clusters**, and **Radial Ring** layouts, **Zoom/Pan/FitView**, **MiniMap**, **1-Hop Neighborhood Focus**, and **Circular Dependency Highlighting**.
@@ -211,6 +212,7 @@ Measured on **Windows 11 (Python 3.12.10, Tree-sitter 0.25.2, Microsoft Edge Hea
 | **Small** | 30 files, 33 edges | `27.24 ms` → **`20.08 ms`** | `12.30 ms` → **`10.48 ms`** | `0.89 ms` | `1.16 MB` |
 | **Medium** | 180 files, 239 edges | `160.24 ms` → **`116.02 ms`** | `76.50 ms` → **`65.69 ms`** | `4.54 ms` | `1.96 MB` |
 | **Large** | 600 files, 816 edges | `512.43 ms` → **`458.09 ms`** | `247.78 ms` → **`251.10 ms`** | `19.50 ms` | `5.94 MB` |
+| **Adversarial Cyclic Mesh** | 16 files, 80 bidirectional edges (`1` SCC, `25` capped cycles, `cycles_truncated=True`) | **`39.52 ms`** | — | Bounded by `max_cycles=25` / `25k` ops | `1.09 MB` (Cancel latency: `1.63 ms`) |
 
 - **Browser UI Responsiveness (Live 60-file Repository)**:
   - Initial Application Render: `294 ms`
@@ -232,7 +234,7 @@ Measured on **Windows 11 (Python 3.12.10, Tree-sitter 0.25.2, Microsoft Edge Hea
 ### Backend Verification
 
 ```bash
-# Run pytest unit & integration suite (42 tests)
+# Run pytest unit & integration suite (44 tests)
 python -m pytest -v
 
 # Run Ruff linter

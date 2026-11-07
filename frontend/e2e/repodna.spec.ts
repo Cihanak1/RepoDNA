@@ -121,8 +121,11 @@ test.describe('RepoDNA End-to-End Verification & Workstation Audit', () => {
     await expect(page.getByTestId('summary-cycle-count')).toContainText('1 cycles');
 
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(250);
     await expect(page.getByRole('heading', { name: 'RepoDNA', exact: true })).toBeVisible();
+    await page.screenshot({
+      path: `${ARTIFACT_DIR}/repodna-mobile.png`,
+    });
 
     console.log(
       JSON.stringify({

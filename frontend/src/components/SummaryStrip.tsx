@@ -34,6 +34,7 @@ export const SummaryStrip: React.FC<SummaryStripProps> = ({
     C: 'text-amber-400 bg-amber-500/15 border-amber-500/30',
     D: 'text-orange-400 bg-orange-500/15 border-orange-500/30',
     F: 'text-red-400 bg-red-500/15 border-red-500/30',
+    'N/A': 'text-slate-400 bg-slate-800/40 border-slate-700',
   };
 
   return (
@@ -52,13 +53,21 @@ export const SummaryStrip: React.FC<SummaryStripProps> = ({
             Architecture Health
           </div>
           <div className="text-base font-bold text-slate-100 mt-0.5 flex items-baseline gap-1.5">
-            <span data-testid="summary-health-score">{hr.overall_score.toFixed(1)}</span>
-            <span className="text-[11px] font-normal text-slate-400">/ 100</span>
+            {hr.overall_score !== null ? (
+              <>
+                <span data-testid="summary-health-score">{hr.overall_score.toFixed(1)}</span>
+                <span className="text-[11px] font-normal text-slate-400">/ 100</span>
+              </>
+            ) : (
+              <span data-testid="summary-health-score" className="text-sm text-slate-400">
+                N/A (Insufficient Data)
+              </span>
+            )}
           </div>
         </div>
         <span
           className={`px-2.5 py-1 rounded-lg font-bold text-sm border ${
-            gradeColors[hr.grade] ?? gradeColors.C
+            gradeColors[hr.grade] ?? gradeColors['N/A']
           }`}
         >
           {hr.grade}
@@ -111,13 +120,13 @@ export const SummaryStrip: React.FC<SummaryStripProps> = ({
             Circular Dependencies
           </div>
           <div className="text-sm font-bold mt-0.5 flex items-center gap-1.5">
-            {gm.cycle_count > 0 ? (
+            {gm.cycle_count > 0 || gm.scc_count > 0 ? (
               <>
                 <span data-testid="summary-cycle-count" className="text-red-400">
                   {gm.cycle_count} cycles
                 </span>
                 <span className="text-[11px] font-normal text-slate-400">
-                  ({gm.nodes_in_cycles} modules)
+                  ({gm.scc_count} SCCs, {gm.nodes_in_cycles} modules)
                 </span>
               </>
             ) : (

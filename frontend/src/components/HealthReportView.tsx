@@ -49,8 +49,14 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
               Overall Score
             </div>
             <div className="text-3xl font-extrabold text-sky-400 font-mono">
-              {hr.overall_score.toFixed(1)}
-              <span className="text-sm text-slate-400 font-normal"> / 100</span>
+              {hr.overall_score !== null ? (
+                <>
+                  {hr.overall_score.toFixed(1)}
+                  <span className="text-sm text-slate-400 font-normal"> / 100</span>
+                </>
+              ) : (
+                <span className="text-xl text-slate-400">N/A (Insufficient Data)</span>
+              )}
             </div>
           </div>
           <div className="w-12 h-12 rounded-xl bg-sky-500/15 border border-sky-500/40 flex items-center justify-center text-2xl font-black text-sky-300">
@@ -77,14 +83,14 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
             </div>
             <div className="flex items-baseline justify-between mt-1">
               <span className="text-lg font-bold font-mono text-slate-100">
-                {cat.score.toFixed(0)}%
+                {cat.score !== null ? `${cat.score.toFixed(0)}%` : 'N/A'}
               </span>
               <span className="text-[11px] text-slate-400">
                 {cat.findings_count} {cat.findings_count === 1 ? 'issue' : 'issues'}
               </span>
             </div>
             <progress
-              value={cat.score}
+              value={cat.score ?? 0}
               max={100}
               aria-label={`${cat.label} score`}
               className="w-full h-1.5 rounded overflow-hidden accent-sky-500"
@@ -203,8 +209,19 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
           className="text-sm font-bold uppercase tracking-wider text-slate-200 m-0 flex items-center gap-1.5"
         >
           <RefreshCcw className="w-4 h-4 text-red-400" aria-hidden="true" />
-          Circular Dependency Chains ({result.cycles.length})
+          Circular Dependency Chains ({result.cycles.length} Cycles in {result.graph_metrics.scc_count} Cyclic SCCs)
         </h2>
+
+        {result.graph_metrics.cycles_truncated && (
+          <div className="bg-amber-950/35 border border-amber-600/40 rounded-xl p-3 text-xs text-amber-200 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
+            <span>
+              <strong>Cycle Enumeration Truncated:</strong>{' '}
+              {result.graph_metrics.cycle_truncation_reason ||
+                'Reached cycle reporting cap or Johnson operation budget.'}
+            </span>
+          </div>
+        )}
 
         <div
           tabIndex={0}

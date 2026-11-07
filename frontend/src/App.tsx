@@ -106,7 +106,11 @@ export const App: React.FC = () => {
   // Update document title dynamically for accessibility
   useEffect(() => {
     if (result) {
-      document.title = `${result.repo_name} (${result.health_report.overall_score.toFixed(0)}/100) | RepoDNA`;
+      const scoreText =
+        result.health_report.overall_score !== null
+          ? `${result.health_report.overall_score.toFixed(0)}/100`
+          : 'N/A';
+      document.title = `${result.repo_name} (${scoreText}) | RepoDNA`;
     } else {
       document.title = 'RepoDNA — Developer Repository Intelligence Platform';
     }

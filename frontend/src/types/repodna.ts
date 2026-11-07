@@ -176,15 +176,16 @@ export interface RuleFinding {
 export interface CategoryScore {
   category: string;
   label: string;
-  score: number;
+  score: number | null;
   weight: number;
   deductions: number;
   findings_count: number;
 }
 
 export interface ArchitectureHealthReport {
-  overall_score: number;
+  overall_score: number | null;
   grade: string;
+  status?: string;
   methodology: string;
   category_scores: CategoryScore[];
   findings: RuleFinding[];
@@ -196,8 +197,11 @@ export interface GraphMetrics {
   total_nodes: number;
   total_edges: number;
   connected_components: number;
+  scc_count: number;
   cycle_count: number;
   nodes_in_cycles: number;
+  cycles_truncated?: boolean;
+  cycle_truncation_reason?: string | null;
   orphan_files_count: number;
   hub_files_count: number;
   max_fan_in: number;

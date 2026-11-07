@@ -7,14 +7,14 @@ RepoDNA is designed to inspect untrusted source repositories safely. The platfor
 1. **Zero Code Execution**:
    - RepoDNA performs **100% static analysis** using Tree-sitter CST/AST parsers and static scanners.
    - Repository code, build scripts, `setup.py`, `package.json` lifecycle scripts, and Git hooks are **never executed**.
-2. **Git Clone Hardening**:
+2. **Git Clone Hardening & Honest Isolation Boundaries**:
    - Remote repositories are cloned into isolated temporary directories (`tempfile.mkdtemp`) with:
-     - `-c core.hooksPath=<empty_dir>` (prevents malicious Git hook execution)
-     - `-c core.symlinks=false` and `-c core.quotepath=false` (prevents symlink checkout attacks and preserves Unicode paths)
-     - `-c protocol.file.allow=never` and `-c submodule.recurse=false`
-     - `-c http.lowSpeedLimit=1024` and `-c http.lowSpeedTime=15` (mitigates slowloris tarpit attacks)
-     - `GIT_TERMINAL_PROMPT=0`, `GIT_CONFIG_NOSYSTEM=1`, `GIT_LFS_SKIP_SMUDGE=1`, and `stdin=subprocess.DEVNULL`
-   - Temporary clone directories are unconditionally wiped upon scan completion, timeout, or cancellation.
+     - **Environment Allowlisting (`build_hardened_git_env`)**: Only minimal OS/runtime environment variables (`PATH`, `SYSTEMROOT`, `TEMP`, `SSL_CERT_*`, `LANG`) are passed to `git`; ambient credentials/tokens (`GITHUB_TOKEN`, `AWS_*`, `SSH_AUTH_SOCK`) are stripped.
+     - **User / Global / System Config Isolation**: `GIT_CONFIG_NOSYSTEM=1`, `GIT_CONFIG_GLOBAL=<empty_file>`, `HOME=<temp_dir>`, and `XDG_CONFIG_HOME=<temp_dir>` prevent host `~/.gitconfig` or `/etc/gitconfig` (`url.insteadOf`, credential helpers, custom transports) from influencing the clone.
+     - **Hook, Symlink & Submodule Disabling**: `-c core.hooksPath=<empty_dir>`, `-c core.symlinks=false`, `-c core.quotepath=false`, and `-c submodule.recurse=false`.
+     - **Protocol & Redirect Restrictions**: `-c protocol.allow=never`, `-c protocol.https.allow=always`, `-c protocol.file.allow=never`, and `-c http.followRedirects=false` (blocks open-redirect SSRF pivots from GitHub to internal hosts).
+     - **Process Tree Timeout & Cleanup**: Clones run in a dedicated OS process group (`CREATE_NEW_PROCESS_GROUP` on Windows, `start_new_session=True` on POSIX) with `stdin=subprocess.DEVNULL`, `-c http.lowSpeedLimit=1024`, `-c http.lowSpeedTime=15`, and full child process tree termination (`taskkill /F /T` or `os.killpg`) on timeout or cancellation.
+     - **What Is Not Guaranteed**: RepoDNA does **not** create an OS-level container/VM or filesystem quota mount during `git clone`. Packfile size during network transfer is bounded by `--depth 50 --single-branch --no-tags`, `-c pack.windowMemory=32m`, and the wall-clock `timeout_seconds`, while post-clone scanning enforces strict `max_files`, `max_file_size_bytes`, and `max_total_size_bytes` caps before reading file contents. Temporary clone directories are unconditionally wiped upon completion, timeout, or cancellation.
 3. **SSRF & Git URL Validation**:
    - Only canonical `https://github.com/<owner>/<repo>` URLs are accepted.
    - `http://`, `ssh://`, `git://`, `file://`, custom ports, query strings, fragments, embedded credentials (`user:token@`), `localhost`, and IPv4/IPv6 literals (`127.0.0.1`, `169.254.169.254`, `[::1]`) are rejected before any network call is made.
