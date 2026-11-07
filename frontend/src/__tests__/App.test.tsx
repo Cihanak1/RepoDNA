@@ -163,6 +163,22 @@ describe('graphLayout utilities', () => {
       }
     }
   });
+
+  it('collapses files into package clusters when groupingMode is directories', () => {
+    const { nodes, edges } = buildFlowElements(
+      sampleFiles,
+      sampleEdges,
+      'layered',
+      'src/service.py',
+      new Set(),
+      true,
+      'balanced',
+      'directories'
+    );
+    expect(nodes.length).toBe(1);
+    expect(nodes[0].id).toBe('dir:src');
+    expect(edges.length).toBe(0);
+  });
 });
 
 describe('App Explicit Consent Launchpad', () => {

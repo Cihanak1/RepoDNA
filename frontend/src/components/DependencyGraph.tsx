@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Background,
   Controls,
@@ -11,10 +11,21 @@ import {
   type Node,
   type NodeProps,
 } from '@xyflow/react';
-import { Eye, Grid, Layers, Orbit, RefreshCcw } from 'lucide-react';
+import {
+  Eye,
+  FolderTree,
+  Grid,
+  Layers,
+  Maximize2,
+  Orbit,
+  RefreshCcw,
+  SlidersHorizontal,
+} from 'lucide-react';
 import type { DependencyEdge, FileNode } from '../types/repodna';
 import {
   buildFlowElements,
+  type GraphDensityMode,
+  type GraphGroupingMode,
   type LayoutMode,
   type ModuleNodeData,
 } from '../utils/graphLayout';
@@ -27,6 +38,10 @@ interface DependencyGraphProps {
   onSelectFile: (fileId: string) => void;
   layoutMode: LayoutMode;
   onLayoutModeChange: (mode: LayoutMode) => void;
+  densityMode: GraphDensityMode;
+  onDensityModeChange: (mode: GraphDensityMode) => void;
+  groupingMode: GraphGroupingMode;
+  onGroupingModeChange: (mode: GraphGroupingMode) => void;
   focusNeighborhood: boolean;
   onToggleFocusNeighborhood: () => void;
   highlightCycles: boolean;
@@ -43,8 +58,14 @@ const LANGUAGE_BADGE_COLORS: Record<string, string> = {
 };
 
 const ModuleGraphNode: React.FC<NodeProps<Node<ModuleNodeData>>> = ({ data }) => {
-  const { file, isSelected, isNeighbor, highlightCycles } = data;
+  const { file, isSelected, isNeighbor, highlightCycles, isPackageCluster } = data;
   const inCycleHighlight = file.in_cycle && highlightCycles;
+
+  const riskBadge = file.in_cycle
+    ? { label: 'Critical Cycle', cls: 'bg-red-500/25 text-red-300 border-red-500/50' }
+    : file.is_hub || file.lines_code > 500
+    ? { label: 'High Coupling', cls: 'bg-amber-500/20 text-amber-300 border-amber-500/40' }
+    : { label: 'Healthy', cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' };
 
   const borderClass = isSelected
     ? 'border-sky-400 ring-2 ring-sky-400/50 bg-slate-900'
@@ -70,12 +91,17 @@ const ModuleGraphNode: React.FC<NodeProps<Node<ModuleNodeData>>> = ({ data }) =>
       />
 
       <div className="flex items-center justify-between gap-1.5 mb-1">
-        <span className="text-[10px] font-mono text-slate-400 truncate max-w-[145px]">
-          {file.directory || '(root)'}
+        <span className="text-[10px] font-mono text-slate-400 truncate max-w-[130px]">
+          {isPackageCluster ? 'Package Cluster' : file.directory || '(root)'}
         </span>
-        <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border ${langColor}`}>
-          {file.language}
-        </span>
+        <div className="flex items-center gap-1">
+          <span className={`text-[8px] font-bold uppercase px-1.5 py-0.5 rounded border ${riskBadge.cls}`}>
+            {riskBadge.label}
+          </span>
+          <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border ${langColor}`}>
+            {file.language}
+          </span>
+        </div>
       </div>
 
       <div className="font-mono text-xs font-bold text-slate-100 truncate" title={file.id}>
@@ -118,7 +144,7 @@ const FitViewController: React.FC<{ triggerKey: string }> = ({ triggerKey }) => 
   const { fitView } = useReactFlow();
   useEffect(() => {
     const id = window.setTimeout(() => {
-      void fitView({ padding: 0.18, duration: 220 });
+      void fitView({ padding: 0.18, duration: 200 });
     }, 40);
     return () => window.clearTimeout(id);
   }, [triggerKey, fitView]);
@@ -133,12 +159,18 @@ export const DependencyGraph: React.FC<DependencyGraphProps> = ({
   onSelectFile,
   layoutMode,
   onLayoutModeChange,
+  densityMode,
+  onDensityModeChange,
+  groupingMode,
+  onGroupingModeChange,
   focusNeighborhood,
   onToggleFocusNeighborhood,
   highlightCycles,
   onToggleHighlightCycles,
 }) => {
-  const { nodes, edges: flowEdges } = useMemo(
+  const [fitTriggerCount, setFitTriggerCount] = useState(0);
+
+  const { nodes, edges: flowEdges, clusterRepMap } = useMemo(
     () =>
       buildFlowElements(
         files,
@@ -146,62 +178,153 @@ export const DependencyGraph: React.FC<DependencyGraphProps> = ({
         layoutMode,
         selectedFileId,
         neighborIds,
-        highlightCycles
+        highlightCycles,
+        densityMode,
+        groupingMode
       ),
-    [files, edges, layoutMode, selectedFileId, neighborIds, highlightCycles]
+    [
+      files,
+      edges,
+      layoutMode,
+      selectedFileId,
+      neighborIds,
+      highlightCycles,
+      densityMode,
+      groupingMode,
+    ]
   );
+
+  const handleResetLayoutAndFit = () => {
+    onLayoutModeChange('layered');
+    onDensityModeChange('balanced');
+    setFitTriggerCount((c) => c + 1);
+  };
 
   return (
     <div className="flex-1 flex flex-col relative min-h-[420px] bg-slate-950">
       {/* Floating Graph Toolbar */}
       <div className="absolute top-3 left-3 right-3 z-10 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
-        <div
-          role="group"
-          aria-label="Graph layout mode"
-          className="flex items-center gap-1 bg-slate-900/90 backdrop-blur-md border border-slate-800 p-1 rounded-xl shadow-lg pointer-events-auto"
-        >
-          <button
-            type="button"
-            onClick={() => onLayoutModeChange('layered')}
-            aria-pressed={layoutMode === 'layered'}
-            className={`px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1 cursor-pointer ${
-              layoutMode === 'layered'
-                ? 'bg-sky-600 text-white'
-                : 'text-slate-300 hover:bg-slate-800'
-            }`}
+        <div className="flex flex-wrap items-center gap-1.5 pointer-events-auto">
+          {/* Layout Mode Selector */}
+          <div
+            role="group"
+            aria-label="Graph layout mode"
+            className="flex items-center gap-1 bg-slate-900/90 backdrop-blur-md border border-slate-800 p-1 rounded-xl shadow-lg"
           >
-            <Layers className="w-3.5 h-3.5" aria-hidden="true" />
-            Layered
-          </button>
-          <button
-            type="button"
-            onClick={() => onLayoutModeChange('cluster')}
-            aria-pressed={layoutMode === 'cluster'}
-            className={`px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1 cursor-pointer ${
-              layoutMode === 'cluster'
-                ? 'bg-sky-600 text-white'
-                : 'text-slate-300 hover:bg-slate-800'
-            }`}
+            <button
+              type="button"
+              onClick={() => onLayoutModeChange('layered')}
+              aria-pressed={layoutMode === 'layered'}
+              className={`px-2 py-1 rounded-lg text-xs font-medium flex items-center gap-1 cursor-pointer ${
+                layoutMode === 'layered'
+                  ? 'bg-sky-600 text-white'
+                  : 'text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" aria-hidden="true" />
+              Layered
+            </button>
+            <button
+              type="button"
+              onClick={() => onLayoutModeChange('cluster')}
+              aria-pressed={layoutMode === 'cluster'}
+              className={`px-2 py-1 rounded-lg text-xs font-medium flex items-center gap-1 cursor-pointer ${
+                layoutMode === 'cluster'
+                  ? 'bg-sky-600 text-white'
+                  : 'text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              <Grid className="w-3.5 h-3.5" aria-hidden="true" />
+              Directory Grid
+            </button>
+            <button
+              type="button"
+              onClick={() => onLayoutModeChange('radial')}
+              aria-pressed={layoutMode === 'radial'}
+              className={`px-2 py-1 rounded-lg text-xs font-medium flex items-center gap-1 cursor-pointer ${
+                layoutMode === 'radial'
+                  ? 'bg-sky-600 text-white'
+                  : 'text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              <Orbit className="w-3.5 h-3.5" aria-hidden="true" />
+              Radial
+            </button>
+          </div>
+
+          {/* Grouping Mode (Node/Edge Reduction) */}
+          <div
+            role="group"
+            aria-label="Node grouping mode"
+            className="flex items-center gap-1 bg-slate-900/90 backdrop-blur-md border border-slate-800 p-1 rounded-xl shadow-lg"
           >
-            <Grid className="w-3.5 h-3.5" aria-hidden="true" />
-            Directory Clusters
-          </button>
-          <button
-            type="button"
-            onClick={() => onLayoutModeChange('radial')}
-            aria-pressed={layoutMode === 'radial'}
-            className={`px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1 cursor-pointer ${
-              layoutMode === 'radial'
-                ? 'bg-sky-600 text-white'
-                : 'text-slate-300 hover:bg-slate-800'
-            }`}
-          >
-            <Orbit className="w-3.5 h-3.5" aria-hidden="true" />
-            Radial Ring
-          </button>
+            <button
+              type="button"
+              data-testid="grouping-files-btn"
+              onClick={() => onGroupingModeChange('files')}
+              aria-pressed={groupingMode === 'files'}
+              className={`px-2 py-1 rounded-lg text-xs font-medium flex items-center gap-1 cursor-pointer ${
+                groupingMode === 'files'
+                  ? 'bg-indigo-600 text-white'
+                  : 'text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              Modules ({files.length})
+            </button>
+            <button
+              type="button"
+              data-testid="grouping-directories-btn"
+              onClick={() => onGroupingModeChange('directories')}
+              aria-pressed={groupingMode === 'directories'}
+              className={`px-2 py-1 rounded-lg text-xs font-medium flex items-center gap-1 cursor-pointer ${
+                groupingMode === 'directories'
+                  ? 'bg-indigo-600 text-white'
+                  : 'text-slate-300 hover:bg-slate-800'
+              }`}
+            >
+              <FolderTree className="w-3.5 h-3.5" aria-hidden="true" />
+              Collapse Packages
+            </button>
+          </div>
+
+          {/* Graph Density Selector */}
+          <div className="flex items-center gap-1 bg-slate-900/90 backdrop-blur-md border border-slate-800 px-2 py-1 rounded-xl shadow-lg text-xs">
+            <SlidersHorizontal className="w-3.5 h-3.5 text-slate-400" aria-hidden="true" />
+            <label htmlFor="graph-density-select" className="visually-hidden">
+              Graph Density
+            </label>
+            <select
+              id="graph-density-select"
+              data-testid="graph-density-select"
+              value={densityMode}
+              onChange={(e) => onDensityModeChange(e.target.value as GraphDensityMode)}
+              className="bg-transparent text-xs font-medium text-slate-200 focus:outline-none cursor-pointer"
+            >
+              <option value="compact" className="bg-slate-900 text-slate-200">
+                Density: Compact
+              </option>
+              <option value="balanced" className="bg-slate-900 text-slate-200">
+                Density: Balanced
+              </option>
+              <option value="spacious" className="bg-slate-900 text-slate-200">
+                Density: Spacious
+              </option>
+            </select>
+          </div>
         </div>
 
         <div className="flex items-center gap-1.5 bg-slate-900/90 backdrop-blur-md border border-slate-800 p-1 rounded-xl shadow-lg pointer-events-auto">
+          <button
+            type="button"
+            data-testid="reset-layout-fit-btn"
+            onClick={handleResetLayoutAndFit}
+            title="Reset layout and fit graph to viewport"
+            className="px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1 text-slate-300 hover:bg-slate-800 cursor-pointer"
+          >
+            <Maximize2 className="w-3.5 h-3.5" aria-hidden="true" />
+            Fit &amp; Reset
+          </button>
+
           <button
             type="button"
             onClick={onToggleFocusNeighborhood}
@@ -214,7 +337,7 @@ export const DependencyGraph: React.FC<DependencyGraphProps> = ({
             }`}
           >
             <Eye className="w-3.5 h-3.5" aria-hidden="true" />
-            Focus 1-Hop Neighborhood
+            Focus 1-Hop
           </button>
 
           <button
@@ -240,17 +363,21 @@ export const DependencyGraph: React.FC<DependencyGraphProps> = ({
             nodes={nodes}
             edges={flowEdges}
             nodeTypes={nodeTypes}
-            onNodeClick={(_event, node) => onSelectFile(node.id)}
+            onNodeClick={(_event, node) => {
+              const repId = clusterRepMap.get(node.id);
+              onSelectFile(repId ?? node.id);
+            }}
             fitView
             fitViewOptions={{ padding: 0.2 }}
-            minZoom={0.15}
-            maxZoom={2.0}
+            minZoom={0.12}
+            maxZoom={2.2}
+            onlyRenderVisibleElements={nodes.length > 60}
             proOptions={{ hideAttribution: true }}
           >
             <FitViewController
-              triggerKey={`${layoutMode}-${focusNeighborhood}-${nodes.length}`}
+              triggerKey={`${layoutMode}-${densityMode}-${groupingMode}-${focusNeighborhood}-${nodes.length}-${fitTriggerCount}`}
             />
-            <Background color="#1e293b" gap={22} size={1} />
+            <Background color="#334155" gap={22} size={1} />
             <Controls
               showInteractive={false}
               className="!bg-slate-900 !border-slate-700 !rounded-lg !shadow-lg [&_button]:!bg-slate-900 [&_button]:!border-slate-800 [&_button]:!fill-slate-200 hover:[&_button]:!bg-slate-800"
@@ -288,7 +415,10 @@ export const DependencyGraph: React.FC<DependencyGraphProps> = ({
           </span>
         </div>
         <div>
-          Showing <strong>{nodes.length}</strong> modules and <strong>{flowEdges.length}</strong> directed dependency edges
+          Showing <strong data-testid="graph-visible-nodes-count">{nodes.length}</strong>{' '}
+          {groupingMode === 'directories' ? 'package clusters' : 'modules'} and{' '}
+          <strong data-testid="graph-visible-edges-count">{flowEdges.length}</strong> directed
+          dependency edges
         </div>
       </div>
     </div>
