@@ -6,6 +6,18 @@ Built for software architects, staff engineers, and open-source maintainers, Rep
 
 ---
 
+## Screenshots (Real Browser Verification)
+
+| Architecture Studio (Dark Theme) | Architecture Studio (Light Theme) |
+| :---: | :---: |
+| ![Architecture Studio Dark](./docs/screenshots/repodna-studio-dark.png) | ![Architecture Studio Light](./docs/screenshots/repodna-studio-light.png) |
+
+| Command Palette (`Ctrl+K`) | Explainable Health & Transparency Report |
+| :---: | :---: |
+| ![Command Palette](./docs/screenshots/repodna-command-palette.png) | ![Health Report](./docs/screenshots/repodna-health-report.png) |
+
+---
+
 ## System Architecture
 
 ```mermaid
@@ -181,8 +193,37 @@ python -m repodna.cli.main analyze demo --format table
 ## Limitations & Transparency
 
 - **Static Analysis Scope**: Dynamic runtime reflection, metaprogramming (`eval`, dynamic `importlib.import_module(var)`), or dependency injection containers wired via external XML/YAML files cannot be statically linked to a target file. RepoDNA explicitly records dynamic import calls under `unresolved_imports` with `reason="dynamic_import"` so they are never silently hidden.
+- **Git Churn & Bus-Factor Estimation Boundaries**:
+  - **Window**: Inspects up to `max_commits=200` recent commits via read-only `git log -n 200 --date=short --pretty=format:COMMIT%x1f%h%x1f%an%x1f%ad%x1f%s --name-only` with `-c core.quotepath=false`.
+  - **Hotspot Churn Risk Formula**: $\text{ChurnRisk} = \text{commits} \times \log_2(\max(\text{LOC}, 10))$, ranking the top 12 frequently modified high-LOC modules.
+  - **Bus-Factor Heuristic**: Counts the minimum number of top contributors required to account for $\ge 60\%$ of scanned commits. Note that this is a commit-count heuristic over the recent commit window (`--depth 50` on remote shallow clones) and does not weight line-level blame ownership or historical author email aliases unless `.mailmap` is configured.
 - **GitHub Host Scope**: By design, remote cloning initially supports only canonical `https://github.com/<owner>/<repo>` URLs over port 443 to prevent SSRF against internal networks or unverified Git servers.
 - **Large Monorepo Guardrails**: Default scan limits (`max_files=2500`, `max_file_size_bytes=1MB`, `max_total_size_bytes=100MB`, `timeout_seconds=60s`) protect workstation memory and CPU. These limits are user-configurable in both the UI (**Guardrails** dialog) and CLI (`--max-files`, `--max-file-size`, `--timeout`), and any truncation is prominently reported in `transparency.truncated_by_limits`.
+
+---
+
+## Performance Benchmarks
+
+Measured on **Windows 11 (Python 3.12.10, Tree-sitter 0.25.2, Microsoft Edge Headless via Playwright)** across deterministic multi-language fixture repositories (Python, TypeScript, Go, Rust) using median of 3 warmed-up runs (`tracemalloc` peak memory measured in a dedicated pass):
+
+| Repository Tier | Files & Edges | Scan Duration (Before → After) | Parse Duration (Before → After) | Graph Construction | Peak Memory (`tracemalloc`) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Small** | 30 files, 33 edges | `27.24 ms` → **`20.08 ms`** | `12.30 ms` → **`10.48 ms`** | `0.89 ms` | `1.16 MB` |
+| **Medium** | 180 files, 239 edges | `160.24 ms` → **`116.02 ms`** | `76.50 ms` → **`65.69 ms`** | `4.54 ms` | `1.96 MB` |
+| **Large** | 600 files, 816 edges | `512.43 ms` → **`458.09 ms`** | `247.78 ms` → **`251.10 ms`** | `19.50 ms` | `5.94 MB` |
+
+- **Browser UI Responsiveness (Live 60-file Repository)**:
+  - Initial Application Render: `294 ms`
+  - Module Selection & Inspector Update Latency: `40 ms`
+  - Directory Package Collapse (`60 modules` → `23 package clusters`): `486 ms` (including `fitView` layout transition)
+
+---
+
+## Roadmap
+
+- **`v0.2.0`**: Full Tree-sitter AST import & package resolution for Java, Kotlin, C#, and Ruby (`Gemfile` / `require_relative`).
+- **`v0.3.0`**: Call-graph symbol-level edge resolution and SARIF export for GitHub Code Scanning integration.
+- **`v0.4.0`**: Web Worker off-thread force-directed layout for 5,000+ node monorepos and diff-mode architecture comparison between two Git refs.
 
 ---
 
@@ -191,7 +232,7 @@ python -m repodna.cli.main analyze demo --format table
 ### Backend Verification
 
 ```bash
-# Run pytest unit & integration suite (27 tests)
+# Run pytest unit & integration suite (42 tests)
 python -m pytest -v
 
 # Run Ruff linter

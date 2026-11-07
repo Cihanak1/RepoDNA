@@ -10,9 +10,10 @@ RepoDNA is designed to inspect untrusted source repositories safely. The platfor
 2. **Git Clone Hardening**:
    - Remote repositories are cloned into isolated temporary directories (`tempfile.mkdtemp`) with:
      - `-c core.hooksPath=<empty_dir>` (prevents malicious Git hook execution)
-     - `-c core.symlinks=false` (prevents symlink checkout attacks)
+     - `-c core.symlinks=false` and `-c core.quotepath=false` (prevents symlink checkout attacks and preserves Unicode paths)
      - `-c protocol.file.allow=never` and `-c submodule.recurse=false`
-     - `GIT_TERMINAL_PROMPT=0` and `GIT_LFS_SKIP_SMUDGE=1`
+     - `-c http.lowSpeedLimit=1024` and `-c http.lowSpeedTime=15` (mitigates slowloris tarpit attacks)
+     - `GIT_TERMINAL_PROMPT=0`, `GIT_CONFIG_NOSYSTEM=1`, `GIT_LFS_SKIP_SMUDGE=1`, and `stdin=subprocess.DEVNULL`
    - Temporary clone directories are unconditionally wiped upon scan completion, timeout, or cancellation.
 3. **SSRF & Git URL Validation**:
    - Only canonical `https://github.com/<owner>/<repo>` URLs are accepted.
@@ -32,7 +33,7 @@ RepoDNA is designed to inspect untrusted source repositories safely. The platfor
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.0.x   | :white_check_mark: |
+| 0.1.x   | :white_check_mark: |
 
 ## Reporting a Vulnerability
 
