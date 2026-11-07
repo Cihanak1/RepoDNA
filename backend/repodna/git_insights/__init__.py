@@ -1,0 +1,1 @@
+"""Git insights package."""

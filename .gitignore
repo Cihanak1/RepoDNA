@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+dist/
+build/
+
+# Node / Frontend
+node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/playwright-report/
+frontend/test-results/
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+*.log
+.env
+.env.*
+
+# RepoDNA temporary scan artifacts
+.repodna_tmp/
