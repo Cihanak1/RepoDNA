@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { App } from '../App';
+import { fetchJobResultWithRetry } from '../api/client';
 import { buildFlowElements, filterFiles } from '../utils/graphLayout';
 import type { DependencyEdge, FileNode } from '../types/repodna';
 
@@ -203,5 +204,51 @@ describe('App Explicit Consent Launchpad', () => {
     const submitBtn = screen.getByTestId('analyze-submit-btn');
     fireEvent.click(submitBtn);
     expect(screen.getByTestId('error-alert-banner')).toHaveTextContent('EMPTY_TARGET');
+  });
+
+  it('retries transient 409 RESULT_NOT_READY in fetchJobResultWithRetry and propagates permanent errors', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+    // First 2 calls return 409 RESULT_NOT_READY, 3rd call succeeds with 200 OK
+    fetchSpy
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        json: async () => ({
+          detail: { code: 'RESULT_NOT_READY', message: "Job is currently in status 'completed'." },
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        json: async () => ({
+          detail: { code: 'RESULT_NOT_READY', message: "Job is currently in status 'completed'." },
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          analysis_id: 'res-123',
+          repo_name: 'NiceWP',
+          total_files: 12,
+        }),
+      } as Response);
+
+    const res = await fetchJobResultWithRetry('job-race-1', { maxRetries: 4, baseDelayMs: 5 });
+    expect(res.repo_name).toBe('NiceWP');
+
+    // Permanent 500 error should NOT be retried and should be thrown immediately
+    fetchSpy.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      json: async () => ({
+        detail: { code: 'INTERNAL_SCAN_ERROR', message: 'Permanent failure' },
+      }),
+    } as Response);
+
+    await expect(
+      fetchJobResultWithRetry('job-fail-1', { maxRetries: 3, baseDelayMs: 5 })
+    ).rejects.toThrow('Permanent failure');
   });
 });

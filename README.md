@@ -1,7 +1,7 @@
 # RepoDNA — Developer Repository Intelligence Platform
 
 [![CI](https://github.com/Cihanak1/RepoDNA/actions/workflows/ci.yml/badge.svg)](https://github.com/Cihanak1/RepoDNA/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.1.0--rc.1-38bdf8)](https://github.com/Cihanak1/RepoDNA/releases)
+[![Release](https://img.shields.io/badge/release-v0.1.1-38bdf8)](https://github.com/Cihanak1/RepoDNA/releases)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776ab?logo=python&logoColor=white)](https://www.python.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-10b981.svg)](./LICENSE)
@@ -110,7 +110,7 @@ RepoDNA/
    - Clones public `https://github.com/<owner>/<repo>` repositories into disposable temporary directories with Git hooks (`core.hooksPath`) and symbolic links (`core.symlinks=false`) disabled. Source code is **never** executed.
 2. **Multi-Language Tree-sitter AST & Static Import Resolution**:
    - **Full AST Support (`full_ast`)**: Python (`.py`), TypeScript (`.ts`, `.tsx`), JavaScript (`.js`, `.jsx`, `.mjs`, `.cjs`), Go (`.go`), and Rust (`.rs`).
-   - **Partial Static Support (`partial_static`)**: C/C++ (`.c`, `.h`, `.cpp`, `.hpp`), Java (`.java`), Kotlin (`.kt`), and C# (`.cs`).
+   - **Partial Static Support (`partial_static`)**: C/C++ (`.c`, `.h`, `.cpp`, `.hpp`), Java (`.java`), Kotlin (`.kt`), and C# (`.cs`). Reported separately under `partial_static_languages_detected` (`static using/include scan only; no AST symbol or namespace-to-file graph resolution`) and excluded from `ARCH-005` orphan deductions.
    - **Full Transparency (`unsupported`)**: Files in other languages (`.rb`, `.php`, `.swift`, `.sql`, `.yaml`, `.md`, etc.) are counted in LOC and language distribution and explicitly listed under **Unsupported Languages** in the Transparency Report. Dynamic imports (`__import__`, `import(expr)`) and unresolved relative paths are explicitly reported with line numbers.
 3. **Explainable, Rule-Based Architecture Health Rubric**:
    - Zero hallucinated AI scores. For non-empty repositories, the rubric starts at `100.0` points (`status="evaluated"`); for empty repositories (`0` files), RepoDNA reports `overall_score=null`, `grade="N/A"`, and `status="insufficient_data"` so missing data is never misrepresented as a perfect 100/100 score.

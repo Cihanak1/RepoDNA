@@ -16,6 +16,7 @@ interface SummaryStripProps {
   cyclesOnly: boolean;
   onToggleCyclesOnly: () => void;
   onOpenReportTab: () => void;
+  isPreviousAnalysis?: boolean;
 }
 
 export const SummaryStrip: React.FC<SummaryStripProps> = ({
@@ -23,6 +24,7 @@ export const SummaryStrip: React.FC<SummaryStripProps> = ({
   cyclesOnly,
   onToggleCyclesOnly,
   onOpenReportTab,
+  isPreviousAnalysis = false,
 }) => {
   const hr = result.health_report;
   const gm = result.graph_metrics;
@@ -49,8 +51,16 @@ export const SummaryStrip: React.FC<SummaryStripProps> = ({
         className="flex items-center justify-between p-2 rounded-lg bg-slate-900/90 hover:bg-slate-800/80 border border-slate-800 text-left cursor-pointer transition"
       >
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
-            Architecture Health
+          <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold flex items-center gap-1.5">
+            <span>Architecture Health</span>
+            {isPreviousAnalysis && (
+              <span
+                data-testid="previous-analysis-badge"
+                className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[9px] font-bold uppercase"
+              >
+                Previous analysis
+              </span>
+            )}
           </div>
           <div className="text-base font-bold text-slate-100 mt-0.5 flex items-baseline gap-1.5">
             {hr.overall_score !== null ? (
@@ -154,7 +164,16 @@ export const SummaryStrip: React.FC<SummaryStripProps> = ({
             AST Language Coverage
           </div>
           <div className="text-xs font-semibold text-slate-100 mt-0.5 truncate">
-            {tr.supported_languages_detected.length} AST supported &bull;{' '}
+            {tr.supported_languages_detected.length} AST supported
+            {(tr.partial_static_files_count ?? 0) > 0 && (
+              <>
+                {' '}&bull;{' '}
+                <span className="text-amber-300">
+                  {tr.partial_static_files_count} partial_static
+                </span>
+              </>
+            )}
+            {' '}&bull;{' '}
             <span className={tr.unsupported_files_count > 0 ? 'text-amber-300' : 'text-slate-400'}>
               {tr.unsupported_files_count} unsupported
             </span>

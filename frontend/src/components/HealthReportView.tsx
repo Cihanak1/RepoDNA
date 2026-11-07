@@ -296,13 +296,25 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
           Language Distribution &amp; Parser Transparency
         </h2>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
           <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3.5">
             <div className="text-slate-400 font-semibold uppercase text-[10px]">
-              Supported AST Languages
+              Supported AST Languages (full_ast)
             </div>
-            <div className="text-slate-100 font-medium mt-1">
+            <div className="text-slate-100 font-medium mt-1" data-testid="supported-ast-languages-list">
               {tr.supported_languages_detected.join(', ') || 'None'}
+            </div>
+          </div>
+
+          <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3.5">
+            <div className="text-amber-300 font-semibold uppercase text-[10px] flex items-center gap-1">
+              <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />
+              Partial Static Languages (partial_static)
+            </div>
+            <div className="text-slate-100 font-medium mt-1" data-testid="partial-static-languages-list">
+              {(tr.partial_static_languages_detected?.length ?? 0) > 0
+                ? `${tr.partial_static_languages_detected!.join(', ')} (${tr.partial_static_files_count ?? 0} files — static using/include scan only; no AST symbol or namespace-to-file graph resolution)`
+                : 'None'}
             </div>
           </div>
 
@@ -314,6 +326,8 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
             <div className="text-slate-100 font-medium mt-1" data-testid="unsupported-languages-list">
               {tr.unsupported_languages_detected.length > 0
                 ? `${tr.unsupported_languages_detected.join(', ')} (${tr.unsupported_files_count} files)`
+                : (tr.partial_static_languages_detected?.length ?? 0) > 0
+                ? 'None (remaining files use partial_static header/using scanning)'
                 : 'None — 100% of detected languages have AST import support'}
             </div>
           </div>

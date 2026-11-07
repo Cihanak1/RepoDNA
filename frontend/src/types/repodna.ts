@@ -121,6 +121,8 @@ export interface SkippedItem {
 
 export interface TransparencyReport {
   supported_languages_detected: string[];
+  partial_static_languages_detected?: string[];
+  partial_static_files_count?: number;
   unsupported_languages_detected: string[];
   unsupported_files_count: number;
   unresolved_internal_imports_count: number;

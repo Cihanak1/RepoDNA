@@ -71,6 +71,33 @@ export async function fetchJobResult(jobId: string): Promise<AnalysisResult> {
   return handleResponse<AnalysisResult>(resp);
 }
 
+export async function fetchJobResultWithRetry(
+  jobId: string,
+  options?: { maxRetries?: number; baseDelayMs?: number }
+): Promise<AnalysisResult> {
+  const maxRetries = options?.maxRetries ?? 5;
+  const baseDelayMs = options?.baseDelayMs ?? 80;
+
+  let attempt = 0;
+  while (true) {
+    try {
+      return await fetchJobResult(jobId);
+    } catch (err) {
+      const isTransientNotReady =
+        err instanceof ApiError &&
+        (err.status === 409 || err.code === 'RESULT_NOT_READY');
+
+      if (!isTransientNotReady || attempt >= maxRetries) {
+        throw err;
+      }
+
+      const backoffMs = baseDelayMs * Math.pow(2, attempt);
+      attempt += 1;
+      await new Promise<void>((resolve) => window.setTimeout(resolve, backoffMs));
+    }
+  }
+}
+
 export async function runSyncScan(request: ScanRequest): Promise<AnalysisResult> {
   const resp = await fetch(`${API_BASE}/scan`, {
     method: 'POST',

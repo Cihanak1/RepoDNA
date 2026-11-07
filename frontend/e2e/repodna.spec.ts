@@ -137,4 +137,61 @@ test.describe('RepoDNA End-to-End Verification & Workstation Audit', () => {
       })
     );
   });
+
+  test('regression: recovers from transient 409 RESULT_NOT_READY, labels Previous analysis during scan, and analyzes live Cihanak1/NiceWP repository', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await expect(page.getByTestId('welcome-launchpad')).toBeVisible();
+
+    // 1. Load Demo Mode first so there is an active result on screen
+    await page.getByTestId('launchpad-demo-btn').click();
+    await expect(page.getByTestId('demo-mode-badge')).toBeVisible();
+
+    //Switch to Health & Transparency Report tab so we can verify completion auto-switches to Architecture Studio
+    await page.getByRole('button', { name: /Health & Transparency Report/i }).click();
+    await expect(page.getByTestId('health-report-view')).toBeVisible();
+
+    // 2. Intercept the first /api/jobs/*/result request to simulate a transient 409 RESULT_NOT_READY race
+    let injectedTransient409 = false;
+    await page.route('**/api/jobs/*/result', async (route) => {
+      if (!injectedTransient409) {
+        injectedTransient409 = true;
+        await route.fulfill({
+          status: 409,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            detail: {
+              code: 'RESULT_NOT_READY',
+              message: "Job is currently in status 'completed'.",
+            },
+          }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    // 3. Start a real GitHub HTTPS scan of https://github.com/Cihanak1/NiceWP
+    await page.getByRole('button', { name: /GitHub HTTPS/i }).click();
+    const targetInput = page.locator('#repo-target-input');
+    await targetInput.fill('https://github.com/Cihanak1/NiceWP');
+    await page.getByTestId('analyze-submit-btn').click();
+
+    // Verify that while NiceWP is being cloned/scanned, the existing Demo result is clearly labeled "Previous analysis"
+    await expect(page.getByTestId('previous-analysis-banner')).toBeVisible();
+    await expect(page.getByTestId('previous-analysis-badge')).toBeVisible();
+
+    // 4. Wait for the NiceWP scan to finish and verify it automatically loads into Architecture Studio with zero POLL_ERROR
+    await expect(page.getByTestId('previous-analysis-banner')).toBeHidden({ timeout: 45000 });
+    await expect(page.getByTestId('error-alert-banner')).toBeHidden();
+    await expect(page.getByTestId('dependency-graph-canvas')).toBeVisible();
+    expect(injectedTransient409).toBe(true);
+
+    // 5. Open Health & Transparency Report and verify C# is accurately reported as partial_static (not full_ast)
+    await page.getByRole('button', { name: /Health & Transparency Report/i }).click();
+    await expect(page.getByTestId('health-report-view')).toBeVisible();
+    await expect(page.getByTestId('partial-static-languages-list')).toContainText('C#');
+    await expect(page.getByTestId('supported-ast-languages-list')).not.toContainText('C#');
+  });
 });

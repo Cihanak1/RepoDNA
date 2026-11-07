@@ -196,7 +196,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             <div className="flex items-center gap-2">
               <h1 className="text-base font-bold tracking-tight m-0 text-slate-100">RepoDNA</h1>
               <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-300 border border-sky-500/30">
-                v0.1.0 Preview
+                v0.1.1
               </span>
               {result?.is_demo && (
                 <span

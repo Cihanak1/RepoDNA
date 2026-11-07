@@ -11,7 +11,7 @@ import {
   cancelScanJob,
   fetchBackendHealth,
   fetchJobProgress,
-  fetchJobResult,
+  fetchJobResultWithRetry,
   getExportUrl,
   startAsyncScanJob,
 } from './api/client';
@@ -51,6 +51,7 @@ export const App: React.FC = () => {
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [activeJob, setActiveJob] = useState<ScanProgress | null>(null);
+  const [scanningTargetLabel, setScanningTargetLabel] = useState<string>('');
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [errorBanner, setErrorBanner] = useState<{ code: string; message: string } | null>(null);
 
@@ -72,6 +73,8 @@ export const App: React.FC = () => {
   const [highlightCycles, setHighlightCycles] = useState(true);
 
   const pollTimerRef = useRef<number | null>(null);
+  const pollInFlightRef = useRef<boolean>(false);
+  const scanSessionIdRef = useRef<number>(0);
 
   // Global keyboard shortcut Ctrl+K / Cmd+K for Command Palette
   useEffect(() => {
@@ -99,7 +102,11 @@ export const App: React.FC = () => {
       });
     return () => {
       mounted = false;
-      if (pollTimerRef.current) window.clearInterval(pollTimerRef.current);
+      scanSessionIdRef.current += 1;
+      if (pollTimerRef.current !== null) {
+        window.clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -118,15 +125,18 @@ export const App: React.FC = () => {
 
   const stopPolling = () => {
     if (pollTimerRef.current !== null) {
-      window.clearInterval(pollTimerRef.current);
+      window.clearTimeout(pollTimerRef.current);
       pollTimerRef.current = null;
     }
+    pollInFlightRef.current = false;
   };
 
   const handleTriggerScan = async (
     overrideSource?: SourceType,
     overrideTarget?: string
   ) => {
+    scanSessionIdRef.current += 1;
+    const currentSession = scanSessionIdRef.current;
     stopPolling();
     setErrorBanner(null);
 
@@ -141,6 +151,8 @@ export const App: React.FC = () => {
       return;
     }
 
+    setScanningTargetLabel(effTarget);
+
     try {
       const initialJob = await startAsyncScanJob({
         source_type: effSource,
@@ -148,18 +160,35 @@ export const App: React.FC = () => {
         branch: effSource === 'github' && branchInput.trim() ? branchInput.trim() : null,
         limits,
       });
+      if (currentSession !== scanSessionIdRef.current) {
+        return;
+      }
       setActiveJob(initialJob);
 
-      const poll = async () => {
+      const pollOnce = async () => {
+        if (currentSession !== scanSessionIdRef.current) {
+          return;
+        }
+        if (pollInFlightRef.current) {
+          return;
+        }
+        pollInFlightRef.current = true;
         try {
           const progress = await fetchJobProgress(initialJob.job_id);
+          if (currentSession !== scanSessionIdRef.current) {
+            return;
+          }
           setActiveJob(progress);
 
           if (progress.status === 'completed') {
             stopPolling();
-            const finalResult = await fetchJobResult(initialJob.job_id);
+            const finalResult = await fetchJobResultWithRetry(initialJob.job_id);
+            if (currentSession !== scanSessionIdRef.current) {
+              return;
+            }
             setResult(finalResult);
             setActiveJob(null);
+            setActiveTab('studio');
             const firstCycleFile = finalResult.files.find((f) => f.in_cycle);
             const firstFile =
               firstCycleFile ??
@@ -168,31 +197,47 @@ export const App: React.FC = () => {
               )[0] ??
               null;
             setSelectedFileId(firstFile ? firstFile.id : null);
-          } else if (progress.status === 'failed' || progress.status === 'cancelled') {
+            return;
+          }
+
+          if (progress.status === 'failed' || progress.status === 'cancelled') {
             stopPolling();
             setErrorBanner({
               code: progress.error_code || progress.status.toUpperCase(),
               message: progress.error_message || progress.phase_message,
             });
             setActiveJob(null);
+            return;
           }
+
+          // Schedule next single-flight poll only after current poll settles
+          pollTimerRef.current = window.setTimeout(() => {
+            void pollOnce();
+          }, 180);
         } catch (err) {
+          if (currentSession !== scanSessionIdRef.current) {
+            return;
+          }
           stopPolling();
+          const code =
+            err && typeof err === 'object' && 'code' in err
+              ? String((err as { code: string }).code)
+              : 'POLL_ERROR';
           setErrorBanner({
-            code: 'POLL_ERROR',
+            code,
             message: err instanceof Error ? err.message : 'Failed to poll scan job status.',
           });
           setActiveJob(null);
+        } finally {
+          pollInFlightRef.current = false;
         }
       };
 
-      await poll();
-      if (pollTimerRef.current === null) {
-        pollTimerRef.current = window.setInterval(() => {
-          void poll();
-        }, 180);
-      }
+      await pollOnce();
     } catch (err: unknown) {
+      if (currentSession !== scanSessionIdRef.current) {
+        return;
+      }
       const code =
         err && typeof err === 'object' && 'code' in err
           ? String((err as { code: string }).code)
@@ -205,6 +250,7 @@ export const App: React.FC = () => {
 
   const handleCancelJob = async () => {
     if (!activeJob) return;
+    scanSessionIdRef.current += 1;
     stopPolling();
     try {
       const cancelled = await cancelScanJob(activeJob.job_id);
@@ -328,6 +374,28 @@ export const App: React.FC = () => {
         </div>
       )}
 
+      {activeJob && result && (
+        <div
+          role="status"
+          data-testid="previous-analysis-banner"
+          className="bg-amber-950/60 border-b border-amber-700/60 px-4 py-2 flex items-center justify-between gap-3 text-xs text-amber-200"
+        >
+          <div>
+            <strong className="uppercase tracking-wider font-bold text-amber-300 mr-2">
+              Previous analysis ({result.repo_name})
+            </strong>
+            <span>
+              Viewing previous snapshot while scanning{' '}
+              <code className="font-mono text-amber-100">{scanningTargetLabel}</code> &mdash;{' '}
+              {activeJob.phase_message} ({activeJob.progress_percent.toFixed(0)}%)
+            </span>
+          </div>
+          <span className="text-[11px] font-mono text-amber-300 shrink-0">
+            Updating automatically when complete...
+          </span>
+        </div>
+      )}
+
       {result && (
         <SummaryStrip
           result={result}
@@ -337,6 +405,7 @@ export const App: React.FC = () => {
             setActiveTab('studio');
           }}
           onOpenReportTab={() => setActiveTab('report')}
+          isPreviousAnalysis={activeJob !== null}
         />
       )}
 

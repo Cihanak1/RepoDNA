@@ -4,6 +4,17 @@ All notable changes to **RepoDNA** are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-11-08
+
+### Fixed
+- **Async Scan Job Completion Race Condition (`HTTP 409 RESULT_NOT_READY` / `[POLL_ERROR]`)**:
+  - Removed premature `ScanStatus.COMPLETED` progress notifications from `repodna.core.analyzer` before `AnalysisResult` construction and temporary clone directory cleanup (`CloneWorkspace.__exit__`) complete.
+  - Added `_complete_job_atomically` in `repodna.api.app` so `_JOB_RESULTS[job_id]`, `_RESULTS_BY_ID`, and `_JOBS[job_id].status = ScanStatus.COMPLETED` are published atomically inside a single `_LOCK` acquisition using immutable `model_copy` snapshots.
+  - Added single-flight sequential polling (`pollInFlightRef` + `scanSessionIdRef` + `setTimeout`), bounded exponential backoff retry (`fetchJobResultWithRetry`) for transient `409 RESULT_NOT_READY` responses, `Previous analysis` banner/badge labeling while a new scan is in progress, and automatic switching to **Architecture Studio** upon scan completion.
+- **`partial_static` Language Transparency & Orphan Rule Boundary (C#, Java, Kotlin, C/C++)**:
+  - Added `partial_static_languages_detected` and `partial_static_files_count` to `TransparencyReport` so `partial_static` languages (such as C# in `Cihanak1/NiceWP`) are no longer misclassified under `supported_languages_detected` (`full_ast`).
+  - Scoped `ARCH-005` (`Isolated / Potentially Unreferenced Modules`) and `FileNode.is_orphan` strictly to `full_ast` modules so `partial_static` files are not falsely penalized for having `0` resolved AST graph edges.
+
 ## [0.1.0-rc.1] - 2026-11-07 (Release Candidate 1)
 
 ### Added
