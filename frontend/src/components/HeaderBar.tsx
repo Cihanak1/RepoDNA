@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Activity,
+  Command,
   Download,
   FileCode2,
   FolderOpen,
@@ -35,6 +36,7 @@ interface HeaderBarProps {
   activeTab: 'studio' | 'report';
   onTabChange: (tab: 'studio' | 'report') => void;
   defaultWorkspacePath: string;
+  onOpenCommandPalette: () => void;
 }
 
 export const HeaderBar: React.FC<HeaderBarProps> = ({
@@ -54,10 +56,17 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   activeTab,
   onTabChange,
   defaultWorkspacePath,
+  onOpenCommandPalette,
 }) => {
   const limitsDialogRef = useRef<HTMLDialogElement | null>(null);
   const [limitsOpen, setLimitsOpen] = useState(false);
   const [renderedScheme, setRenderedScheme] = useState<'light' | 'dark'>('dark');
+  const [exportStatusMsg, setExportStatusMsg] = useState<string | null>(null);
+
+  const handleExportClick = (fmt: 'json' | 'html') => {
+    setExportStatusMsg(`Exported ${fmt.toUpperCase()} report`);
+    window.setTimeout(() => setExportStatusMsg(null), 2600);
+  };
 
   // Synchronize theme toggle with <meta name="color-scheme"> and OS preference per modern-web-guidance
   useEffect(() => {
@@ -187,7 +196,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             <div className="flex items-center gap-2">
               <h1 className="text-base font-bold tracking-tight m-0 text-slate-100">RepoDNA</h1>
               <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-300 border border-sky-500/30">
-                v1.0 Intelligence
+                v0.1.0 Preview
               </span>
               {result?.is_demo && (
                 <span
@@ -235,11 +244,26 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             </button>
           </nav>
 
+          <button
+            type="button"
+            data-testid="open-command-palette-btn"
+            onClick={onOpenCommandPalette}
+            aria-label="Open Command Palette (Ctrl+K)"
+            className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-xs font-medium text-slate-200 flex items-center gap-1.5 cursor-pointer"
+          >
+            <Command className="w-3.5 h-3.5 text-sky-400" aria-hidden="true" />
+            <span>Command Palette</span>
+            <kbd className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-mono text-slate-300 border border-slate-700">
+              Ctrl+K
+            </kbd>
+          </button>
+
           {result && (
             <div className="flex items-center gap-1.5">
               <a
                 href={getExportUrl(result.analysis_id, 'json')}
                 download={`repodna-${result.repo_name}.json`}
+                onClick={() => handleExportClick('json')}
                 className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-xs font-medium text-slate-200 flex items-center gap-1.5 no-underline"
               >
                 <Download className="w-3.5 h-3.5 text-sky-400" aria-hidden="true" />
@@ -248,16 +272,27 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
               <a
                 href={getExportUrl(result.analysis_id, 'html')}
                 download={`repodna-${result.repo_name}.html`}
+                onClick={() => handleExportClick('html')}
                 className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-xs font-medium text-slate-200 flex items-center gap-1.5 no-underline"
               >
                 <Download className="w-3.5 h-3.5 text-emerald-400" aria-hidden="true" />
                 Export HTML
               </a>
+              {exportStatusMsg && (
+                <span
+                  role="status"
+                  data-testid="export-status-badge"
+                  className="px-2 py-1 rounded-md bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[11px] font-medium"
+                >
+                  {exportStatusMsg}
+                </span>
+              )}
             </div>
           )}
 
           <button
             type="button"
+            data-testid="theme-toggle-btn"
             onClick={handleToggleTheme}
             className="p-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-200 cursor-pointer flex items-center gap-1.5 text-xs"
           >

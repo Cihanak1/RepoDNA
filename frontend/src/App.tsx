@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   FolderOpen,
@@ -12,8 +12,10 @@ import {
   fetchBackendHealth,
   fetchJobProgress,
   fetchJobResult,
+  getExportUrl,
   startAsyncScanJob,
 } from './api/client';
+import { CommandPaletteDialog } from './components/CommandPaletteDialog';
 import { DependencyGraph } from './components/DependencyGraph';
 import { ExplorerSidebar } from './components/ExplorerSidebar';
 import { FolderBrowserDialog } from './components/FolderBrowserDialog';
@@ -27,7 +29,12 @@ import type {
   ScanProgress,
   SourceType,
 } from './types/repodna';
-import { filterFiles, type LayoutMode } from './utils/graphLayout';
+import {
+  filterFiles,
+  type GraphDensityMode,
+  type GraphGroupingMode,
+  type LayoutMode,
+} from './utils/graphLayout';
 
 export const App: React.FC = () => {
   const [defaultWorkspacePath, setDefaultWorkspacePath] = useState<string>('');
@@ -42,6 +49,7 @@ export const App: React.FC = () => {
   });
 
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [activeJob, setActiveJob] = useState<ScanProgress | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [errorBanner, setErrorBanner] = useState<{ code: string; message: string } | null>(null);
@@ -49,9 +57,12 @@ export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'studio' | 'report'>('studio');
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('layered');
+  const [densityMode, setDensityMode] = useState<GraphDensityMode>('balanced');
+  const [groupingMode, setGroupingMode] = useState<GraphGroupingMode>('files');
 
   // Explorer & Graph Filters
   const [searchQuery, setSearchQuery] = useState('');
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const [languageFilter, setLanguageFilter] = useState('ALL');
   const [supportFilter, setSupportFilter] = useState('ALL');
   const [cyclesOnly, setCyclesOnly] = useState(false);
@@ -61,6 +72,18 @@ export const App: React.FC = () => {
   const [highlightCycles, setHighlightCycles] = useState(true);
 
   const pollTimerRef = useRef<number | null>(null);
+
+  // Global keyboard shortcut Ctrl+K / Cmd+K for Command Palette
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   // Fetch backend health metadata on mount (does NOT auto-scan any files)
   useEffect(() => {
@@ -133,7 +156,6 @@ export const App: React.FC = () => {
             const finalResult = await fetchJobResult(initialJob.job_id);
             setResult(finalResult);
             setActiveJob(null);
-            // Select either first cycle file or highest fan-in/out file by default
             const firstCycleFile = finalResult.files.find((f) => f.in_cycle);
             const firstFile =
               firstCycleFile ??
@@ -160,7 +182,6 @@ export const App: React.FC = () => {
         }
       };
 
-      // Run immediate check then poll every 180ms
       await poll();
       if (pollTimerRef.current === null) {
         pollTimerRef.current = window.setInterval(() => {
@@ -203,12 +224,25 @@ export const App: React.FC = () => {
     setFocusNeighborhood(false);
   };
 
+  const handleToggleThemeFromPalette = () => {
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="color-scheme"]');
+    const current = meta?.content === 'light' ? 'light' : 'dark';
+    const next = current === 'dark' ? 'light' : 'dark';
+    try {
+      localStorage.setItem('color-scheme', next);
+    } catch {
+      // ignore
+    }
+    if (meta) meta.content = next;
+    window.dispatchEvent(new StorageEvent('storage', { key: 'color-scheme', newValue: next }));
+  };
+
   const { filteredFiles, filteredEdges, neighborIds } = useMemo(() => {
     if (!result) {
       return { filteredFiles: [], filteredEdges: [], neighborIds: new Set<string>() };
     }
     return filterFiles(result.files, result.edges, {
-      searchQuery,
+      searchQuery: deferredSearchQuery,
       languageFilter,
       supportFilter,
       cyclesOnly,
@@ -220,7 +254,7 @@ export const App: React.FC = () => {
     });
   }, [
     result,
-    searchQuery,
+    deferredSearchQuery,
     languageFilter,
     supportFilter,
     cyclesOnly,
@@ -264,6 +298,7 @@ export const App: React.FC = () => {
         activeTab={activeTab}
         onTabChange={setActiveTab}
         defaultWorkspacePath={defaultWorkspacePath}
+        onOpenCommandPalette={() => setCommandPaletteOpen(true)}
       />
 
       {/* Error / Security Rejection Alert */}
@@ -446,6 +481,10 @@ export const App: React.FC = () => {
               onSelectFile={setSelectedFileId}
               layoutMode={layoutMode}
               onLayoutModeChange={setLayoutMode}
+              densityMode={densityMode}
+              onDensityModeChange={setDensityMode}
+              groupingMode={groupingMode}
+              onGroupingModeChange={setGroupingMode}
               focusNeighborhood={focusNeighborhood}
               onToggleFocusNeighborhood={() => setFocusNeighborhood((prev) => !prev)}
               highlightCycles={highlightCycles}
@@ -469,11 +508,41 @@ export const App: React.FC = () => {
 
       <FolderBrowserDialog
         isOpen={folderDialogOpen}
-        initialPath={targetInput.startsWith('https://') || targetInput === 'demo' ? defaultWorkspacePath : targetInput}
+        initialPath={
+          targetInput.startsWith('https://') || targetInput === 'demo'
+            ? defaultWorkspacePath
+            : targetInput
+        }
         onClose={() => setFolderDialogOpen(false)}
         onSelectFolder={(chosenPath) => {
           setSourceType('local');
           setTargetInput(chosenPath);
+        }}
+      />
+
+      <CommandPaletteDialog
+        isOpen={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+        files={result ? result.files : []}
+        onSelectFile={setSelectedFileId}
+        onSwitchTab={setActiveTab}
+        onToggleTheme={handleToggleThemeFromPalette}
+        onChangeLayout={setLayoutMode}
+        onChangeGrouping={setGroupingMode}
+        onChangeDensity={setDensityMode}
+        onToggleCyclesOnly={() => setCyclesOnly((prev) => !prev)}
+        onResetFilters={handleResetFilters}
+        onExportReport={
+          result
+            ? (fmt) => {
+                window.open(getExportUrl(result.analysis_id, fmt), '_blank', 'noopener');
+              }
+            : undefined
+        }
+        onLoadDemo={() => {
+          setSourceType('demo');
+          setTargetInput('demo');
+          void handleTriggerScan('demo', 'demo');
         }}
       />
     </div>

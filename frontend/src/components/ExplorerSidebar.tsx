@@ -224,7 +224,7 @@ export const ExplorerSidebar: React.FC<ExplorerSidebarProps> = ({
           groupedByDirectory.map(([dirName, files]) => {
             const isCollapsed = collapsedDirs.has(dirName);
             return (
-              <div key={dirName} className="rounded-lg border border-slate-900/80 bg-slate-900/30">
+              <div key={dirName} className="virtual-panel-section rounded-lg border border-slate-900/80 bg-slate-900/30">
                 <button
                   type="button"
                   onClick={() => toggleDir(dirName)}

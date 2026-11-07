@@ -71,9 +71,123 @@
     --scrollbar-thumb: light-dark(var(--scrollbar-thumb-light), var(--scrollbar-thumb-dark));
   }
 
+  /* Explicit light mode override when user selects Light via toggle */
+  &:has(> head > meta[name="color-scheme"][content="light"]) {
+    --bg-canvas: var(--bg-canvas-light);
+    --bg-panel: var(--bg-panel-light);
+    --bg-elevated: var(--bg-elevated-light);
+    --border-subtle: var(--border-subtle-light);
+    --text-primary: var(--text-primary-light);
+    --text-secondary: var(--text-secondary-light);
+    --brand-accent: var(--brand-accent-light);
+    --scrollbar-track: var(--scrollbar-track-light);
+    --scrollbar-thumb: var(--scrollbar-thumb-light);
+  }
+
+  /* Explicit dark mode override when user selects Dark via toggle */
+  &:has(> head > meta[name="color-scheme"][content="dark"]) {
+    --bg-canvas: var(--bg-canvas-dark);
+    --bg-panel: var(--bg-panel-dark);
+    --bg-elevated: var(--bg-elevated-dark);
+    --border-subtle: var(--border-subtle-dark);
+    --text-primary: var(--text-primary-dark);
+    --text-secondary: var(--text-secondary-dark);
+    --brand-accent: var(--brand-accent-dark);
+    --scrollbar-track: var(--scrollbar-track-dark);
+    --scrollbar-thumb: var(--scrollbar-thumb-dark);
+  }
+
   accent-color: var(--brand-accent);
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+/* Adapt hardcoded slate surface and text utility classes automatically when Light scheme is active */
+:root:has(> head > meta[name="color-scheme"][content="light"]) {
+  .bg-slate-950,
+  .bg-slate-950\/60,
+  .bg-slate-950\/70,
+  .bg-slate-950\/75,
+  .bg-slate-950\/80,
+  .bg-slate-950\/90 {
+    background-color: var(--bg-canvas-light) !important;
+  }
+
+  .bg-slate-900,
+  .bg-slate-900\/30,
+  .bg-slate-900\/40,
+  .bg-slate-900\/50,
+  .bg-slate-900\/55,
+  .bg-slate-900\/60,
+  .bg-slate-900\/70,
+  .bg-slate-900\/75,
+  .bg-slate-900\/80,
+  .bg-slate-900\/90,
+  .bg-slate-900\/95 {
+    background-color: var(--bg-panel-light) !important;
+  }
+
+  .bg-slate-800,
+  .bg-slate-800\/50,
+  .bg-slate-800\/60,
+  .bg-slate-800\/80 {
+    background-color: var(--bg-elevated-light) !important;
+  }
+
+  .border-slate-900\/80,
+  .border-slate-800,
+  .border-slate-800\/60,
+  .border-slate-800\/80,
+  .border-slate-800\/90,
+  .border-slate-700,
+  .border-slate-700\/80,
+  .border-slate-700\/90 {
+    border-color: var(--border-subtle-light) !important;
+  }
+
+  .text-slate-100,
+  .text-slate-200 {
+    color: var(--text-primary-light) !important;
+  }
+
+  .text-slate-300,
+  .text-slate-400 {
+    color: var(--text-secondary-light) !important;
+  }
+
+  .text-sky-300,
+  .text-sky-400 {
+    color: #0284c7 !important;
+  }
+
+  .text-emerald-300,
+  .text-emerald-400 {
+    color: #059669 !important;
+  }
+
+  .text-amber-200,
+  .text-amber-300,
+  .text-amber-400 {
+    color: #d97706 !important;
+  }
+
+  .text-red-200,
+  .text-red-300,
+  .text-red-400 {
+    color: #dc2626 !important;
+  }
+}
+
+/* Offscreen rendering optimization for complex scrollable lists (interactions-in-complex-layouts) */
+.virtual-panel-section {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 72px;
+}
+
+@supports not (content-visibility: auto) {
+  .virtual-panel-section {
+    contain: layout style paint;
+  }
 }
 
 /* Legacy fallback for WebKit/Blink browsers without scrollbar-color */
@@ -150,6 +264,10 @@ dialog::backdrop {
 }
 
 dialog[open] {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  height: fit-content;
   background-color: var(--bg-panel);
   color: var(--text-primary);
   border: 1px solid var(--border-subtle);
@@ -158,6 +276,14 @@ dialog[open] {
   max-width: 640px;
   width: calc(100% - 32px);
   box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
+}
+
+:root:has(> head > meta[name="color-scheme"][content="light"]) .react-flow__minimap,
+:root:has(> head > meta[name="color-scheme"][content="light"]) .react-flow__controls,
+:root:has(> head > meta[name="color-scheme"][content="light"]) .react-flow__controls button {
+  background-color: var(--bg-panel-light) !important;
+  border-color: var(--border-subtle-light) !important;
+  fill: var(--text-primary-light) !important;
 }
 
 /* Responsive data tables with container queries and sticky headers */
