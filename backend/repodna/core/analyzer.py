@@ -103,6 +103,18 @@ BINARY_EXTENSIONS = {
     ".sqlite",
     ".sqlite3",
     ".lockb",
+    ".tsbuildinfo",
+}
+
+IGNORED_LOCKFILES = {
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "poetry.lock",
+    "cargo.lock",
+    "uv.lock",
+    "composer.lock",
+    "gemfile.lock",
 }
 
 
@@ -244,6 +256,15 @@ def _analyze_directory_internal(
                     continue
                 subdirs_to_visit.append(entry_path)
             elif entry.is_file(follow_symlinks=False):
+                if entry.name.lower() in IGNORED_LOCKFILES:
+                    skipped_items.append(
+                        SkippedItem(
+                            path=rel_posix,
+                            reason="lockfile_skipped",
+                            detail=f"Skipped generated dependency lockfile '{entry.name}'.",
+                        )
+                    )
+                    continue
                 ext = entry_path.suffix.lower()
                 if ext in BINARY_EXTENSIONS:
                     skipped_items.append(

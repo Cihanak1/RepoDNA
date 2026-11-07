@@ -242,7 +242,7 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100">
+    <div className="min-h-screen lg:h-screen lg:overflow-hidden flex flex-col bg-slate-950 text-slate-100">
       <a href="#main-workspace" className="skip-link visually-hidden">
         Skip to main workspace
       </a>

@@ -17,6 +17,7 @@ frontend/dist/
 frontend/coverage/
 frontend/playwright-report/
 frontend/test-results/
+*.tsbuildinfo
 
 # OS / Editor
 .DS_Store

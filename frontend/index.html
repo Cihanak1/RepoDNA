@@ -3,12 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- MANDATORY: Declare support for both light and dark themes -->
+    <!-- MANDATORY: Declare support for both light and dark themes (dark-first default) -->
     <meta name="color-scheme" content="light dark" />
     <script>
       try {
         document.querySelector('meta[name="color-scheme"]').content =
-          localStorage.getItem('color-scheme') ?? 'light dark';
+          localStorage.getItem('color-scheme') ?? 'dark';
       } catch (_e) {}
     </script>
     <title>RepoDNA — Developer Repository Intelligence Platform</title>

@@ -32,28 +32,30 @@
   --scrollbar-thumb-light: #94a3b8;
   --scrollbar-thumb-dark: #334155;
 
-  /* Default to light for legacy browsers */
-  --bg-canvas: var(--bg-canvas-light);
-  --bg-panel: var(--bg-panel-light);
-  --bg-elevated: var(--bg-elevated-light);
-  --border-subtle: var(--border-subtle-light);
-  --text-primary: var(--text-primary-light);
-  --text-secondary: var(--text-secondary-light);
-  --brand-accent: var(--brand-accent-light);
-  --scrollbar-track: var(--scrollbar-track-light);
-  --scrollbar-thumb: var(--scrollbar-thumb-light);
+  /* Dark-first defaults with explicit light-dark() resolution */
+  --bg-canvas: var(--bg-canvas-dark);
+  --bg-panel: var(--bg-panel-dark);
+  --bg-elevated: var(--bg-elevated-dark);
+  --border-subtle: var(--border-subtle-dark);
+  --text-primary: var(--text-primary-dark);
+  --text-secondary: var(--text-secondary-dark);
+  --brand-accent: var(--brand-accent-dark);
+  --scrollbar-track: var(--scrollbar-track-dark);
+  --scrollbar-thumb: var(--scrollbar-thumb-dark);
 
   /* MANDATORY: Fallback for browsers without light-dark() support */
-  @media (prefers-color-scheme: dark) {
-    --bg-canvas: var(--bg-canvas-dark);
-    --bg-panel: var(--bg-panel-dark);
-    --bg-elevated: var(--bg-elevated-dark);
-    --border-subtle: var(--border-subtle-dark);
-    --text-primary: var(--text-primary-dark);
-    --text-secondary: var(--text-secondary-dark);
-    --brand-accent: var(--brand-accent-dark);
-    --scrollbar-track: var(--scrollbar-track-dark);
-    --scrollbar-thumb: var(--scrollbar-thumb-dark);
+  @media (prefers-color-scheme: light) {
+    &:not(:has(> head > meta[name="color-scheme"][content="dark"])) {
+      --bg-canvas: var(--bg-canvas-light);
+      --bg-panel: var(--bg-panel-light);
+      --bg-elevated: var(--bg-elevated-light);
+      --border-subtle: var(--border-subtle-light);
+      --text-primary: var(--text-primary-light);
+      --text-secondary: var(--text-secondary-light);
+      --brand-accent: var(--brand-accent-light);
+      --scrollbar-track: var(--scrollbar-track-light);
+      --scrollbar-thumb: var(--scrollbar-thumb-light);
+    }
   }
 
   /* Modern automatic light-dark() resolution */

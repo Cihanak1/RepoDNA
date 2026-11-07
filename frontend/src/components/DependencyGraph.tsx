@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import {
   Background,
   Controls,
@@ -6,6 +6,8 @@ import {
   MiniMap,
   Position,
   ReactFlow,
+  ReactFlowProvider,
+  useReactFlow,
   type Node,
   type NodeProps,
 } from '@xyflow/react';
@@ -110,6 +112,17 @@ const ModuleGraphNode: React.FC<NodeProps<Node<ModuleNodeData>>> = ({ data }) =>
 
 const nodeTypes = {
   moduleNode: ModuleGraphNode,
+};
+
+const FitViewController: React.FC<{ triggerKey: string }> = ({ triggerKey }) => {
+  const { fitView } = useReactFlow();
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      void fitView({ padding: 0.18, duration: 220 });
+    }, 40);
+    return () => window.clearTimeout(id);
+  }, [triggerKey, fitView]);
+  return null;
 };
 
 export const DependencyGraph: React.FC<DependencyGraphProps> = ({
@@ -222,35 +235,40 @@ export const DependencyGraph: React.FC<DependencyGraphProps> = ({
 
       {/* Graph Canvas */}
       <div className="flex-1 w-full h-full" data-testid="dependency-graph-canvas">
-        <ReactFlow
-          nodes={nodes}
-          edges={flowEdges}
-          nodeTypes={nodeTypes}
-          onNodeClick={(_event, node) => onSelectFile(node.id)}
-          fitView
-          fitViewOptions={{ padding: 0.2 }}
-          minZoom={0.15}
-          maxZoom={2.0}
-          proOptions={{ hideAttribution: true }}
-        >
-          <Background color="#1e293b" gap={22} size={1} />
-          <Controls
-            showInteractive={false}
-            className="!bg-slate-900 !border-slate-700 !rounded-lg !shadow-lg [&_button]:!bg-slate-900 [&_button]:!border-slate-800 [&_button]:!fill-slate-200 hover:[&_button]:!bg-slate-800"
-          />
-          <MiniMap
-            pannable
-            zoomable
-            nodeColor={(n) => {
-              const d = n.data as ModuleNodeData | undefined;
-              if (d?.file?.in_cycle) return '#ef4444';
-              if (d?.isSelected) return '#38bdf8';
-              return '#475569';
-            }}
-            maskColor="rgba(2, 6, 23, 0.72)"
-            className="!bg-slate-900/90 !border !border-slate-800 !rounded-lg"
-          />
-        </ReactFlow>
+        <ReactFlowProvider>
+          <ReactFlow
+            nodes={nodes}
+            edges={flowEdges}
+            nodeTypes={nodeTypes}
+            onNodeClick={(_event, node) => onSelectFile(node.id)}
+            fitView
+            fitViewOptions={{ padding: 0.2 }}
+            minZoom={0.15}
+            maxZoom={2.0}
+            proOptions={{ hideAttribution: true }}
+          >
+            <FitViewController
+              triggerKey={`${layoutMode}-${focusNeighborhood}-${nodes.length}`}
+            />
+            <Background color="#1e293b" gap={22} size={1} />
+            <Controls
+              showInteractive={false}
+              className="!bg-slate-900 !border-slate-700 !rounded-lg !shadow-lg [&_button]:!bg-slate-900 [&_button]:!border-slate-800 [&_button]:!fill-slate-200 hover:[&_button]:!bg-slate-800"
+            />
+            <MiniMap
+              pannable
+              zoomable
+              nodeColor={(n) => {
+                const d = n.data as ModuleNodeData | undefined;
+                if (d?.file?.in_cycle) return '#ef4444';
+                if (d?.isSelected) return '#38bdf8';
+                return '#475569';
+              }}
+              maskColor="rgba(2, 6, 23, 0.72)"
+              className="!bg-slate-900/90 !border !border-slate-800 !rounded-lg"
+            />
+          </ReactFlow>
+        </ReactFlowProvider>
       </div>
 
       {/* Bottom Legend Bar */}

@@ -9,6 +9,9 @@ test.describe('RepoDNA End-to-End Verification', () => {
     // 1. Verify no auto-scan occurred; launchpad is visible
     await expect(page.getByTestId('welcome-launchpad')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'RepoDNA', exact: true })).toBeVisible();
+    await page.screenshot({
+      path: 'C:/Users/cihan/.gemini/antigravity/brain/a701aa39-50b3-49a3-8f4f-56daa1b4c267/repodna-launchpad.png',
+    });
 
     // 2. Click "Analyze Current Workspace" to run a real live scan on RepoDNA itself
     const scanWorkspaceBtn = page.getByTestId('launchpad-scan-workspace-btn');
@@ -23,13 +26,17 @@ test.describe('RepoDNA End-to-End Verification', () => {
     const totalFilesText = await page.getByTestId('summary-total-files').textContent();
     expect(Number(totalFilesText?.replace(/,/g, ''))).toBeGreaterThan(15);
 
-    // 4. Select a specific backend file in Explorer and verify Inspector updates
+    // 4. Select a specific backend file in Explorer and verify Inspector + 1-Hop Focus
     const analyzerFileBtn = page.getByTestId('explorer-file-backend/repodna/core/analyzer.py');
-    await analyzerFileBtn.scrollIntoViewIfNeeded();
     await analyzerFileBtn.click();
     await expect(page.getByTestId('inspector-file-title')).toHaveText(
       'backend/repodna/core/analyzer.py'
     );
+    await page.getByRole('button', { name: /Focus 1-Hop Neighborhood/i }).click();
+    await page.waitForTimeout(350);
+    await page.screenshot({
+      path: 'C:/Users/cihan/.gemini/antigravity/brain/a701aa39-50b3-49a3-8f4f-56daa1b4c267/repodna-studio-live.png',
+    });
 
     // 5. Switch to Health & Transparency Report tab and verify rule explanations
     await page.getByRole('button', { name: /Health & Transparency Report/i }).click();
@@ -37,6 +44,9 @@ test.describe('RepoDNA End-to-End Verification', () => {
     await expect(
       page.getByRole('heading', { name: /Explainable Rule-Based Architecture Health Report/i })
     ).toBeVisible();
+    await page.screenshot({
+      path: 'C:/Users/cihan/.gemini/antigravity/brain/a701aa39-50b3-49a3-8f4f-56daa1b4c267/repodna-health-report.png',
+    });
 
     // 6. Test SSRF / Security rejection in the UI by entering an unsafe URL
     await page.getByRole('button', { name: /GitHub HTTPS/i }).click();
