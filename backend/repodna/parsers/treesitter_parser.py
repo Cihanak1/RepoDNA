@@ -511,8 +511,15 @@ def _parse_partial_static(content: str, language: str) -> tuple[list[RawImportSt
             spec = m.group(1).strip()
             line_no = content.count("\n", 0, m.start()) + 1
             imports.append(RawImportStatement(module_specifier=spec, line=line_no))
+        for sm in re.finditer(
+            r"^\s*(?:(?:public|internal|private|protected|static|abstract|sealed|partial)\s+)*\b(class|interface|struct|enum|record)\s+([A-Za-z_][A-Za-z0-9_]*)",
+            content,
+            re.MULTILINE,
+        ):
+            line_no = content.count("\n", 0, sm.start()) + 1
+            symbols.append(SymbolItem(name=sm.group(2), kind=sm.group(1), line=line_no))
 
-    return imports, symbols, "static-scanner"
+    return imports, symbols[:60], "static-scanner"
 
 
 def parse_source_file(filename: str, extension: str, content: str) -> ParsedFileData:

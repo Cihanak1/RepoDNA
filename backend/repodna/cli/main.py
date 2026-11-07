@@ -41,6 +41,7 @@ def _format_summary_table(result: AnalysisResult) -> str:
         f"Health Score   : {score_str}",
         f"Graph Metrics  : {gm.total_nodes} nodes, {gm.total_edges} internal edges, {gm.scc_count} cyclic SCCs, {gm.cycle_count} cycles, avg instability {gm.average_instability:.2f}",
         f"Supported AST  : {', '.join(tr.supported_languages_detected) or 'None'}",
+        f"Partial Static : {', '.join(tr.partial_static_languages_detected) or 'None'} ({tr.partial_static_files_count} files — static using/include scan only, no AST graph)",
         f"Unsupported    : {', '.join(tr.unsupported_languages_detected) or 'None'} ({tr.unsupported_files_count} files)",
         "-" * 76,
         "Language Distribution:",

@@ -67,6 +67,32 @@ def _store_result(result: AnalysisResult, job_id: str | None = None) -> None:
             _JOB_RESULTS[job_id] = result
 
 
+def _complete_job_atomically(job_id: str, result: AnalysisResult) -> None:
+    """
+    Atomically persist the analysis result in `_JOB_RESULTS` / `_RESULTS_BY_ID` AND
+    transition `_JOBS[job_id]` to `ScanStatus.COMPLETED` under a single `_LOCK` acquisition.
+    This guarantees that no reader can ever observe `status == COMPLETED` before `_JOB_RESULTS[job_id]` exists.
+    """
+    with _LOCK:
+        if len(_RESULTS_BY_ID) >= _MAX_STORED_RESULTS:
+            oldest_key = next(iter(_RESULTS_BY_ID))
+            _RESULTS_BY_ID.pop(oldest_key, None)
+        _RESULTS_BY_ID[result.analysis_id] = result
+        _JOB_RESULTS[job_id] = result
+        curr = _JOBS.get(job_id)
+        if curr and curr.status not in (ScanStatus.CANCELLED, ScanStatus.FAILED):
+            _JOBS[job_id] = curr.model_copy(
+                update={
+                    "status": ScanStatus.COMPLETED,
+                    "phase_message": "Analysis complete.",
+                    "progress_percent": 100.0,
+                    "files_discovered": result.total_files,
+                    "files_processed": result.total_files,
+                    "updated_at": datetime.now(UTC),
+                }
+            )
+
+
 class DirectoryEntryItem(BaseModel):
     name: str
     path: str
@@ -160,15 +186,30 @@ def start_scan_job(request: ScanRequest) -> ScanProgress:
         discovered: int,
         processed: int,
     ) -> None:
+        # Never allow an intermediate progress callback to publish a terminal state before `_complete_job_atomically`
+        non_terminal_status = (
+            ScanStatus.EVALUATING_RULES
+            if status in (ScanStatus.COMPLETED, ScanStatus.FAILED, ScanStatus.CANCELLED)
+            else status
+        )
+        bounded_pct = min(99.0, max(0.0, pct))
         with _LOCK:
             curr = _JOBS.get(job_id)
-            if curr and curr.status not in (ScanStatus.CANCELLED, ScanStatus.FAILED):
-                curr.status = status
-                curr.phase_message = msg
-                curr.progress_percent = pct
-                curr.files_discovered = discovered
-                curr.files_processed = processed
-                curr.updated_at = datetime.now(UTC)
+            if curr and curr.status not in (
+                ScanStatus.COMPLETED,
+                ScanStatus.CANCELLED,
+                ScanStatus.FAILED,
+            ):
+                _JOBS[job_id] = curr.model_copy(
+                    update={
+                        "status": non_terminal_status,
+                        "phase_message": msg,
+                        "progress_percent": bounded_pct,
+                        "files_discovered": discovered,
+                        "files_processed": processed,
+                        "updated_at": datetime.now(UTC),
+                    }
+                )
 
     def worker() -> None:
         try:
@@ -177,53 +218,60 @@ def start_scan_job(request: ScanRequest) -> ScanProgress:
                 on_progress=update_progress,
                 is_cancelled=cancel_event.is_set,
             )
-            _store_result(res, job_id=job_id)
-            with _LOCK:
-                curr = _JOBS.get(job_id)
-                if curr:
-                    curr.status = ScanStatus.COMPLETED
-                    curr.phase_message = "Analysis complete."
-                    curr.progress_percent = 100.0
-                    curr.files_discovered = res.total_files
-                    curr.files_processed = res.total_files
-                    curr.updated_at = datetime.now(UTC)
+            _complete_job_atomically(job_id=job_id, result=res)
         except ScanCancelledError as exc:
             with _LOCK:
                 curr = _JOBS.get(job_id)
                 if curr:
-                    curr.status = ScanStatus.CANCELLED
-                    curr.phase_message = str(exc)
-                    curr.error_code = "SCAN_CANCELLED"
-                    curr.error_message = str(exc)
-                    curr.updated_at = datetime.now(UTC)
+                    _JOBS[job_id] = curr.model_copy(
+                        update={
+                            "status": ScanStatus.CANCELLED,
+                            "phase_message": str(exc),
+                            "error_code": "SCAN_CANCELLED",
+                            "error_message": str(exc),
+                            "updated_at": datetime.now(UTC),
+                        }
+                    )
         except SecurityValidationError as exc:
             with _LOCK:
                 curr = _JOBS.get(job_id)
                 if curr:
-                    curr.status = ScanStatus.FAILED
-                    curr.phase_message = exc.message
-                    curr.error_code = exc.code
-                    curr.error_message = exc.message
-                    curr.updated_at = datetime.now(UTC)
+                    _JOBS[job_id] = curr.model_copy(
+                        update={
+                            "status": ScanStatus.FAILED,
+                            "phase_message": exc.message,
+                            "error_code": exc.code,
+                            "error_message": exc.message,
+                            "updated_at": datetime.now(UTC),
+                        }
+                    )
         except ScanTimeoutError as exc:
             with _LOCK:
                 curr = _JOBS.get(job_id)
                 if curr:
-                    curr.status = ScanStatus.FAILED
-                    curr.phase_message = str(exc)
-                    curr.error_code = "SCAN_TIMEOUT"
-                    curr.error_message = str(exc)
-                    curr.updated_at = datetime.now(UTC)
+                    _JOBS[job_id] = curr.model_copy(
+                        update={
+                            "status": ScanStatus.FAILED,
+                            "phase_message": str(exc),
+                            "error_code": "SCAN_TIMEOUT",
+                            "error_message": str(exc),
+                            "updated_at": datetime.now(UTC),
+                        }
+                    )
         except Exception as exc:
             logger.exception("Background job %s failed", job_id)
             with _LOCK:
                 curr = _JOBS.get(job_id)
                 if curr:
-                    curr.status = ScanStatus.FAILED
-                    curr.phase_message = f"Unexpected error: {exc}"
-                    curr.error_code = "INTERNAL_SCAN_ERROR"
-                    curr.error_message = str(exc)
-                    curr.updated_at = datetime.now(UTC)
+                    _JOBS[job_id] = curr.model_copy(
+                        update={
+                            "status": ScanStatus.FAILED,
+                            "phase_message": f"Unexpected error: {exc}",
+                            "error_code": "INTERNAL_SCAN_ERROR",
+                            "error_message": str(exc),
+                            "updated_at": datetime.now(UTC),
+                        }
+                    )
 
     _EXECUTOR.submit(worker)
     return progress
@@ -233,9 +281,9 @@ def start_scan_job(request: ScanRequest) -> ScanProgress:
 def get_scan_job_progress(job_id: str) -> ScanProgress:
     with _LOCK:
         job = _JOBS.get(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail={"code": "JOB_NOT_FOUND", "message": "Scan job not found."})
-    return job
+        if not job:
+            raise HTTPException(status_code=404, detail={"code": "JOB_NOT_FOUND", "message": "Scan job not found."})
+        return job.model_copy()
 
 
 @app.post("/api/jobs/{job_id}/cancel", response_model=ScanProgress)
@@ -247,12 +295,17 @@ def cancel_scan_job(job_id: str) -> ScanProgress:
             raise HTTPException(status_code=404, detail={"code": "JOB_NOT_FOUND", "message": "Scan job not found."})
         cancel_ev.set()
         if job.status not in (ScanStatus.COMPLETED, ScanStatus.FAILED):
-            job.status = ScanStatus.CANCELLED
-            job.phase_message = "Cancellation requested by user."
-            job.error_code = "SCAN_CANCELLED"
-            job.error_message = "Scan cancelled by user."
-            job.updated_at = datetime.now(UTC)
-        return job
+            job = job.model_copy(
+                update={
+                    "status": ScanStatus.CANCELLED,
+                    "phase_message": "Cancellation requested by user.",
+                    "error_code": "SCAN_CANCELLED",
+                    "error_message": "Scan cancelled by user.",
+                    "updated_at": datetime.now(UTC),
+                }
+            )
+            _JOBS[job_id] = job
+        return job.model_copy()
 
 
 @app.get("/api/jobs/{job_id}/result", response_model=AnalysisResult)

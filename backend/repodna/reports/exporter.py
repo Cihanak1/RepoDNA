@@ -122,6 +122,7 @@ def export_analysis_to_html(result: AnalysisResult) -> str:
         """
 
     passed_list = "".join(f"<li>{esc(pr)}</li>" for pr in hr.passed_rules)
+    partial_static_str = ", ".join(esc(p) for p in tr.partial_static_languages_detected) or "None"
     unsupported_str = ", ".join(esc(u) for u in tr.unsupported_languages_detected) or "None"
     score_display = (
         f"{hr.overall_score:.1f} / 100 (Grade {esc(hr.grade)})"
@@ -306,6 +307,7 @@ def export_analysis_to_html(result: AnalysisResult) -> str:
     <section aria-labelledby="transparency-heading">
       <h2 id="transparency-heading">Language Coverage &amp; Analysis Transparency</h2>
       <p class="methodology">
+        Partial static languages (static using/include scan only; no AST symbol or namespace-to-file graph resolution): <strong>{partial_static_str} ({tr.partial_static_files_count} files)</strong> &bull;
         Unsupported languages (counted in LOC but excluded from AST import resolution): <strong>{unsupported_str}</strong> &bull;
         Unresolved internal imports: <strong>{tr.unresolved_internal_imports_count}</strong> &bull;
         Dynamic imports flagged: <strong>{tr.dynamic_imports_count}</strong> &bull;

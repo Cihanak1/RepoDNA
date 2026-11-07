@@ -176,10 +176,11 @@ def evaluate_architecture_health(
     else:
         passed_rules.append("ARCH-004: Module Size Discipline (All code modules <= 450 LOC)")
 
-    # --- RULE ARCH-005: Disconnected / Orphaned Code Modules ---
-    orphans = [f for f in code_files if f.is_orphan]
-    if orphans and len(code_files) > 2:
-        orphan_ratio = len(orphans) / len(code_files)
+    # --- RULE ARCH-005: Disconnected / Orphaned Code Modules (evaluated only on full_ast files) ---
+    full_ast_files = [f for f in files if f.support_level == LanguageSupportLevel.FULL_AST]
+    orphans = [f for f in full_ast_files if f.is_orphan]
+    if orphans and len(full_ast_files) > 2:
+        orphan_ratio = len(orphans) / len(full_ast_files)
         if orphan_ratio > 0.25 or len(orphans) >= 3:
             deduction = min(10.0, round(len(orphans) * 1.5, 1))
             findings.append(

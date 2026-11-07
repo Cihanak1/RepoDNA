@@ -140,10 +140,17 @@ def run_repository_analysis(
 
     def notify(status: ScanStatus, msg: str, pct: float, disc: int = 0, proc: int = 0) -> None:
         if on_progress:
-            on_progress(status, msg, pct, disc, proc)
+            # Progress callbacks must never report a terminal status prematurely before results are stored
+            safe_status = (
+                ScanStatus.EVALUATING_RULES
+                if status in (ScanStatus.COMPLETED, ScanStatus.FAILED, ScanStatus.CANCELLED)
+                else status
+            )
+            safe_pct = min(99.0, max(0.0, pct))
+            on_progress(safe_status, msg, safe_pct, disc, proc)
 
     if request.source_type == SourceType.DEMO or request.target.strip().lower() == "demo":
-        notify(ScanStatus.COMPLETED, "Loaded labeled Demo Repository dataset.", 100.0, 10, 10)
+        notify(ScanStatus.EVALUATING_RULES, "Loading labeled Demo Repository dataset...", 95.0, 7, 7)
         return build_labeled_demo_analysis()
 
     if request.source_type == SourceType.GITHUB:
@@ -526,6 +533,8 @@ def _analyze_directory_internal(
     total_size = sum(f.size_bytes for f in file_nodes)
 
     supported_langs: set[str] = set()
+    partial_static_langs: set[str] = set()
+    partial_static_files_count = 0
     unsupported_langs: set[str] = set()
     unsupported_files_count = 0
 
@@ -540,6 +549,9 @@ def _analyze_directory_internal(
         if f.support_level == LanguageSupportLevel.UNSUPPORTED:
             unsupported_langs.add(f.language)
             unsupported_files_count += 1
+        elif f.support_level == LanguageSupportLevel.PARTIAL_STATIC:
+            partial_static_langs.add(f.language)
+            partial_static_files_count += 1
         else:
             supported_langs.add(f.language)
 
@@ -564,6 +576,8 @@ def _analyze_directory_internal(
 
     transparency = TransparencyReport(
         supported_languages_detected=sorted(supported_langs),
+        partial_static_languages_detected=sorted(partial_static_langs),
+        partial_static_files_count=partial_static_files_count,
         unsupported_languages_detected=sorted(unsupported_langs),
         unsupported_files_count=unsupported_files_count,
         unresolved_internal_imports_count=unresolved_internal_count,
@@ -575,7 +589,13 @@ def _analyze_directory_internal(
     )
 
     duration_ms = max(1, int((time.monotonic() - start_monotonic) * 1000))
-    notify(ScanStatus.COMPLETED, "Analysis completed.", 100.0, len(file_nodes), len(file_nodes))
+    notify(
+        ScanStatus.EVALUATING_RULES,
+        "Finalizing architecture intelligence report...",
+        98.0,
+        len(file_nodes),
+        len(file_nodes),
+    )
 
     return AnalysisResult(
         analysis_id=str(uuid.uuid4()),

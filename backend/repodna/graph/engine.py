@@ -183,11 +183,13 @@ def build_dependency_graph(
         if f.is_hub:
             hub_count += 1
 
-        # Orphan: supported code file with 0 internal edges and not a known entrypoint/test
+        # Orphan: full_ast code file with 0 internal edges and not a known entrypoint/test.
+        # partial_static files (e.g. C#, Java) do not have full AST cross-file import resolution
+        # and must not be falsely flagged as unreferenced orphans.
         is_test = "test" in f.id.lower() or "spec" in f.id.lower()
         is_entry = f.name.lower() in ENTRYPOINT_FILENAMES
         if (
-            f.support_level != LanguageSupportLevel.UNSUPPORTED
+            f.support_level == LanguageSupportLevel.FULL_AST
             and total_deg == 0
             and not is_test
             and not is_entry

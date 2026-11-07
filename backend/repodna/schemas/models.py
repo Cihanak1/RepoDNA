@@ -153,6 +153,8 @@ class SkippedItem(BaseModel):
 
 class TransparencyReport(BaseModel):
     supported_languages_detected: list[str] = Field(default_factory=list)
+    partial_static_languages_detected: list[str] = Field(default_factory=list)
+    partial_static_files_count: int = 0
     unsupported_languages_detected: list[str] = Field(default_factory=list)
     unsupported_files_count: int = 0
     unresolved_internal_imports_count: int = 0
