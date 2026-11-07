@@ -7,9 +7,29 @@ import html
 from repodna.schemas.models import AnalysisResult
 
 
-def export_analysis_to_json(result: AnalysisResult, indent: int = 2) -> str:
-    """Serialize AnalysisResult to deterministic, formatted JSON."""
-    return result.model_dump_json(indent=indent)
+def export_analysis_to_json(
+    result: AnalysisResult,
+    indent: int = 2,
+    deterministic: bool = False,
+) -> str:
+    """
+    Serialize AnalysisResult to formatted JSON.
+    When `deterministic=True`, volatile run metadata (`analysis_id`, `analyzed_at`, `duration_ms`)
+    are normalized so repeated scans of identical repository state yield byte-for-byte identical JSON.
+    """
+    if not deterministic:
+        return result.model_dump_json(indent=indent)
+
+    from datetime import UTC, datetime
+
+    normalized = result.model_copy(
+        update={
+            "analysis_id": "deterministic-export",
+            "analyzed_at": datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC),
+            "duration_ms": 0,
+        }
+    )
+    return normalized.model_dump_json(indent=indent)
 
 
 def export_analysis_to_html(result: AnalysisResult) -> str:

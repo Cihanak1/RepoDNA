@@ -57,6 +57,7 @@ def clone_github_repo_safely(
         env["GIT_TERMINAL_PROMPT"] = "0"
         env["GIT_ASKPASS"] = "echo"
         env["GIT_LFS_SKIP_SMUDGE"] = "1"
+        env["GIT_CONFIG_NOSYSTEM"] = "1"
 
         null_hooks_dir = temp_root / "_empty_hooks"
         null_hooks_dir.mkdir(parents=True, exist_ok=True)
@@ -68,9 +69,15 @@ def clone_github_repo_safely(
             "-c",
             "core.symlinks=false",
             "-c",
+            "core.quotepath=false",
+            "-c",
             "protocol.file.allow=never",
             "-c",
             "submodule.recurse=false",
+            "-c",
+            "http.lowSpeedLimit=1024",
+            "-c",
+            "http.lowSpeedTime=15",
             "clone",
             "--depth",
             "50",
@@ -83,9 +90,12 @@ def clone_github_repo_safely(
 
         proc = subprocess.Popen(
             cmd,
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             env=env,
         )
 

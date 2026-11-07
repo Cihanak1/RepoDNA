@@ -40,6 +40,11 @@ SENSITIVE_FILENAMES = {
     "credentials.json",
 }
 
+# Fast pre-filter regex so clean files are scanned in a single pass without line splitting
+_FAST_SECRET_HINT_RE = re.compile(
+    r"-----BEGIN [A-Z ]*PRIVATE KEY-----|gh[pousr]_[A-Za-z0-9_]{36}|(?:AKIA|ASIA)[0-9A-Z]{16}|xox[baprs]-[0-9A-Za-z-]{10}"
+)
+
 # Secret patterns (never log or return the matched secret value; only report the pattern type and line)
 _SECRET_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("Private Key Header", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----")),
@@ -207,7 +212,6 @@ def validate_local_directory(raw_path: str) -> Path:
         if posix_str == prefix or posix_str.startswith(prefix + "/"):
             raise SecurityValidationError("SYSTEM_DIR_BLOCKED", f"Scanning system directory '{resolved}' is forbidden.")
 
-    # Windows system directories check
     win_sys = os.environ.get("SystemRoot", r"C:\Windows").replace("\\", "/").lower()
     if posix_str == win_sys or posix_str.startswith(win_sys + "/"):
         raise SecurityValidationError("SYSTEM_DIR_BLOCKED", "Scanning Windows system directory is forbidden.")
@@ -247,3 +251,19 @@ def scan_line_for_secrets(line: str, line_number: int) -> list[str]:
         if pattern.search(line):
             warnings.append(f"{label} detected at line {line_number} (value redacted)")
     return warnings
+
+
+def scan_content_for_secrets(content: str, max_warnings: int = 5) -> list[str]:
+    """
+    Fast content-level secret scanner using a pre-filter regex before line inspection.
+    """
+    if not content or not _FAST_SECRET_HINT_RE.search(content):
+        return []
+    warnings: list[str] = []
+    for line_idx, line_str in enumerate(content.splitlines()[:2000], start=1):
+        line_warnings = scan_line_for_secrets(line_str, line_idx)
+        if line_warnings:
+            warnings.extend(line_warnings)
+            if len(warnings) >= max_warnings:
+                break
+    return warnings[:max_warnings]

@@ -13,7 +13,11 @@ from pathlib import Path
 from repodna.git_insights.analyzer import analyze_git_history
 from repodna.graph.engine import build_dependency_graph
 from repodna.parsers.base import ParsedFileData, detect_language
-from repodna.parsers.resolver import ImportResolver
+from repodna.parsers.resolver import (
+    ImportResolver,
+    parse_go_mod_module,
+    parse_tsconfig_aliases,
+)
 from repodna.parsers.treesitter_parser import get_parser_engine_summary, parse_source_file
 from repodna.rules.health import evaluate_architecture_health
 from repodna.schemas.models import (
@@ -36,7 +40,7 @@ from repodna.schemas.models import (
 from repodna.security.validators import (
     SENSITIVE_FILENAMES,
     is_safe_subpath,
-    scan_line_for_secrets,
+    scan_content_for_secrets,
     validate_local_directory,
 )
 from repodna.storage.workspace import clone_github_repo_safely
@@ -161,7 +165,6 @@ def run_repository_analysis(
                 is_cancelled=is_cancelled,
             )
 
-    # Local directory scan
     resolved_root = validate_local_directory(request.target)
     repo_name = resolved_root.name or str(resolved_root)
     return _analyze_directory_internal(
@@ -190,12 +193,33 @@ def _check_abort(
         )
 
 
-def _is_binary_bytes(sample: bytes) -> bool:
-    if not sample:
-        return False
-    if b"\x00" in sample:
-        return True
-    return False
+def _decode_source_bytes(raw_bytes: bytes) -> tuple[str | None, str]:
+    """
+    Decode source file bytes supporting UTF-8, UTF-8-BOM, and UTF-16 (LE/BE) BOMs,
+    while rejecting true binary files containing null bytes.
+
+    Returns:
+        (decoded_text_or_none_if_binary, encoding_used)
+    """
+    if not raw_bytes:
+        return ("", "utf-8")
+
+    # Check UTF-16 BOMs before checking for null bytes (UTF-16 ASCII chars contain 0x00)
+    if raw_bytes.startswith(b"\xff\xfe") or raw_bytes.startswith(b"\xfe\xff"):
+        try:
+            return (raw_bytes.decode("utf-16"), "utf-16")
+        except UnicodeDecodeError:
+            return (None, "binary")
+
+    if raw_bytes.startswith(b"\xef\xbb\xbf"):
+        if b"\x00" in raw_bytes[:4096]:
+            return (None, "binary")
+        return (raw_bytes[3:].decode("utf-8", errors="replace"), "utf-8-sig")
+
+    if b"\x00" in raw_bytes[:4096]:
+        return (None, "binary")
+
+    return (raw_bytes.decode("utf-8", errors="replace"), "utf-8")
 
 
 def _analyze_directory_internal(
@@ -210,7 +234,7 @@ def _analyze_directory_internal(
 ) -> AnalysisResult:
     notify(ScanStatus.DISCOVERING, f"Discovering files in {repo_name}...", 15.0, 0, 0)
 
-    discovered_files: list[tuple[Path, str, int]] = []  # (abs_path, rel_posix_id, size_bytes)
+    discovered_files: list[tuple[Path, str, int]] = []
     skipped_items: list[SkippedItem] = []
     truncated = False
     truncation_reason: str | None = None
@@ -237,9 +261,9 @@ def _analyze_directory_internal(
             except ValueError:
                 continue
 
-            # Symlink & traversal guard
+            # Fast symlink check via DirEntry; full resolve check on directories to block NTFS junctions
             try:
-                if entry.is_symlink() or not is_safe_subpath(root_path, entry_path):
+                if entry.is_symlink():
                     skipped_items.append(
                         SkippedItem(
                             path=rel_posix,
@@ -248,10 +272,20 @@ def _analyze_directory_internal(
                         )
                     )
                     continue
+                is_dir = entry.is_dir(follow_symlinks=False)
+                if is_dir and not is_safe_subpath(root_path, entry_path):
+                    skipped_items.append(
+                        SkippedItem(
+                            path=rel_posix,
+                            reason="symlink_blocked",
+                            detail="Directory junction outside repository root blocked.",
+                        )
+                    )
+                    continue
             except OSError:
                 continue
 
-            if entry.is_dir(follow_symlinks=False):
+            if is_dir:
                 if entry.name in IGNORED_DIRS or (entry.name.startswith(".") and entry.name not in {".github"}):
                     continue
                 subdirs_to_visit.append(entry_path)
@@ -307,7 +341,6 @@ def _analyze_directory_internal(
         if truncated:
             break
 
-        # Push in reverse order so alphabetical order is popped first
         for d in reversed(subdirs_to_visit):
             stack.append(d)
 
@@ -323,10 +356,12 @@ def _analyze_directory_internal(
     parsed_map: dict[str, ParsedFileData] = {}
     file_nodes: list[FileNode] = []
     all_file_ids: set[str] = {rel_id for _, rel_id, _ in discovered_files}
+    tsconfig_aliases: dict[str, list[str]] = {}
+    go_modules: dict[str, str] = {}
 
     for idx, (abs_path, rel_id, fsize) in enumerate(discovered_files):
         _check_abort(start_monotonic, limits, is_cancelled)
-        if idx % 15 == 0 or idx == total_discovered - 1:
+        if idx % 20 == 0 or idx == total_discovered - 1:
             pct = 30.0 + (idx / max(1, total_discovered)) * 35.0
             notify(
                 ScanStatus.PARSING,
@@ -337,13 +372,14 @@ def _analyze_directory_internal(
             )
 
         fname = abs_path.name
+        lower_fname = fname.lower()
         ext = abs_path.suffix.lower()
         parent_dir = str(Path(rel_id).parent.as_posix())
         if parent_dir == ".":
             parent_dir = ""
 
         secret_warnings: list[str] = []
-        if fname.lower() in SENSITIVE_FILENAMES:
+        if lower_fname in SENSITIVE_FILENAMES:
             secret_warnings.append(f"Sensitive filename '{fname}' present in repository")
 
         try:
@@ -354,26 +390,31 @@ def _analyze_directory_internal(
             all_file_ids.discard(rel_id)
             continue
 
-        if _is_binary_bytes(raw_bytes[:4096]):
+        decoded_content, _ = _decode_source_bytes(raw_bytes)
+        if decoded_content is None:
             skipped_items.append(
-                SkippedItem(path=rel_id, reason="binary_file", detail="Detected null bytes in file header.")
+                SkippedItem(path=rel_id, reason="binary_file", detail="Detected binary null bytes in file header.")
             )
             all_file_ids.discard(rel_id)
             continue
 
-        content = raw_bytes.decode("utf-8", errors="replace")
+        content = decoded_content
 
-        # Scan lines for credential patterns without storing or returning raw secrets
-        if fname.lower() not in SENSITIVE_FILENAMES and "test" not in rel_id.lower():
-            for line_idx, line_str in enumerate(content.splitlines()[:1000], start=1):
-                line_warnings = scan_line_for_secrets(line_str, line_idx)
-                if line_warnings:
-                    secret_warnings.extend(line_warnings)
-                    if len(secret_warnings) >= 5:
-                        break
+        # Extract tsconfig/jsconfig path aliases and go.mod module declarations for exact resolution
+        if lower_fname in ("tsconfig.json", "jsconfig.json", "tsconfig.base.json"):
+            extracted_aliases = parse_tsconfig_aliases(parent_dir, content)
+            for k, v in extracted_aliases.items():
+                tsconfig_aliases.setdefault(k, []).extend(x for x in v if x not in tsconfig_aliases.get(k, []))
+        elif lower_fname == "go.mod":
+            go_mod_info = parse_go_mod_module(parent_dir, content)
+            if go_mod_info:
+                go_modules[go_mod_info[0]] = go_mod_info[1]
 
-        # If it is a sensitive file (like .env), do not parse its contents for AST
-        if fname.lower() in SENSITIVE_FILENAMES:
+        # Fast secret check using pre-filter regex
+        if lower_fname not in SENSITIVE_FILENAMES and "test" not in rel_id.lower():
+            secret_warnings.extend(scan_content_for_secrets(content, max_warnings=5))
+
+        if lower_fname in SENSITIVE_FILENAMES:
             lang, sup, _ = detect_language(fname, ext)
             lines_count = len(content.splitlines())
             pdata = ParsedFileData(
@@ -407,7 +448,6 @@ def _analyze_directory_internal(
             )
         )
 
-    # Resolve imports and construct dependency graph
     _check_abort(start_monotonic, limits, is_cancelled)
     notify(
         ScanStatus.BUILDING_GRAPH,
@@ -417,7 +457,11 @@ def _analyze_directory_internal(
         len(file_nodes),
     )
 
-    resolver = ImportResolver(all_file_ids)
+    resolver = ImportResolver(
+        all_file_ids=all_file_ids,
+        tsconfig_aliases=tsconfig_aliases,
+        go_modules=go_modules,
+    )
     raw_edges: list[tuple[str, str, list[str], int]] = []
     unresolved_internal_count = 0
     dynamic_imports_count = 0
@@ -444,7 +488,6 @@ def _analyze_directory_internal(
 
     edges, cycles, graph_metrics = build_dependency_graph(file_nodes, raw_edges)
 
-    # Analyze Git history
     _check_abort(start_monotonic, limits, is_cancelled)
     notify(
         ScanStatus.ANALYZING_GIT,
@@ -459,7 +502,6 @@ def _analyze_directory_internal(
         timeout_seconds=min(15.0, limits.timeout_seconds * 0.3),
     )
 
-    # Evaluate Explainable Architecture Health Rules
     _check_abort(start_monotonic, limits, is_cancelled)
     notify(
         ScanStatus.EVALUATING_RULES,
@@ -470,7 +512,6 @@ def _analyze_directory_internal(
     )
     health_report = evaluate_architecture_health(file_nodes, edges, cycles, graph_metrics)
 
-    # Aggregate language distribution and transparency report
     lang_agg: dict[str, dict[str, int | LanguageSupportLevel]] = defaultdict(
         lambda: {
             "support_level": LanguageSupportLevel.UNSUPPORTED,
@@ -503,7 +544,10 @@ def _analyze_directory_internal(
             supported_langs.add(f.language)
 
     languages_list: list[LanguageBreakdownItem] = []
-    for lang_name, stats in sorted(lang_agg.items(), key=lambda kv: int(kv[1]["lines_code"]), reverse=True):
+    for lang_name, stats in sorted(
+        lang_agg.items(),
+        key=lambda kv: (-int(kv[1]["lines_code"]), kv[0]),
+    ):
         loc_val = int(stats["lines_code"])
         pct_val = round((loc_val / total_loc) * 100.0, 1) if total_loc > 0 else 0.0
         languages_list.append(
@@ -595,7 +639,7 @@ def build_labeled_demo_analysis() -> AnalysisResult:
             lines_code=475,
             lines_comment=25,
             lines_blank=40,
-            imports_external=["sqlalchemy", " structlog"],
+            imports_external=["sqlalchemy", "structlog"],
             symbols=[
                 SymbolItem(name="OrderService", kind="class", line=24),
                 SymbolItem(name="reconcile_invoice", kind="function", line=310),
@@ -708,7 +752,6 @@ def build_labeled_demo_analysis() -> AnalysisResult:
         ),
     ]
 
-    # Intentional circular dependency between order_service.py <-> payment_gateway.py
     raw_edges = [
         ("src/api/router.py", "src/services/order_service.py", ["OrderService"], 10),
         ("src/api/router.py", "src/domain/models.py", ["Order"], 11),
