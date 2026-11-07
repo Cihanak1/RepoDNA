@@ -113,7 +113,8 @@ RepoDNA/
    - **Partial Static Support (`partial_static`)**: C/C++ (`.c`, `.h`, `.cpp`, `.hpp`), Java (`.java`), Kotlin (`.kt`), and C# (`.cs`). Reported separately under `partial_static_languages_detected` (`static using/include scan only; no AST symbol or namespace-to-file graph resolution`) and excluded from `ARCH-005` orphan deductions.
    - **Full Transparency (`unsupported`)**: Files in other languages (`.rb`, `.php`, `.swift`, `.sql`, `.yaml`, `.md`, etc.) are counted in LOC and language distribution and explicitly listed under **Unsupported Languages** in the Transparency Report. Dynamic imports (`__import__`, `import(expr)`) and unresolved relative paths are explicitly reported with line numbers.
 3. **Explainable, Rule-Based Architecture Health Rubric**:
-   - Zero hallucinated AI scores. For non-empty repositories, the rubric starts at `100.0` points (`status="evaluated"`); for empty repositories (`0` files), RepoDNA reports `overall_score=null`, `grade="N/A"`, and `status="insufficient_data"` so missing data is never misrepresented as a perfect 100/100 score.
+   - Zero hallucinated AI scores. For repositories with sufficient `full_ast` dependency coverage ($\ge 50\%$ of total LOC), the rubric starts at `100.0` points (`status="evaluated"`) and reports an explicit `confidence` level (`high` when $\ge 80\%$ AST LOC, `medium` when $50\%\text{–}79.9\%$ AST LOC) separated by both **LOC coverage** (`ast_loc_coverage_pct`) and **file coverage** (`ast_file_coverage_pct`).
+   - When `full_ast` coverage is below $50\%$ of total LOC (e.g., `partial_static` C#/Java/C++ dominant repositories where AST namespace-to-file graph edges are not constructed), RepoDNA sets `dependency_graph_evaluated=false`, `status="insufficient_dependency_coverage"`, `overall_score=null`, `grade="N/A"`, and `confidence="low"` (`Not evaluated — Insufficient dependency coverage`), marking graph-dependent rules (`ARCH-001`, `ARCH-002`, `ARCH-003`, `ARCH-005`) as `Not evaluated` under `unverified_rules` while still evaluating complexity (`ARCH-004`), directory depth (`ARCH-006`), and secret hygiene (`SEC-001`). For empty repositories (`0` files), RepoDNA reports `status="insufficient_data"`.
    - Evaluates deterministic engineering rules with explicit mathematical formulas, thresholds, evidence, and remediation:
      - `ARCH-001`: **Circular Dependency Violations (ADP)** — Tarjan SCC (`scc_count`) & Johnson blocked-set elementary cycle enumeration (`cycle_count`, bounded by `max_cycles=25` per SCC, `max_total_cycles=100`, `25,000` operations, and `0.75s` timeout per SCC with `cycles_truncated` disclosure). `deduction = min(30.0, 6.0 * cycle_count + 1.2 * nodes_in_cycles)`.
      - `ARCH-002`: **Excessive Efferent Coupling (High Fan-Out)** — Flags modules importing $\ge 8$ internal modules. `deduction = min(15.0, sum((fan_out - 7) * 1.5))`.
@@ -240,7 +241,7 @@ Measured on **Windows 11 (Python 3.12.10, Tree-sitter 0.25.2, Microsoft Edge Hea
 ### Backend Verification
 
 ```bash
-# Run pytest unit & integration suite (44 tests)
+# Run pytest unit & integration suite (46 tests)
 python -m pytest -v
 
 # Run Ruff linter
