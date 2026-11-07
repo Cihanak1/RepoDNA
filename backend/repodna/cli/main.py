@@ -26,11 +26,13 @@ def _format_summary_table(result: AnalysisResult) -> str:
     gm = result.graph_metrics
     tr = result.transparency
 
-    score_str = (
-        f"{hr.overall_score:.1f} / 100 (Grade {hr.grade})"
-        if hr.overall_score is not None
-        else f"N/A — Insufficient Data ({hr.grade})"
-    )
+    if hr.overall_score is not None:
+        score_str = f"{hr.overall_score:.1f} / 100 (Grade {hr.grade}, Confidence: {hr.confidence.upper()})"
+    elif hr.status == "insufficient_dependency_coverage":
+        score_str = f"Not evaluated — Insufficient dependency coverage (Grade {hr.grade}, Confidence: {hr.confidence.upper()})"
+    else:
+        score_str = f"N/A — Insufficient Data ({hr.grade})"
+
     lines = [
         "=" * 76,
         f"RepoDNA Architectural Analysis — {result.repo_name}",
@@ -39,10 +41,11 @@ def _format_summary_table(result: AnalysisResult) -> str:
         f"Duration       : {result.duration_ms} ms",
         f"Files Scanned  : {result.total_files:,} ({result.total_lines_code:,} LOC / {result.total_size_bytes:,} bytes)",
         f"Health Score   : {score_str}",
+        f"AST Coverage   : {tr.ast_loc_coverage_pct:.1f}% of LOC ({tr.ast_file_coverage_pct:.1f}% of files) | Confidence: {hr.confidence.upper()}",
         f"Graph Metrics  : {gm.total_nodes} nodes, {gm.total_edges} internal edges, {gm.scc_count} cyclic SCCs, {gm.cycle_count} cycles, avg instability {gm.average_instability:.2f}",
         f"Supported AST  : {', '.join(tr.supported_languages_detected) or 'None'}",
-        f"Partial Static : {', '.join(tr.partial_static_languages_detected) or 'None'} ({tr.partial_static_files_count} files — static using/include scan only, no AST graph)",
-        f"Unsupported    : {', '.join(tr.unsupported_languages_detected) or 'None'} ({tr.unsupported_files_count} files)",
+        f"Partial Static : {', '.join(tr.partial_static_languages_detected) or 'None'} ({tr.partial_static_files_count} files / {tr.partial_static_loc_coverage_pct:.1f}% LOC — static using/include scan only, no AST graph)",
+        f"Unsupported    : {', '.join(tr.unsupported_languages_detected) or 'None'} ({tr.unsupported_files_count} files / {tr.unsupported_loc_coverage_pct:.1f}% LOC)",
         "-" * 76,
         "Language Distribution:",
     ]
@@ -57,7 +60,7 @@ def _format_summary_table(result: AnalysisResult) -> str:
         for c in result.cycles[:10]:
             lines.append(f"  [{c.id}] ({c.length} hops): {' -> '.join(c.nodes)}")
     else:
-        lines.append("Circular Dependencies: 0 (Acyclic Dependencies Principle satisfied)")
+        lines.append(f"Circular Dependencies: {hr.cycle_analysis_summary}")
 
     lines.append("-" * 76)
     if hr.findings:
@@ -67,8 +70,17 @@ def _format_summary_table(result: AnalysisResult) -> str:
                 f"  [{fn.rule_id}] {fn.title} ({fn.severity.value.upper()}, -{fn.score_deduction:.1f} pts)"
             )
             lines.append(f"      Remediation: {fn.remediation}")
+    elif hr.status == "insufficient_dependency_coverage":
+        lines.append(
+            "Architecture Health Findings: 0 triggered in evaluated rules (Dependency-graph rules not evaluated)"
+        )
     else:
         lines.append("Architecture Health Findings: 0 (All rules passed)")
+
+    if hr.unverified_rules:
+        lines.append(f"Unverified / Not Evaluated Rules ({len(hr.unverified_rules)}):")
+        for ur in hr.unverified_rules:
+            lines.append(f"  - {ur}")
 
     lines.append("=" * 76)
     return "\n".join(lines)

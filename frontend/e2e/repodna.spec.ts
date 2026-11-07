@@ -188,9 +188,27 @@ test.describe('RepoDNA End-to-End Verification & Workstation Audit', () => {
     await expect(page.getByTestId('dependency-graph-canvas')).toBeVisible();
     expect(injectedTransient409).toBe(true);
 
-    // 5. Open Health & Transparency Report and verify C# is accurately reported as partial_static (not full_ast)
+    // 5. Verify Summary Strip and Health & Transparency Report on NiceWP:
+    // - C# is accurately reported as partial_static (not full_ast)
+    // - Overall health score is Not Evaluated (Insufficient Dependency Coverage) rather than a misleading 85/100
+    // - Circular dependencies are reported as Not evaluated rather than Acyclic
+    await expect(page.getByTestId('summary-health-score')).toContainText(
+      'Insufficient Dependency Coverage'
+    );
+    await expect(page.getByTestId('summary-health-confidence')).toContainText('low');
+    await expect(page.getByTestId('summary-cycle-count')).toContainText(
+      'Not evaluated (Low AST coverage)'
+    );
+
     await page.getByRole('button', { name: /Health & Transparency Report/i }).click();
     await expect(page.getByTestId('health-report-view')).toBeVisible();
+    await expect(page.getByTestId('report-overall-score-status')).toContainText(
+      'Not Evaluated — Insufficient Dependency Coverage'
+    );
+    await expect(page.getByTestId('cycle-analysis-summary-cell')).toContainText(
+      'Not evaluated — Insufficient dependency coverage'
+    );
+    await expect(page.getByTestId('unverified-rules-box')).toContainText('ARCH-001');
     await expect(page.getByTestId('partial-static-languages-list')).toContainText('C#');
     await expect(page.getByTestId('supported-ast-languages-list')).not.toContainText('C#');
   });

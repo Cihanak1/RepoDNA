@@ -157,6 +157,14 @@ class TransparencyReport(BaseModel):
     partial_static_files_count: int = 0
     unsupported_languages_detected: list[str] = Field(default_factory=list)
     unsupported_files_count: int = 0
+    ast_file_coverage_pct: float = 0.0
+    ast_loc_coverage_pct: float = 0.0
+    partial_static_file_coverage_pct: float = 0.0
+    partial_static_loc_coverage_pct: float = 0.0
+    unsupported_file_coverage_pct: float = 0.0
+    unsupported_loc_coverage_pct: float = 0.0
+    analysis_confidence: str = "high"
+    dependency_graph_evaluated: bool = True
     unresolved_internal_imports_count: int = 0
     dynamic_imports_count: int = 0
     skipped_files: list[SkippedItem] = Field(default_factory=list)
@@ -211,6 +219,10 @@ class CategoryScore(BaseModel):
     category: str
     label: str
     score: float | None = Field(default=None, ge=0.0, le=100.0)
+    status: str = Field(
+        default="evaluated",
+        description="Either 'evaluated', 'not_evaluated', 'partial', or 'insufficient_data'.",
+    )
     weight: float
     deductions: float
     findings_count: int
@@ -219,11 +231,24 @@ class CategoryScore(BaseModel):
 class ArchitectureHealthReport(BaseModel):
     overall_score: float | None = Field(default=None, ge=0.0, le=100.0)
     grade: str  # "A", "B", "C", "D", "F", "N/A"
-    status: str = Field(default="evaluated", description="Either 'evaluated' or 'insufficient_data'.")
+    status: str = Field(
+        default="evaluated",
+        description="Either 'evaluated', 'insufficient_dependency_coverage', or 'insufficient_data'.",
+    )
+    confidence: str = Field(
+        default="high",
+        description="Either 'high', 'medium', 'low', or 'none'.",
+    )
+    confidence_reason: str = Field(default="")
+    ast_file_coverage_pct: float = 0.0
+    ast_loc_coverage_pct: float = 0.0
+    dependency_graph_evaluated: bool = True
+    cycle_analysis_summary: str = Field(default="")
     methodology: str
     category_scores: list[CategoryScore] = Field(default_factory=list)
     findings: list[RuleFinding] = Field(default_factory=list)
     passed_rules: list[str] = Field(default_factory=list)
+    unverified_rules: list[str] = Field(default_factory=list)
     summary_metrics: dict[str, Any] = Field(default_factory=dict)
 
 

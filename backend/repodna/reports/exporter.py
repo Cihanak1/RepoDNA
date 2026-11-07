@@ -86,10 +86,11 @@ def export_analysis_to_html(result: AnalysisResult) -> str:
             </tr>
             """
     else:
-        cycle_rows = """
+        cycle_color = "#10b981" if hr.dependency_graph_evaluated else "#f59e0b"
+        cycle_rows = f"""
         <tr>
-          <td colspan="4" style="text-align:center;padding:14px;color:#10b981;">
-            Zero circular dependencies detected across the repository graph.
+          <td colspan="4" style="text-align:center;padding:14px;color:{cycle_color};">
+            {esc(hr.cycle_analysis_summary)}
           </td>
         </tr>
         """
@@ -122,18 +123,26 @@ def export_analysis_to_html(result: AnalysisResult) -> str:
         """
 
     passed_list = "".join(f"<li>{esc(pr)}</li>" for pr in hr.passed_rules)
+    unverified_list = "".join(f"<li>{esc(ur)}</li>" for ur in hr.unverified_rules)
+    unverified_card = (
+        f'<div class="card" style="margin-top:12px;"><strong>Unverified / Not Evaluated Rules ({len(hr.unverified_rules)}):</strong><ul style="margin:8px 0 0 18px;font-size:13px;">{unverified_list}</ul></div>'
+        if hr.unverified_rules
+        else ""
+    )
     partial_static_str = ", ".join(esc(p) for p in tr.partial_static_languages_detected) or "None"
     unsupported_str = ", ".join(esc(u) for u in tr.unsupported_languages_detected) or "None"
-    score_display = (
-        f"{hr.overall_score:.1f} / 100 (Grade {esc(hr.grade)})"
-        if hr.overall_score is not None
-        else f"N/A — Insufficient Data ({esc(hr.grade)})"
-    )
-    cycle_kpi_display = (
-        f"{gm.cycle_count} (in {gm.scc_count} SCCs)"
-        if gm.scc_count > 0
-        else "0"
-    )
+    if hr.overall_score is not None:
+        score_display = f"{hr.overall_score:.1f} / 100 (Grade {esc(hr.grade)})"
+    elif hr.status == "insufficient_dependency_coverage":
+        score_display = f"Not evaluated — Insufficient dependency coverage ({esc(hr.grade)})"
+    else:
+        score_display = f"N/A — Insufficient Data ({esc(hr.grade)})"
+    if gm.scc_count > 0:
+        cycle_kpi_display = f"{gm.cycle_count} (in {gm.scc_count} SCCs)"
+    elif not hr.dependency_graph_evaluated:
+        cycle_kpi_display = "Not evaluated"
+    else:
+        cycle_kpi_display = "0 (in analyzed graph)"
     cycle_trunc_note = (
         f'<p class="methodology" style="color:#f59e0b;"><strong>Cycle Enumeration Truncated:</strong> {esc(gm.cycle_truncation_reason or "Reached cap")}</p>'
         if gm.cycles_truncated
@@ -281,6 +290,7 @@ def export_analysis_to_html(result: AnalysisResult) -> str:
         <strong>Passed Architectural Rules ({len(hr.passed_rules)}):</strong>
         <ul style="margin:8px 0 0 18px;font-size:13px;">{passed_list}</ul>
       </div>
+      {unverified_card}
     </section>
 
     <section aria-labelledby="cycles-heading">
@@ -307,8 +317,10 @@ def export_analysis_to_html(result: AnalysisResult) -> str:
     <section aria-labelledby="transparency-heading">
       <h2 id="transparency-heading">Language Coverage &amp; Analysis Transparency</h2>
       <p class="methodology">
-        Partial static languages (static using/include scan only; no AST symbol or namespace-to-file graph resolution): <strong>{partial_static_str} ({tr.partial_static_files_count} files)</strong> &bull;
-        Unsupported languages (counted in LOC but excluded from AST import resolution): <strong>{unsupported_str}</strong> &bull;
+        Full AST coverage: <strong>{tr.ast_loc_coverage_pct:.1f}% of LOC ({tr.ast_file_coverage_pct:.1f}% of files)</strong> &bull;
+        Analysis confidence: <strong>{esc(hr.confidence.upper())}</strong> ({esc(hr.confidence_reason)}) &bull;
+        Partial static languages (static using/include scan only; no AST symbol or namespace-to-file graph resolution): <strong>{partial_static_str} ({tr.partial_static_files_count} files / {tr.partial_static_loc_coverage_pct:.1f}% LOC)</strong> &bull;
+        Unsupported languages (counted in LOC but excluded from AST import resolution): <strong>{unsupported_str} ({tr.unsupported_loc_coverage_pct:.1f}% LOC)</strong> &bull;
         Unresolved internal imports: <strong>{tr.unresolved_internal_imports_count}</strong> &bull;
         Dynamic imports flagged: <strong>{tr.dynamic_imports_count}</strong> &bull;
         Skipped files (symlinks/binaries/limits): <strong>{len(tr.skipped_files)}</strong>

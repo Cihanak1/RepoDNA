@@ -28,6 +28,7 @@ def evaluate_architecture_health(
     """
     findings: list[RuleFinding] = []
     passed_rules: list[str] = []
+    unverified_rules: list[str] = []
     node_map = {f.id: f for f in files}
 
     category_meta = [
@@ -43,6 +44,12 @@ def evaluate_architecture_health(
             overall_score=None,
             grade="N/A",
             status="insufficient_data",
+            confidence="none",
+            confidence_reason="Repository contains 0 analyzable files.",
+            ast_file_coverage_pct=0.0,
+            ast_loc_coverage_pct=0.0,
+            dependency_graph_evaluated=False,
+            cycle_analysis_summary="Not evaluated — Empty repository (0 files).",
             methodology=(
                 "Insufficient data: repository contains 0 analyzable files. "
                 "RepoDNA reports N/A rather than a synthetic 100/100 score when no source modules are present."
@@ -52,6 +59,7 @@ def evaluate_architecture_health(
                     category=cat_key,
                     label=cat_label,
                     score=None,
+                    status="insufficient_data",
                     weight=weight,
                     deductions=0.0,
                     findings_count=0,
@@ -60,12 +68,57 @@ def evaluate_architecture_health(
             ],
             findings=[],
             passed_rules=[],
+            unverified_rules=[],
             summary_metrics={
                 "total_deductions": 0.0,
                 "rules_evaluated": 0,
                 "rules_passed": 0,
                 "rules_triggered": 0,
+                "rules_unverified": 0,
             },
+        )
+
+    total_files = len(files)
+    total_loc = sum(f.lines_code for f in files)
+    full_ast_files = [f for f in files if f.support_level == LanguageSupportLevel.FULL_AST]
+    partial_files = [f for f in files if f.support_level == LanguageSupportLevel.PARTIAL_STATIC]
+    unsupported_files = [f for f in files if f.support_level == LanguageSupportLevel.UNSUPPORTED]
+
+    full_ast_loc = sum(f.lines_code for f in full_ast_files)
+    partial_loc = sum(f.lines_code for f in partial_files)
+    unsupported_loc = sum(f.lines_code for f in unsupported_files)
+
+    ast_file_cov = round((len(full_ast_files) / total_files) * 100.0, 1)
+    ast_loc_cov = round((full_ast_loc / total_loc) * 100.0, 1) if total_loc > 0 else ast_file_cov
+    partial_loc_cov = round((partial_loc / total_loc) * 100.0, 1) if total_loc > 0 else 0.0
+    unsupported_loc_cov = round((unsupported_loc / total_loc) * 100.0, 1) if total_loc > 0 else 0.0
+
+    # Dependency graph rules (cycles, coupling, SDP, orphans) require >= 50% full_ast coverage
+    dependency_graph_evaluated = (ast_loc_cov >= 50.0) or (
+        ast_file_cov >= 50.0 and partial_loc_cov < 50.0
+    )
+
+    if ast_loc_cov >= 80.0:
+        confidence = "high"
+        confidence_reason = (
+            f"High AST dependency coverage: {ast_loc_cov:.1f}% of LOC "
+            f"({len(full_ast_files)}/{total_files} files, {ast_file_cov:.1f}%) parsed with full Tree-sitter AST."
+        )
+    elif dependency_graph_evaluated:
+        confidence = "medium"
+        confidence_reason = (
+            f"Moderate AST dependency coverage: {ast_loc_cov:.1f}% of LOC "
+            f"({len(full_ast_files)}/{total_files} files, {ast_file_cov:.1f}%) have full_ast support "
+            f"({partial_loc_cov:.1f}% LOC partial_static, {unsupported_loc_cov:.1f}% LOC unsupported)."
+        )
+    else:
+        confidence = "low"
+        confidence_reason = (
+            f"Insufficient dependency coverage: only {ast_loc_cov:.1f}% of LOC "
+            f"({len(full_ast_files)}/{total_files} files, {ast_file_cov:.1f}%) have full_ast import resolution, "
+            f"while {partial_loc_cov:.1f}% of LOC ({len(partial_files)} files) is partial_static and "
+            f"{unsupported_loc_cov:.1f}% of LOC ({len(unsupported_files)} files) is unsupported. "
+            "Missing dependency edges are not treated as proof of healthy architecture."
         )
 
     # --- RULE ARCH-001: Acyclic Dependencies Principle (ADP) ---
@@ -89,8 +142,27 @@ def evaluate_architecture_health(
                 remediation="Extract shared contracts/interfaces into a lower-level module or apply Dependency Inversion to break mutual imports.",
             )
         )
+        cycle_analysis_summary = (
+            f"{len(cycles)} circular dependency chain(s) detected in {metrics.scc_count} cyclic SCC(s) "
+            f"across analyzed graph ({ast_loc_cov:.1f}% full_ast LOC)."
+        )
+    elif dependency_graph_evaluated:
+        passed_rules.append(
+            f"ARCH-001: Circular Dependency Check (No cycles detected in analyzed graph — {ast_loc_cov:.1f}% full_ast LOC)"
+        )
+        cycle_analysis_summary = (
+            f"No cycles detected in analyzed graph ({ast_loc_cov:.1f}% full_ast LOC, "
+            f"{ast_file_cov:.1f}% full_ast files)"
+        )
     else:
-        passed_rules.append("ARCH-001: Zero Circular Dependencies (Acyclic Dependencies Principle satisfied)")
+        unverified_rules.append(
+            f"ARCH-001: Circular Dependency Check — Not evaluated (Insufficient dependency coverage: "
+            f"{ast_loc_cov:.1f}% full_ast LOC, {ast_file_cov:.1f}% full_ast files)"
+        )
+        cycle_analysis_summary = (
+            f"Not evaluated — Insufficient dependency coverage ({ast_loc_cov:.1f}% full_ast LOC, "
+            f"{ast_file_cov:.1f}% full_ast files; no cycles detected in analyzed graph subset)"
+        )
 
     # --- RULE ARCH-002: High Efferent Coupling (Fan-Out Overload) ---
     high_fanout_files = [f for f in files if f.fan_out >= 8]
@@ -112,8 +184,12 @@ def evaluate_architecture_health(
                 remediation="Decompose orchestrator modules into focused domain services or facade sub-packages to reduce direct fan-out.",
             )
         )
+    elif dependency_graph_evaluated:
+        passed_rules.append("ARCH-002: Bounded Efferent Coupling (All analyzed modules have internal fan-out < 8)")
     else:
-        passed_rules.append("ARCH-002: Bounded Efferent Coupling (All modules have internal fan-out < 8)")
+        unverified_rules.append(
+            "ARCH-002: Bounded Efferent Coupling — Not evaluated (Insufficient dependency coverage)"
+        )
 
     # --- RULE ARCH-003: Stable Dependencies Principle (SDP) Violations ---
     # A stable module (I <= 0.30, fan_in >= 2) should not depend on a much more unstable module (I >= 0.70, delta >= 0.45)
@@ -148,8 +224,12 @@ def evaluate_architecture_health(
                 remediation="Invert the dependency using an abstract interface or move shared types into the stable core layer.",
             )
         )
+    elif dependency_graph_evaluated:
+        passed_rules.append("ARCH-003: Stable Dependencies Principle (Dependencies flow in the direction of stability in analyzed graph)")
     else:
-        passed_rules.append("ARCH-003: Stable Dependencies Principle (Dependencies flow in the direction of stability)")
+        unverified_rules.append(
+            "ARCH-003: Stable Dependencies Principle — Not evaluated (Insufficient dependency coverage)"
+        )
 
     # --- RULE ARCH-004: God Module / Oversized Source File Complexity ---
     code_files = [f for f in files if f.support_level != LanguageSupportLevel.UNSUPPORTED]
@@ -198,10 +278,18 @@ def evaluate_architecture_health(
                     remediation="Verify whether isolated modules are dead code, dynamically loaded plugins, or standalone scripts, and remove unused files.",
                 )
             )
+        elif dependency_graph_evaluated:
+            passed_rules.append("ARCH-005: Low Orphan Module Ratio (<= 25% isolated modules in analyzed AST graph)")
         else:
-            passed_rules.append("ARCH-005: Low Orphan Module Ratio (<= 25% isolated modules)")
+            unverified_rules.append(
+                "ARCH-005: Orphan Module Connectivity — Not evaluated (Insufficient dependency coverage)"
+            )
+    elif dependency_graph_evaluated:
+        passed_rules.append("ARCH-005: High Module Graph Connectivity (Minimal isolated code files in analyzed AST graph)")
     else:
-        passed_rules.append("ARCH-005: High Module Graph Connectivity (Minimal isolated code files)")
+        unverified_rules.append(
+            "ARCH-005: Orphan Module Connectivity — Not evaluated (Insufficient dependency coverage)"
+        )
 
     # --- RULE ARCH-006: Deep Directory Nesting ---
     deep_files = [f for f in files if f.id.count("/") >= 6]
@@ -262,46 +350,87 @@ def evaluate_architecture_health(
         total_deduction += cat_ded
         # Normalize category score to 0..100
         cat_pct = max(0.0, round(100.0 * (1.0 - min(weight, cat_ded) / weight), 1))
-        category_scores.append(
-            CategoryScore(
-                category=cat_key,
-                label=cat_label,
-                score=cat_pct,
-                weight=weight,
-                deductions=round(cat_ded, 1),
-                findings_count=len(cat_findings),
+        if not dependency_graph_evaluated and cat_key in ("cycles", "coupling") and len(cat_findings) == 0:
+            category_scores.append(
+                CategoryScore(
+                    category=cat_key,
+                    label=cat_label,
+                    score=None,
+                    status="not_evaluated",
+                    weight=weight,
+                    deductions=0.0,
+                    findings_count=0,
+                )
             )
-        )
+        elif not dependency_graph_evaluated and cat_key == "hygiene":
+            category_scores.append(
+                CategoryScore(
+                    category=cat_key,
+                    label=cat_label,
+                    score=cat_pct,
+                    status="partial",
+                    weight=weight,
+                    deductions=round(cat_ded, 1),
+                    findings_count=len(cat_findings),
+                )
+            )
+        else:
+            category_scores.append(
+                CategoryScore(
+                    category=cat_key,
+                    label=cat_label,
+                    score=cat_pct,
+                    status="evaluated",
+                    weight=weight,
+                    deductions=round(cat_ded, 1),
+                    findings_count=len(cat_findings),
+                )
+            )
 
-    overall_score = max(0.0, min(100.0, round(100.0 - total_deduction, 1)))
-    if overall_score >= 90.0:
-        grade = "A"
-    elif overall_score >= 80.0:
-        grade = "B"
-    elif overall_score >= 65.0:
-        grade = "C"
-    elif overall_score >= 50.0:
-        grade = "D"
+    if not dependency_graph_evaluated:
+        overall_score: float | None = None
+        grade = "N/A"
+        report_status = "insufficient_dependency_coverage"
     else:
-        grade = "F"
+        overall_score = max(0.0, min(100.0, round(100.0 - total_deduction, 1)))
+        if overall_score >= 90.0:
+            grade = "A"
+        elif overall_score >= 80.0:
+            grade = "B"
+        elif overall_score >= 65.0:
+            grade = "C"
+        elif overall_score >= 50.0:
+            grade = "D"
+        else:
+            grade = "F"
+        report_status = "evaluated"
 
     return ArchitectureHealthReport(
         overall_score=overall_score,
         grade=grade,
-        status="evaluated",
+        status=report_status,
+        confidence=confidence,
+        confidence_reason=confidence_reason,
+        ast_file_coverage_pct=ast_file_cov,
+        ast_loc_coverage_pct=ast_loc_cov,
+        dependency_graph_evaluated=dependency_graph_evaluated,
+        cycle_analysis_summary=cycle_analysis_summary,
         methodology=(
             "Deterministic, rule-based engineering rubric starting at 100.0 points. "
             "Deductions are computed strictly from static AST dependency topology (Tarjan SCC cycles, "
             "Robert C. Martin Instability & Fan-Out metrics), LOC complexity thresholds, and secret hygiene checks. "
-            "No generative AI or non-deterministic scoring is used."
+            "When full_ast dependency coverage is below 50% of total LOC, dependency-graph rules (ARCH-001/002/003/005) "
+            "are marked as Not evaluated rather than assumed healthy."
         ),
         category_scores=category_scores,
         findings=findings,
         passed_rules=passed_rules,
+        unverified_rules=unverified_rules,
         summary_metrics={
             "total_deductions": round(total_deduction, 1),
             "rules_evaluated": len(findings) + len(passed_rules),
             "rules_passed": len(passed_rules),
             "rules_triggered": len(findings),
+            "rules_unverified": len(unverified_rules),
         },
     )

@@ -125,6 +125,14 @@ export interface TransparencyReport {
   partial_static_files_count?: number;
   unsupported_languages_detected: string[];
   unsupported_files_count: number;
+  ast_file_coverage_pct?: number;
+  ast_loc_coverage_pct?: number;
+  partial_static_file_coverage_pct?: number;
+  partial_static_loc_coverage_pct?: number;
+  unsupported_file_coverage_pct?: number;
+  unsupported_loc_coverage_pct?: number;
+  analysis_confidence?: string;
+  dependency_graph_evaluated?: boolean;
   unresolved_internal_imports_count: number;
   dynamic_imports_count: number;
   skipped_files: SkippedItem[];
@@ -179,6 +187,7 @@ export interface CategoryScore {
   category: string;
   label: string;
   score: number | null;
+  status?: string;
   weight: number;
   deductions: number;
   findings_count: number;
@@ -188,10 +197,17 @@ export interface ArchitectureHealthReport {
   overall_score: number | null;
   grade: string;
   status?: string;
+  confidence?: string;
+  confidence_reason?: string;
+  ast_file_coverage_pct?: number;
+  ast_loc_coverage_pct?: number;
+  dependency_graph_evaluated?: boolean;
+  cycle_analysis_summary?: string;
   methodology: string;
   category_scores: CategoryScore[];
   findings: RuleFinding[];
   passed_rules: string[];
+  unverified_rules?: string[];
   summary_metrics: Record<string, number>;
 }
 

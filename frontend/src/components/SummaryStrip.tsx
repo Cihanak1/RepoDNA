@@ -68,12 +68,33 @@ export const SummaryStrip: React.FC<SummaryStripProps> = ({
                 <span data-testid="summary-health-score">{hr.overall_score.toFixed(1)}</span>
                 <span className="text-[11px] font-normal text-slate-400">/ 100</span>
               </>
+            ) : hr.status === 'insufficient_dependency_coverage' ? (
+              <span data-testid="summary-health-score" className="text-xs text-amber-300 font-semibold">
+                Insufficient Dependency Coverage
+              </span>
             ) : (
               <span data-testid="summary-health-score" className="text-sm text-slate-400">
                 N/A (Insufficient Data)
               </span>
             )}
           </div>
+          {hr.confidence && hr.confidence !== 'none' && (
+            <div className="text-[10px] text-slate-400 mt-0.5">
+              Confidence:{' '}
+              <span
+                data-testid="summary-health-confidence"
+                className={
+                  hr.confidence === 'high'
+                    ? 'text-emerald-400 font-semibold uppercase'
+                    : hr.confidence === 'medium'
+                    ? 'text-sky-400 font-semibold uppercase'
+                    : 'text-amber-300 font-semibold uppercase'
+                }
+              >
+                {hr.confidence}
+              </span>
+            </div>
+          )}
         </div>
         <span
           className={`px-2.5 py-1 rounded-lg font-bold text-sm border ${
@@ -139,15 +160,21 @@ export const SummaryStrip: React.FC<SummaryStripProps> = ({
                   ({gm.scc_count} SCCs, {gm.nodes_in_cycles} modules)
                 </span>
               </>
+            ) : hr.dependency_graph_evaluated === false ? (
+              <span data-testid="summary-cycle-count" className="text-xs text-amber-300 font-semibold">
+                Not evaluated (Low AST coverage)
+              </span>
             ) : (
               <span data-testid="summary-cycle-count" className="text-emerald-400">
-                0 cycles (Acyclic)
+                0 cycles (in analyzed graph)
               </span>
             )}
           </div>
         </div>
         {gm.cycle_count > 0 ? (
           <RefreshCcw className="w-4 h-4 text-red-400 shrink-0" aria-hidden="true" />
+        ) : hr.dependency_graph_evaluated === false ? (
+          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
         ) : (
           <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" aria-hidden="true" />
         )}
@@ -163,8 +190,10 @@ export const SummaryStrip: React.FC<SummaryStripProps> = ({
           <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
             AST Language Coverage
           </div>
-          <div className="text-xs font-semibold text-slate-100 mt-0.5 truncate">
-            {tr.supported_languages_detected.length} AST supported
+          <div className="text-xs font-semibold text-slate-100 mt-0.5 truncate" data-testid="summary-ast-coverage">
+            {tr.ast_loc_coverage_pct !== undefined
+              ? `${tr.ast_loc_coverage_pct.toFixed(1)}% LOC (${(tr.ast_file_coverage_pct ?? 0).toFixed(1)}% files) AST`
+              : `${tr.supported_languages_detected.length} AST supported`}
             {(tr.partial_static_files_count ?? 0) > 0 && (
               <>
                 {' '}&bull;{' '}
@@ -179,7 +208,7 @@ export const SummaryStrip: React.FC<SummaryStripProps> = ({
             </span>
           </div>
         </div>
-        {tr.unsupported_files_count > 0 ? (
+        {tr.unsupported_files_count > 0 || (tr.partial_static_files_count ?? 0) > 0 ? (
           <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
         ) : (
           <Layers className="w-4 h-4 text-emerald-400 shrink-0" aria-hidden="true" />

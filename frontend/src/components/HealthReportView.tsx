@@ -41,6 +41,27 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
             </h2>
           </div>
           <p className="text-xs text-slate-300 m-0 leading-relaxed">{hr.methodology}</p>
+          {hr.confidence && (
+            <div className="flex flex-wrap items-center gap-2 text-xs pt-1" data-testid="health-confidence-banner">
+              <span
+                className={`px-2 py-0.5 rounded font-bold uppercase border text-[10px] ${
+                  hr.confidence === 'high'
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                    : hr.confidence === 'medium'
+                    ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                    : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                }`}
+              >
+                Confidence: {hr.confidence}
+              </span>
+              <span className="text-slate-300">
+                Full AST Coverage: <strong>{(hr.ast_loc_coverage_pct ?? tr.ast_loc_coverage_pct ?? 0).toFixed(1)}% of LOC</strong> ({(hr.ast_file_coverage_pct ?? tr.ast_file_coverage_pct ?? 0).toFixed(1)}% of files)
+              </span>
+              {hr.confidence_reason && (
+                <span className="text-slate-400">&bull; {hr.confidence_reason}</span>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-4 bg-slate-950/80 border border-slate-800 rounded-xl px-5 py-3 shrink-0">
@@ -54,8 +75,14 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
                   {hr.overall_score.toFixed(1)}
                   <span className="text-sm text-slate-400 font-normal"> / 100</span>
                 </>
+              ) : hr.status === 'insufficient_dependency_coverage' ? (
+                <span className="text-base text-amber-300 font-sans font-bold" data-testid="report-overall-score-status">
+                  Not Evaluated — Insufficient Dependency Coverage
+                </span>
               ) : (
-                <span className="text-xl text-slate-400">N/A (Insufficient Data)</span>
+                <span className="text-xl text-slate-400" data-testid="report-overall-score-status">
+                  N/A (Insufficient Data)
+                </span>
               )}
             </div>
           </div>
@@ -78,15 +105,22 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
             <div>
               <div className="text-[11px] font-semibold text-slate-300">{cat.label}</div>
               <div className="text-[10px] text-slate-400">
-                Weight: {cat.weight} pts &bull; Deduction: -{cat.deductions.toFixed(1)}
+                Weight: {cat.weight} pts &bull;{' '}
+                {cat.status === 'not_evaluated' ? 'Not evaluated' : `Deduction: -${cat.deductions.toFixed(1)}`}
               </div>
             </div>
             <div className="flex items-baseline justify-between mt-1">
               <span className="text-lg font-bold font-mono text-slate-100">
-                {cat.score !== null ? `${cat.score.toFixed(0)}%` : 'N/A'}
+                {cat.score !== null
+                  ? `${cat.score.toFixed(0)}%`
+                  : cat.status === 'not_evaluated'
+                  ? 'Not evaluated'
+                  : 'N/A'}
               </span>
               <span className="text-[11px] text-slate-400">
-                {cat.findings_count} {cat.findings_count === 1 ? 'issue' : 'issues'}
+                {cat.status === 'not_evaluated'
+                  ? 'low AST coverage'
+                  : `${cat.findings_count} ${cat.findings_count === 1 ? 'issue' : 'issues'}`}
               </span>
             </div>
             <progress
@@ -200,6 +234,24 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
             </ul>
           </div>
         )}
+
+        {/* Unverified / Not Evaluated Rules Box */}
+        {(hr.unverified_rules?.length ?? 0) > 0 && (
+          <div
+            data-testid="unverified-rules-box"
+            className="bg-amber-950/25 border border-amber-700/40 rounded-xl p-3.5 text-xs"
+          >
+            <div className="font-semibold text-amber-300 mb-1.5 flex items-center gap-1.5">
+              <AlertTriangle className="w-4 h-4 text-amber-400" aria-hidden="true" />
+              Unverified / Not Evaluated Rules ({hr.unverified_rules!.length})
+            </div>
+            <ul role="list" className="m-0 pl-5 space-y-1 text-slate-300">
+              {hr.unverified_rules!.map((ur) => (
+                <li key={ur}>{ur}</li>
+              ))}
+            </ul>
+          </div>
+        )}
       </section>
 
       {/* Circular Dependency Chains */}
@@ -250,8 +302,15 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
             <tbody className="divide-y divide-slate-800/80 text-xs">
               {result.cycles.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="p-5 text-center text-emerald-400">
-                    Zero circular dependencies detected across the repository!
+                  <td
+                    colSpan={4}
+                    data-testid="cycle-analysis-summary-cell"
+                    className={`p-5 text-center ${
+                      hr.dependency_graph_evaluated === false ? 'text-amber-300' : 'text-emerald-400'
+                    }`}
+                  >
+                    {hr.cycle_analysis_summary ||
+                      'No cycles detected in analyzed graph (Acyclic Dependencies Principle satisfied in analyzed modules)'}
                   </td>
                 </tr>
               ) : (

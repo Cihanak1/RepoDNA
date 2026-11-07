@@ -574,12 +574,38 @@ def _analyze_directory_internal(
             )
         )
 
+    total_files_count = len(file_nodes)
+    full_ast_files_count = sum(1 for f in file_nodes if f.support_level == LanguageSupportLevel.FULL_AST)
+    full_ast_loc_count = sum(f.lines_code for f in file_nodes if f.support_level == LanguageSupportLevel.FULL_AST)
+    partial_static_loc_count = sum(
+        f.lines_code for f in file_nodes if f.support_level == LanguageSupportLevel.PARTIAL_STATIC
+    )
+    unsupported_loc_count = sum(
+        f.lines_code for f in file_nodes if f.support_level == LanguageSupportLevel.UNSUPPORTED
+    )
+
     transparency = TransparencyReport(
         supported_languages_detected=sorted(supported_langs),
         partial_static_languages_detected=sorted(partial_static_langs),
         partial_static_files_count=partial_static_files_count,
         unsupported_languages_detected=sorted(unsupported_langs),
         unsupported_files_count=unsupported_files_count,
+        ast_file_coverage_pct=round(full_ast_files_count / total_files_count * 100.0, 1)
+        if total_files_count > 0
+        else 0.0,
+        ast_loc_coverage_pct=round(full_ast_loc_count / total_loc * 100.0, 1) if total_loc > 0 else 0.0,
+        partial_static_file_coverage_pct=round(partial_static_files_count / total_files_count * 100.0, 1)
+        if total_files_count > 0
+        else 0.0,
+        partial_static_loc_coverage_pct=round(partial_static_loc_count / total_loc * 100.0, 1)
+        if total_loc > 0
+        else 0.0,
+        unsupported_file_coverage_pct=round(unsupported_files_count / total_files_count * 100.0, 1)
+        if total_files_count > 0
+        else 0.0,
+        unsupported_loc_coverage_pct=round(unsupported_loc_count / total_loc * 100.0, 1) if total_loc > 0 else 0.0,
+        analysis_confidence=health_report.confidence,
+        dependency_graph_evaluated=health_report.dependency_graph_evaluated,
         unresolved_internal_imports_count=unresolved_internal_count,
         dynamic_imports_count=dynamic_imports_count,
         skipped_files=skipped_items[:100],
@@ -873,6 +899,14 @@ def build_labeled_demo_analysis() -> AnalysisResult:
         supported_languages_detected=["Python", "TypeScript", "TypeScript (TSX)"],
         unsupported_languages_detected=["Ruby"],
         unsupported_files_count=1,
+        ast_file_coverage_pct=health_report.ast_file_coverage_pct,
+        ast_loc_coverage_pct=health_report.ast_loc_coverage_pct,
+        partial_static_file_coverage_pct=0.0,
+        partial_static_loc_coverage_pct=0.0,
+        unsupported_file_coverage_pct=round(1 / len(demo_files) * 100.0, 1),
+        unsupported_loc_coverage_pct=round(50 / total_loc * 100.0, 1),
+        analysis_confidence=health_report.confidence,
+        dependency_graph_evaluated=health_report.dependency_graph_evaluated,
         unresolved_internal_imports_count=0,
         dynamic_imports_count=1,
         skipped_files=[],

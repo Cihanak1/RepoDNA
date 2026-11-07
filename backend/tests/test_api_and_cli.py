@@ -166,10 +166,12 @@ def test_async_job_completion_is_atomic_under_concurrent_polling(
     assert all(r["total_files"] == 2 for r in success_results)
 
 
-def test_csharp_partial_static_transparency_not_reported_as_full_ast(tmp_path: Path) -> None:
+def test_csharp_partial_static_transparency_and_insufficient_dependency_coverage(tmp_path: Path) -> None:
     """
-    Verify that C# repositories (like NiceWP) report C# under `partial_static_languages_detected`
-    and never misclassify `partial_static` files as `full_ast` in `supported_languages_detected`.
+    Verify that C# repositories (like NiceWP) report C# under `partial_static_languages_detected`,
+    never misclassify `partial_static` files as `full_ast`, and do NOT produce a misleading
+    overall architecture health score (e.g. 85/100 or 100/100) or claim repository-wide acyclicity
+    when dependency graph coverage is insufficient.
     """
     cs_repo = tmp_path / "NiceWP_Fixture"
     cs_repo.mkdir()
@@ -181,15 +183,40 @@ def test_csharp_partial_static_transparency_not_reported_as_full_ast(tmp_path: P
         "using System.Runtime.InteropServices;\nnamespace NiceWP.Core {\n    public class WallpaperService {}\n}\n",
         encoding="utf-8",
     )
+    # Include a tiny Python helper (< 5% of LOC) like NiceWP's scripts/build.py to verify mixed partial_static dominance
+    (cs_repo / "helper.py").write_text("x = 1\n", encoding="utf-8")
 
     scan_resp = client.post("/api/scan", json={"source_type": "local", "target": str(cs_repo)})
     assert scan_resp.status_code == 200
     data = scan_resp.json()
     tr = data["transparency"]
+    hr = data["health_report"]
 
-    assert tr["supported_languages_detected"] == []
+    assert tr["supported_languages_detected"] == ["Python"]
     assert tr["partial_static_languages_detected"] == ["C#"]
     assert tr["partial_static_files_count"] == 2
-    assert data["languages"][0]["language"] == "C#"
-    assert data["languages"][0]["support_level"] == "partial_static"
+    assert tr["ast_loc_coverage_pct"] < 50.0
+    assert tr["partial_static_loc_coverage_pct"] > 50.0
+    assert tr["analysis_confidence"] == "low"
+    assert tr["dependency_graph_evaluated"] is False
+
+    # Overall architecture health score must NOT be reported as a misleading numeric score
+    assert hr["status"] == "insufficient_dependency_coverage"
+    assert hr["overall_score"] is None
+    assert hr["grade"] == "N/A"
+    assert hr["confidence"] == "low"
+    assert hr["dependency_graph_evaluated"] is False
+    assert "Not evaluated — Insufficient dependency coverage" in hr["cycle_analysis_summary"]
+    assert any("ARCH-001" in r for r in hr["unverified_rules"])
+    assert any("ARCH-002" in r for r in hr["unverified_rules"])
+    assert any("ARCH-003" in r for r in hr["unverified_rules"])
+
+    cat_by_key = {c["category"]: c for c in hr["category_scores"]}
+    assert cat_by_key["cycles"]["score"] is None
+    assert cat_by_key["cycles"]["status"] == "not_evaluated"
+    assert cat_by_key["coupling"]["score"] is None
+    assert cat_by_key["coupling"]["status"] == "not_evaluated"
+    assert cat_by_key["complexity"]["score"] == 100.0
+    assert cat_by_key["security"]["score"] == 100.0
+
 
