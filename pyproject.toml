@@ -12,6 +12,23 @@ license = { text = "MIT" }
 authors = [
     { name = "Cihan Akalın", email = "250541107@firat.edu.tr" }
 ]
+keywords = [
+    "static-analysis",
+    "architecture",
+    "dependency-graph",
+    "circular-dependencies",
+    "tree-sitter",
+    "code-health",
+    "developer-tools",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Quality Assurance",
+]
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
@@ -32,6 +49,13 @@ dev = [
     "ruff>=0.7.0",
     "mypy>=1.11.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Cihanak1/RepoDNA"
+Repository = "https://github.com/Cihanak1/RepoDNA.git"
+Issues = "https://github.com/Cihanak1/RepoDNA/issues"
+Changelog = "https://github.com/Cihanak1/RepoDNA/blob/main/CHANGELOG.md"
+Security = "https://github.com/Cihanak1/RepoDNA/blob/main/SECURITY.md"
 
 [project.scripts]
 repodna = "repodna.cli.main:main"

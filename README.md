@@ -1,5 +1,11 @@
 # RepoDNA — Developer Repository Intelligence Platform
 
+[![CI](https://github.com/Cihanak1/RepoDNA/actions/workflows/ci.yml/badge.svg)](https://github.com/Cihanak1/RepoDNA/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/badge/release-v0.1.0--rc.1-38bdf8)](https://github.com/Cihanak1/RepoDNA/releases)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776ab?logo=python&logoColor=white)](https://www.python.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-10b981.svg)](./LICENSE)
+
 **RepoDNA** is a static architectural analysis, module dependency graph, circular dependency detector, and explainable code health platform for local source directories and public GitHub repositories.
 
 Built for software architects, staff engineers, and open-source maintainers, RepoDNA parses source repositories using **Tree-sitter CST/AST parsers** without executing a single line of target code. It maps internal module relationships, identifies strongly connected circular dependency chains via **Tarjan's SCC algorithm**, calculates **Robert C. Martin's Instability ($I$) and Fan-In/Fan-Out coupling metrics**, inspects Git commit churn hotspots, and produces a **100% deterministic, rule-based Architecture Health Report**.
