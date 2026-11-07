@@ -255,7 +255,7 @@ def _extract_cycles_in_scc(
     adj: dict[str, list[str]],
     max_cycles: int = 25,
 ) -> list[list[str]]:
-    """Find canonical elementary cycles within an SCC using bounded DFS."""
+    """Find canonical elementary cycles within an SCC using Johnson's blocked-set algorithm."""
     seen_canonical: set[tuple[str, ...]] = set()
     results: list[list[str]] = []
     node_order = {n: idx for idx, n in enumerate(scc_nodes)}
@@ -265,17 +265,35 @@ def _extract_cycles_in_scc(
             break
         start_rank = node_order[start]
         path: list[str] = [start]
-        visited: set[str] = {start}
+        blocked: set[str] = {start}
+        blocked_map: dict[str, set[str]] = defaultdict(set)
 
-        def dfs(
+        def unblock(
+            u: str,
+            _blocked: set[str] = blocked,
+            _blocked_map: dict[str, set[str]] = blocked_map,
+        ) -> None:
+            stack = [u]
+            while stack:
+                curr = stack.pop()
+                if curr in _blocked:
+                    _blocked.remove(curr)
+                    for w in list(_blocked_map[curr]):
+                        _blocked_map[curr].discard(w)
+                        if w in _blocked:
+                            stack.append(w)
+
+        def circuit(
             curr: str,
             _start: str = start,
             _start_rank: int = start_rank,
             _path: list[str] = path,
-            _visited: set[str] = visited,
-        ) -> None:
+            _blocked: set[str] = blocked,
+            _blocked_map: dict[str, set[str]] = blocked_map,
+        ) -> bool:
+            found_cycle = False
             if len(results) >= max_cycles:
-                return
+                return True
             for nxt in adj.get(curr, []):
                 if nxt not in scc_set or node_order[nxt] < _start_rank:
                     continue
@@ -284,14 +302,23 @@ def _extract_cycles_in_scc(
                     if canon not in seen_canonical:
                         seen_canonical.add(canon)
                         results.append([*list(canon), canon[0]])
-                elif nxt not in _visited and len(_path) < 12:
-                    _visited.add(nxt)
+                    found_cycle = True
+                elif nxt not in _blocked and len(_path) < 16:
+                    _blocked.add(nxt)
                     _path.append(nxt)
-                    dfs(nxt, _start, _start_rank, _path, _visited)
+                    if circuit(nxt, _start, _start_rank, _path, _blocked, _blocked_map):
+                        found_cycle = True
                     _path.pop()
-                    _visited.remove(nxt)
 
-        dfs(start)
+            if found_cycle:
+                unblock(curr)
+            else:
+                for nxt in adj.get(curr, []):
+                    if nxt in scc_set and node_order[nxt] >= _start_rank:
+                        _blocked_map[nxt].add(curr)
+            return found_cycle
+
+        circuit(start)
 
     return results
 
