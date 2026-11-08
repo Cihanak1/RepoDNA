@@ -15,7 +15,7 @@ export default defineConfig({
   projects: [
     {
       name: 'msedge',
-      use: { ...devices['Desktop Edge'], channel: 'msedge' },
+      use: { ...devices['Desktop Edge'], channel: 'msedge', viewport: { width: 1440, height: 900 } },
     },
   ],
 });

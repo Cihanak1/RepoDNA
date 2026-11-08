@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { App } from '../App';
 import { fetchJobResultWithRetry } from '../api/client';
 import { buildFlowElements, filterFiles } from '../utils/graphLayout';
@@ -117,6 +117,23 @@ const sampleEdges: DependencyEdge[] = [
 ];
 
 describe('graphLayout utilities', () => {
+  it('keeps compact nodes and large directory groups from overlapping', () => {
+    const files = Array.from({ length: 30 }, (_, index) => ({ ...sampleFiles[0], id: `group${index < 20 ? 1 : index}/file${index}.py`, directory: `group${index < 20 ? 1 : index}` }));
+    for (const mode of ['layered', 'cluster'] as const) {
+      const { nodes } = buildFlowElements(files, [], mode, null, new Set(), true, 'compact', 'files');
+      for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i].position, b = nodes[j].position;
+        expect(Math.abs(a.x - b.x) >= 256 || Math.abs(a.y - b.y) >= 100).toBe(true);
+      }
+    }
+  });
+
+  it('does not present a mixed-support package as fully AST analyzed', () => {
+    const files = [sampleFiles[0], { ...sampleFiles[1], support_level: 'partial_static' as const }];
+    const { nodes } = buildFlowElements(files, [], 'layered', sampleFiles[0].id, new Set(), true, 'balanced', 'directories');
+    expect(nodes[0].data.file.support_level).toBe('partial_static');
+    expect(nodes[0]).toMatchObject({ width: 256, height: 100 });
+  });
   it('filters by cycle participation and symbol search', () => {
     const cycleRes = filterFiles(sampleFiles, sampleEdges, {
       searchQuery: '',
@@ -183,7 +200,7 @@ describe('graphLayout utilities', () => {
 });
 
 describe('App Explicit Consent Launchpad', () => {
-  it('renders launchpad without auto-scanning local files until user clicks Analyze', () => {
+  it('renders launchpad without auto-scanning local files until user clicks Analyze', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -196,10 +213,11 @@ describe('App Explicit Consent Launchpad', () => {
 
     render(<App />);
     expect(screen.getByTestId('welcome-launchpad')).toBeInTheDocument();
-    expect(screen.getByText(/Zero Unsolicited Scanning/i)).toBeInTheDocument();
+    expect(screen.getByText(/Files are read only when you start a scan/i)).toBeInTheDocument();
 
     // Verify empty target shows validation alert if user clears input and submits
     const input = screen.getByLabelText(/Local Repository Directory Path/i);
+    await waitFor(() => expect(input).toHaveValue('C:/RepoDNA'));
     fireEvent.change(input, { target: { value: '   ' } });
     const submitBtn = screen.getByTestId('analyze-submit-btn');
     fireEvent.click(submitBtn);
