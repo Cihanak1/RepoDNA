@@ -63,6 +63,9 @@ class BenchmarkRunner:
                     "latency_ms": scen_b_t1_ms,
                     "evidence_hubs": ov.key_architectural_hubs[:3],
                 },
+                "synthetic_context_reduction_pct": round(
+                    ((scen_a_t1_tokens - scen_b_t1_tokens) / scen_a_t1_tokens) * 100, 1
+                ),
                 "token_savings_pct": round(
                     ((scen_a_t1_tokens - scen_b_t1_tokens) / scen_a_t1_tokens) * 100, 1
                 ),
@@ -96,6 +99,9 @@ class BenchmarkRunner:
                     "latency_ms": scen_b_t2_ms,
                     "top_match": matches.matches[0].file_id if matches.matches else None,
                 },
+                "synthetic_context_reduction_pct": round(
+                    ((scen_a_t2_tokens - scen_b_t2_tokens) / scen_a_t2_tokens) * 100, 1
+                ),
                 "token_savings_pct": round(
                     ((scen_a_t2_tokens - scen_b_t2_tokens) / scen_a_t2_tokens) * 100, 1
                 ),
@@ -134,6 +140,9 @@ class BenchmarkRunner:
                     "latency_ms": scen_b_t3_ms,
                     "edges_traced": deps.total_items,
                 },
+                "synthetic_context_reduction_pct": round(
+                    ((scen_a_t3_tokens - scen_b_t3_tokens) / scen_a_t3_tokens) * 100, 1
+                ),
                 "token_savings_pct": round(
                     ((scen_a_t3_tokens - scen_b_t3_tokens) / scen_a_t3_tokens) * 100, 1
                 ),
@@ -168,6 +177,9 @@ class BenchmarkRunner:
                     "severity": impact.impact_severity.value,
                     "direct_dependents_count": len(impact.direct_dependents),
                 },
+                "synthetic_context_reduction_pct": round(
+                    ((scen_a_t4_tokens - scen_b_t4_tokens) / scen_a_t4_tokens) * 100, 1
+                ),
                 "token_savings_pct": round(
                     ((scen_a_t4_tokens - scen_b_t4_tokens) / scen_a_t4_tokens) * 100, 1
                 ),
@@ -201,6 +213,9 @@ class BenchmarkRunner:
                     "latency_ms": scen_b_t5_ms,
                     "cycles_detected": analysis.graph_metrics.cycle_count,
                 },
+                "synthetic_context_reduction_pct": round(
+                    ((scen_a_t5_tokens - scen_b_t5_tokens) / scen_a_t5_tokens) * 100, 1
+                ),
                 "token_savings_pct": round(
                     ((scen_a_t5_tokens - scen_b_t5_tokens) / scen_a_t5_tokens) * 100, 1
                 ),
@@ -243,6 +258,9 @@ class BenchmarkRunner:
                     "latency_ms": scen_b_t6_ms,
                     "verdict": diff_res.verdict,
                 },
+                "synthetic_context_reduction_pct": round(
+                    ((scen_a_t6_tokens - scen_b_t6_tokens) / scen_a_t6_tokens) * 100, 1
+                ),
                 "token_savings_pct": round(
                     ((scen_a_t6_tokens - scen_b_t6_tokens) / scen_a_t6_tokens) * 100, 1
                 ),
@@ -256,17 +274,27 @@ class BenchmarkRunner:
 
         return {
             "benchmark_version": "0.3.0",
+            "metric_name": "Synthetic Architectural Context Reduction",
             "repository": analysis.repo_name,
             "total_files": analysis.total_files,
             "total_loc": analysis.total_lines_code,
             "initial_analysis_duration_ms": analysis_duration_ms,
             "tasks": results,
             "summary": {
+                "metric": "Synthetic Architectural Context Reduction",
                 "total_estimated_tokens_without_repodna": total_scen_a_tokens,
                 "total_estimated_tokens_with_repodna": total_scen_b_tokens,
+                "overall_synthetic_context_reduction_pct": avg_savings,
                 "overall_token_reduction_pct": avg_savings,
                 "total_tool_calls_without_repodna": sum(r["scenario_a_without_repodna"]["tool_calls"] for r in results),
                 "total_tool_calls_with_repodna": len(results),
+                "assumptions": {
+                    "baseline_model": "Naive multi-tool whole-file/grep reading without AST architectural indexing",
+                    "repodna_model": "Pre-computed Tree-sitter AST & graph metrics returned in concise architectural payloads",
+                    "initial_scan_cost_ms": analysis_duration_ms,
+                    "cache_hit_latency_ms": "< 5ms (in-memory or disk SQLite cache)",
+                    "payload_scope": "Tool payload architectural context reduction only (excludes conversational session history and user turns)",
+                },
             },
         }
 
