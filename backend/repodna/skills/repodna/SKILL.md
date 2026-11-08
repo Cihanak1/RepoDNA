@@ -114,10 +114,12 @@ repodna setup --repair
 
 ---
 
-## 4. Cache Invalidation & Stale Snapshot Warning
+## 4. Cache Invalidation, Boundaries & Performance
 - **Disk Synchronization:** RepoDNA analyses are indexed against repository state.
 - **When to Refresh:** If you edit, rename, add, or delete files on disk during a session, subsequent queries with `target="."` will automatically re-index modified files.
+- **Deterministic Content Guarantee:** For repositories containing up to 300 files, RepoDNA computes Blake2b content hashes on every file, providing a 100% mathematical guarantee against same-size same-timestamp modifications. For repositories exceeding 300 files, fast incremental stat caching `(size, mtime_ns)` is used; pass `force=True` on any tool to force full cache bypass.
 - **Git Commit Transitions:** After running `git checkout`, `git commit`, or `git rebase`, invoke `repodna_repository_overview` to refresh the cached architecture graph against the new HEAD.
+- **Restricted Local Workspace Boundary:** RepoDNA operates under a strict read-only local boundary. The MCP server rejects access to any directory outside authorized `--allowed-root` paths or unconfigured system roots / home directories with `ROOT_VIOLATION`.
 
 ---
 

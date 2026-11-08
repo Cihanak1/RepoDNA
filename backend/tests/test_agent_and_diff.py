@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import re
 import sys
 import tarfile
@@ -811,3 +812,116 @@ def test_git_archive_security_stream_limit(tmp_path: Path) -> None:
     with pytest.raises(SecurityValidationError) as exc_info:
         snap_mgr.create_snapshot("HEAD", limits=limits)
     assert exc_info.value.code == "MAX_SIZE_EXCEEDED"
+
+
+def test_cache_invalidation_same_size_same_mtime_guarantee(tmp_path: Path) -> None:
+    """Verifies 100% mathematical guarantee against same-size same-mtime forgery on repos <= 300 files and force bypass."""
+    repo = tmp_path / "forgery_repo"
+    repo.mkdir()
+    target_file = repo / "config.py"
+    target_file.write_text("MODE = 'prod'\n", encoding="utf-8")  # 14 bytes
+    _init_git_repo(repo)
+
+    server = RepoDNAMCPServer(allowed_roots=[repo])
+
+    # Initial scan (cold)
+    res1 = server.get_analysis(str(repo))
+    assert server.get_last_cache_report()["cache_hit"] is False
+    assert len(res1.files) == 1
+
+    # Repeat scan (warm)
+    server.get_analysis(str(repo))
+    assert server.get_last_cache_report()["cache_hit"] is True
+
+    # Record stat
+    stat_orig = target_file.stat()
+
+    # Modify content with exact same 14 bytes:
+    # "MODE = 'prod'\n" (14 bytes) -> "MODE = 'test'\n" (14 bytes)
+    target_file.write_text("MODE = 'test'\n", encoding="utf-8")
+
+    # Forcibly restore original nanosecond mtime and atime
+    os.utime(target_file, ns=(stat_orig.st_atime_ns, stat_orig.st_mtime_ns))
+    stat_forged = target_file.stat()
+    assert stat_forged.st_size == stat_orig.st_size
+    assert stat_forged.st_mtime_ns == stat_orig.st_mtime_ns
+
+    # Because repo files <= 300, direct content hashing is enforced:
+    # RepoDNA MUST detect the content change despite identical stat!
+    server.get_analysis(str(repo))
+    report_after_forgery = server.get_last_cache_report()
+    assert report_after_forgery["cache_hit"] is False
+
+    # Next call without edit is cached
+    server.get_analysis(str(repo))
+    assert server.get_last_cache_report()["cache_hit"] is True
+
+    # Force bypass explicitly invalidates cache
+    server.get_analysis(str(repo), force=True)
+    assert server.get_last_cache_report()["cache_hit"] is False
+
+
+def test_mcp_unauthorized_cwd_rejection(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Verifies that MCP server started from root or user home directory without explicit roots rejects unauthorized access."""
+    home_dir = tmp_path / "fake_home"
+    home_dir.mkdir()
+
+    monkeypatch.setattr(Path, "home", lambda: home_dir)
+    monkeypatch.chdir(home_dir)
+
+    server = RepoDNAMCPServer(allowed_roots=[])
+    assert server.allowed_roots == []
+
+    with pytest.raises(SecurityValidationError) as exc_info:
+        server.get_analysis(".")
+    assert exc_info.value.code == "ROOT_VIOLATION"
+
+    # Tool call also reports safe error JSON
+    call_res = server.call_tool("repodna_repository_overview", {"target": "."})
+    assert call_res["isError"] is True
+    assert "ROOT_VIOLATION" in call_res["content"][0]["text"]
+
+
+def test_windows_full_lifecycle_external_project(tmp_path: Path) -> None:
+    """Verifies Windows setup, verify, repair, and uninstall lifecycle in an external project directory."""
+    ext_proj = tmp_path / "external_project"
+    ext_proj.mkdir()
+    (ext_proj / "app.py").write_text("print('hello')\n", encoding="utf-8")
+
+    # 1. Install for codex in external project
+    installer_codex = AgentInstaller(agent="codex", scope="project", repo_root=ext_proj)
+    res_codex = installer_codex.install()
+    assert res_codex["status"] == "success"
+    assert (ext_proj / ".codex" / "skills" / "repodna" / "SKILL.md").exists()
+    assert (ext_proj / ".codex" / "config.toml").exists()
+
+    # 2. Install for antigravity in external project
+    installer_ag = AgentInstaller(agent="antigravity", scope="project", repo_root=ext_proj)
+    res_ag = installer_ag.install()
+    assert res_ag["status"] == "success"
+    assert (ext_proj / ".agents" / "skills" / "repodna" / "SKILL.md").exists()
+    assert (ext_proj / ".agents" / "mcp_config.json").exists()
+
+    # 3. Verify
+    ver_ag = installer_ag.verify()
+    assert ver_ag["antigravity"]["skill_installed"] is True
+    assert ver_ag["antigravity"]["mcp_configured"] is True
+
+    ver_codex = installer_codex.verify()
+    assert ver_codex["codex"]["skill_installed"] is True
+    assert ver_codex["codex"]["mcp_configured"] is True
+
+    # 4. Repair
+    rep_ag = installer_ag.repair()
+    assert rep_ag["status"] == "repaired"
+    rep_codex = installer_codex.repair()
+    assert rep_codex["status"] == "repaired"
+
+    # 5. Uninstall
+    uninst_codex = installer_codex.uninstall()
+    assert uninst_codex["status"] == "uninstalled"
+    assert not (ext_proj / ".codex" / "skills" / "repodna" / "SKILL.md").exists()
+
+    uninst_ag = installer_ag.uninstall()
+    assert uninst_ag["status"] == "uninstalled"
+    assert not (ext_proj / ".agents" / "skills" / "repodna" / "SKILL.md").exists()

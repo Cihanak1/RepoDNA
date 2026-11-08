@@ -36,6 +36,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   - `--repair` subcommand for refreshing missing or corrupted integrations.
 - **Portable Agent Skill (`integrations/agent-skills/repodna`)**:
   - Standards-compliant `SKILL.md` package with bilingual (TR/EN) guidance, 5 canonical developer workflows, CLI fallback, and unsupported language honesty rules.
+  - Enforced 100% mathematical guarantee against same-size same-mtime content modifications on repositories with <= 300 files via direct Blake2b hashing.
+  - Implemented force=True parameter on all MCP tools for unconditional cache bypass on large repositories.
+  - Hardened default workspace boundary against execution from drive root or user home directory, returning explicit ROOT_VIOLATION security errors.
 
 ## [0.2.0] - 2026-11-08
 

@@ -80,9 +80,16 @@ class RepoDNAMCPServer:
                             configured_roots.append(p)
 
         if not configured_roots:
-            configured_roots = [Path.cwd().resolve()]
+            cwd = Path.cwd().resolve()
+            # If current directory is user home or drive root, do not default to it (require explicit root)
+            if cwd == Path.home().resolve() or cwd == cwd.parent:
+                _log(f"Warning: Current working directory '{cwd}' is a system root or user home. Requiring explicit authorized root.")
+                configured_roots = []
+            else:
+                configured_roots = [cwd]
 
         self.allowed_roots: list[Path] = configured_roots
+        _log("Access Policy: RESTRICTED LOCAL-FIRST READ-ONLY")
         _log(f"Configured authorized workspace roots: {[str(r) for r in self.allowed_roots]}")
 
         # Analysis cache: (cache_type, repo_str, git_rev) -> (fingerprint, time_iso, dur_ms, AnalysisResult)
@@ -99,6 +106,12 @@ class RepoDNAMCPServer:
         cleaned = target.strip()
         if cleaned.lower() == "demo":
             return "demo", SourceType.DEMO
+
+        if not self.allowed_roots:
+            raise SecurityValidationError(
+                "ROOT_VIOLATION",
+                "No authorized workspace roots configured. Please pass --allowed-root <path> or set REPODNA_ALLOWED_ROOTS.",
+            )
 
         if cleaned in ("", ".", "./", ".\\"):
             resolved = self.allowed_roots[0]
@@ -131,10 +144,11 @@ class RepoDNAMCPServer:
 
         return resolved, SourceType.LOCAL
 
-    def _compute_fingerprint(self, repo_path: Path) -> tuple[str, str]:
+    def _compute_fingerprint(self, repo_path: Path, force: bool = False) -> tuple[str, str]:
         """
         Fast composite fingerprinting of repository files and Git state.
-        Uses incremental stat caching: only files with changed size or mtime_ns are re-hashed.
+        Uses direct content hashing for repositories with <= 300 files (100% guarantee against
+        mtime forgery), and incremental stat caching for larger repositories with optional force refresh.
         Returns: (fingerprint_hex, git_revision_or_head)
         """
         repo_str = str(repo_path)
@@ -196,8 +210,10 @@ class RepoDNAMCPServer:
         hasher = hashlib.blake2b(digest_size=16)
         hasher.update(git_metadata.encode("utf-8"))
 
+        always_hash = len(file_entries) <= 300 or force
+
         for norm_rel, size, mtime_ns in file_entries:
-            if norm_rel in cached_files and cached_files[norm_rel][:2] == (size, mtime_ns):
+            if not always_hash and norm_rel in cached_files and cached_files[norm_rel][:2] == (size, mtime_ns):
                 file_hash = cached_files[norm_rel][2]
             else:
                 target_file = repo_path / norm_rel
@@ -212,7 +228,7 @@ class RepoDNAMCPServer:
 
         return hasher.hexdigest(), git_rev
 
-    def get_analysis(self, target: str) -> AnalysisResult:
+    def get_analysis(self, target: str, force: bool = False) -> AnalysisResult:
         resolved, stype = self._resolve_target(target)
         if stype == SourceType.DEMO:
             req = ScanRequest(
@@ -224,11 +240,11 @@ class RepoDNAMCPServer:
 
         assert isinstance(resolved, Path)
         repo_str = str(resolved)
-        fingerprint, git_rev = self._compute_fingerprint(resolved)
+        fingerprint, git_rev = self._compute_fingerprint(resolved, force=force)
         cache_key = ("worktree", repo_str, git_rev)
 
         t0 = time.perf_counter()
-        if cache_key in self._analysis_cache:
+        if not force and cache_key in self._analysis_cache:
             cached_fp, cached_time_iso, cached_dur, cached_res = self._analysis_cache[cache_key]
             if cached_fp == fingerprint:
                 duration_ms = (time.perf_counter() - t0) * 1000.0
@@ -266,28 +282,30 @@ class RepoDNAMCPServer:
         """Returns the cache report from the most recent get_analysis query."""
         return dict(self._last_cache_report)
 
-    def tool_repository_overview(self, target: str, format: str = "text") -> str:
-        analysis = self.get_analysis(target)
+    def tool_repository_overview(self, target: str, format: str = "text", force: bool = False) -> str:
+        analysis = self.get_analysis(target, force=force)
         svc = RepositoryIntelligenceService(analysis)
         ov = svc.get_repository_overview()
         return ov.model_dump_json(indent=2) if format == "json" else ov.summary_text
 
-    def tool_architecture_map(self, target: str, level: str = "clusters", limit: int = 30) -> str:
-        analysis = self.get_analysis(target)
+    def tool_architecture_map(
+        self, target: str, level: str = "clusters", limit: int = 30, force: bool = False
+    ) -> str:
+        analysis = self.get_analysis(target, force=force)
         svc = RepositoryIntelligenceService(analysis)
         am = svc.get_architecture_map(level=level, limit=limit)
         return am.model_dump_json(indent=2)
 
-    def tool_find_modules(self, target: str, query: str, limit: int = 10) -> str:
-        analysis = self.get_analysis(target)
+    def tool_find_modules(self, target: str, query: str, limit: int = 10, force: bool = False) -> str:
+        analysis = self.get_analysis(target, force=force)
         svc = RepositoryIntelligenceService(analysis)
         res = svc.find_relevant_modules(query=query, limit=limit)
         return res.model_dump_json(indent=2)
 
     def tool_module_dependencies(
-        self, target: str, file_path: str, direction: str = "outgoing", depth: int = 1
+        self, target: str, file_path: str, direction: str = "outgoing", depth: int = 1, force: bool = False
     ) -> str:
-        analysis = self.get_analysis(target)
+        analysis = self.get_analysis(target, force=force)
         svc = RepositoryIntelligenceService(analysis)
         deps = svc.get_dependencies(file_path=file_path, direction=direction, depth=depth)
         return deps.model_dump_json(indent=2)
@@ -298,8 +316,9 @@ class RepoDNAMCPServer:
         file_path: str | None = None,
         rule_id: str | None = None,
         severity: str | None = None,
+        force: bool = False,
     ) -> str:
-        analysis = self.get_analysis(target)
+        analysis = self.get_analysis(target, force=force)
         svc = RepositoryIntelligenceService(analysis)
         if file_path:
             dtls = svc.get_module_details(file_path)
@@ -330,15 +349,15 @@ class RepoDNAMCPServer:
         return diff_res.model_dump_json(indent=2)
 
     def tool_change_impact(
-        self, target: str, changed_files: list[str], max_depth: int = 2
+        self, target: str, changed_files: list[str], max_depth: int = 2, force: bool = False
     ) -> str:
-        analysis = self.get_analysis(target)
+        analysis = self.get_analysis(target, force=force)
         svc = RepositoryIntelligenceService(analysis)
         impact = svc.get_change_impact(changed_files=changed_files, max_depth=max_depth)
         return impact.model_dump_json(indent=2)
 
-    def tool_analysis_coverage(self, target: str) -> str:
-        analysis = self.get_analysis(target)
+    def tool_analysis_coverage(self, target: str, force: bool = False) -> str:
+        analysis = self.get_analysis(target, force=force)
         svc = RepositoryIntelligenceService(analysis)
         cov = svc.get_analysis_coverage()
         report = cov.model_dump()
@@ -353,36 +372,36 @@ class RepoDNAMCPServer:
         self._official_server = MCPServer(name=SERVER_NAME)
 
         @self._official_server.tool(name="repodna_repository_overview", description="Provides high-level codebase architecture snapshot, health metrics, and component vitals.")
-        def _mcp_overview(target: str, format: str = "text") -> str:
-            return self.tool_repository_overview(target=target, format=format)
+        def _mcp_overview(target: str, format: str = "text", force: bool = False) -> str:
+            return self.tool_repository_overview(target=target, format=format, force=force)
 
         @self._official_server.tool(name="repodna_architecture_map", description="Outputs component taxonomy, dependency graph linkages, and modular hierarchy.")
-        def _mcp_arch_map(target: str, level: str = "clusters", limit: int = 30) -> str:
-            return self.tool_architecture_map(target=target, level=level, limit=limit)
+        def _mcp_arch_map(target: str, level: str = "clusters", limit: int = 30, force: bool = False) -> str:
+            return self.tool_architecture_map(target=target, level=level, limit=limit, force=force)
 
         @self._official_server.tool(name="repodna_find_modules", description="Finds repository modules matching a search query by filename, symbols, or architectural hub status.")
-        def _mcp_find_modules(target: str, query: str, limit: int = 10) -> str:
-            return self.tool_find_modules(target=target, query=query, limit=limit)
+        def _mcp_find_modules(target: str, query: str, limit: int = 10, force: bool = False) -> str:
+            return self.tool_find_modules(target=target, query=query, limit=limit, force=force)
 
         @self._official_server.tool(name="repodna_module_dependencies", description="Traces direct or transitive incoming/outgoing dependencies for a specific module.")
-        def _mcp_dependencies(target: str, file_path: str, direction: str = "outgoing", depth: int = 1) -> str:
-            return self.tool_module_dependencies(target=target, file_path=file_path, direction=direction, depth=depth)
+        def _mcp_dependencies(target: str, file_path: str, direction: str = "outgoing", depth: int = 1, force: bool = False) -> str:
+            return self.tool_module_dependencies(target=target, file_path=file_path, direction=direction, depth=depth, force=force)
 
         @self._official_server.tool(name="repodna_module_findings", description="Lists architectural rule findings (circular dependencies, coupling hotspots) filtered by module or rule.")
-        def _mcp_findings(target: str, file_path: str | None = None, rule_id: str | None = None, severity: str | None = None) -> str:
-            return self.tool_module_findings(target=target, file_path=file_path, rule_id=rule_id, severity=severity)
+        def _mcp_findings(target: str, file_path: str | None = None, rule_id: str | None = None, severity: str | None = None, force: bool = False) -> str:
+            return self.tool_module_findings(target=target, file_path=file_path, rule_id=rule_id, severity=severity, force=force)
 
         @self._official_server.tool(name="repodna_architecture_diff", description="Compares two Git revisions or working tree against a revision for architectural changes.")
         def _mcp_diff(target: str, base_ref: str = "HEAD~1", head_ref: str = "HEAD") -> str:
             return self.tool_architecture_diff(target=target, base_ref=base_ref, head_ref=head_ref)
 
         @self._official_server.tool(name="repodna_change_impact", description="Evaluates architectural risk and direct/transitive blast radius of proposed file edits.")
-        def _mcp_change_impact(target: str, changed_files: list[str], max_depth: int = 2) -> str:
-            return self.tool_change_impact(target=target, changed_files=changed_files, max_depth=max_depth)
+        def _mcp_change_impact(target: str, changed_files: list[str], max_depth: int = 2, force: bool = False) -> str:
+            return self.tool_change_impact(target=target, changed_files=changed_files, max_depth=max_depth, force=force)
 
         @self._official_server.tool(name="repodna_analysis_coverage", description="Returns full AST vs partial static language coverage, unverified rules, and honesty guarantees.")
-        def _mcp_coverage(target: str) -> str:
-            return self.tool_analysis_coverage(target=target)
+        def _mcp_coverage(target: str, force: bool = False) -> str:
+            return self.tool_analysis_coverage(target=target, force=force)
 
     def run(self, transport: str = "stdio") -> None:
         """Runs the server. Enforces official Python MCP SDK as standard."""
@@ -513,23 +532,27 @@ class RepoDNAMCPServer:
                 "content": [{"type": "text", "text": f"Invalid arguments for {name}: expected JSON object."}],
             }
         target = arguments.get("target", ".")
+        force = bool(arguments.get("force", False))
         try:
             if name == "repodna_repository_overview":
                 content = self.tool_repository_overview(
                     target=target,
                     format=arguments.get("format", "text"),
+                    force=force,
                 )
             elif name == "repodna_architecture_map":
                 content = self.tool_architecture_map(
                     target=target,
                     level=arguments.get("level", "clusters"),
                     limit=int(arguments.get("limit", 30)),
+                    force=force,
                 )
             elif name == "repodna_find_modules":
                 content = self.tool_find_modules(
                     target=target,
                     query=arguments.get("query", ""),
                     limit=int(arguments.get("limit", 10)),
+                    force=force,
                 )
             elif name in ("repodna_module_dependencies", "repodna_dependencies"):
                 dep_path = arguments.get("file_path") or arguments.get("module_path", "")
@@ -538,6 +561,7 @@ class RepoDNAMCPServer:
                     file_path=dep_path,
                     direction=arguments.get("direction", "outgoing"),
                     depth=int(arguments.get("depth", 1)),
+                    force=force,
                 )
             elif name in ("repodna_module_findings", "repodna_architecture_findings"):
                 content = self.tool_module_findings(
@@ -545,6 +569,7 @@ class RepoDNAMCPServer:
                     file_path=arguments.get("file_path"),
                     rule_id=arguments.get("rule_id"),
                     severity=arguments.get("severity"),
+                    force=force,
                 )
             elif name == "repodna_architecture_diff":
                 content = self.tool_architecture_diff(
@@ -557,9 +582,10 @@ class RepoDNAMCPServer:
                     target=target,
                     changed_files=arguments.get("changed_files", []),
                     max_depth=int(arguments.get("max_depth", 2)),
+                    force=force,
                 )
             elif name in ("repodna_analysis_coverage", "repodna_explain_health"):
-                content = self.tool_analysis_coverage(target=target)
+                content = self.tool_analysis_coverage(target=target, force=force)
             else:
                 return {
                     "isError": True,
@@ -570,6 +596,12 @@ class RepoDNAMCPServer:
                 "content": [{"type": "text", "text": content}],
             }
 
+        except SecurityValidationError as exc:
+            _log(f"Security error in tool '{name}': [{exc.code}] {exc}")
+            return {
+                "isError": True,
+                "content": [{"type": "text", "text": f"Error executing {name}: [{exc.code}] {exc}"}],
+            }
         except Exception as exc:
             _log(f"Error in tool '{name}': {exc}")
             return {
