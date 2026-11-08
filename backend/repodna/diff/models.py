@@ -29,6 +29,7 @@ class RenamedModule(BaseModel):
     new_path: str
     confidence: float
     reason: str
+    is_verified_by_git: bool = False
 
 
 class ModuleChanges(BaseModel):

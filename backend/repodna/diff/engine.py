@@ -46,6 +46,7 @@ class ArchitectureDiffEngine:
         head_commit_sha: str | None = None,
         base_is_working_tree: bool = False,
         head_is_working_tree: bool = False,
+        git_renames: dict[str, str] | None = None,
     ) -> ArchitectureDiffResult:
         base_files: dict[str, FileNode] = {f.id: f for f in base.files}
         head_files: dict[str, FileNode] = {f.id: f for f in head.files}
@@ -69,11 +70,27 @@ class ArchitectureDiffEngine:
             else:
                 apparent_removed.add(r_id)
 
-        # Detect renamed modules heuristic: matching filename and similar symbol overlap
         renamed: list[RenamedModule] = []
         confirmed_added: list[str] = []
         confirmed_removed: list[str] = sorted(apparent_removed)
 
+        # 1. First process Git-verified renames (from git diff -M)
+        if git_renames:
+            for old_p, new_p in git_renames.items():
+                if old_p in confirmed_removed and new_p in raw_added:
+                    renamed.append(
+                        RenamedModule(
+                            old_path=old_p,
+                            new_path=new_p,
+                            confidence=1.0,
+                            reason="Verified by Git history rename detection",
+                            is_verified_by_git=True,
+                        )
+                    )
+                    confirmed_removed.remove(old_p)
+                    raw_added.remove(new_p)
+
+        # 2. Heuristic rename detection for remaining additions/removals
         for a_id in sorted(raw_added):
             a_node = head_files[a_id]
             match_found = False
@@ -92,7 +109,8 @@ class ArchitectureDiffEngine:
                                 old_path=r_id,
                                 new_path=a_id,
                                 confidence=0.85 if sym_overlap > 0 else 0.70,
-                                reason=f"Identical basename '{a_node.name}' with matching language and {sym_overlap} shared symbol(s)",
+                                reason=f"Heuristic match: basename '{a_node.name}' with matching language and {sym_overlap} shared symbol(s)",
+                                is_verified_by_git=False,
                             )
                         )
                         confirmed_removed.remove(r_id)
@@ -245,13 +263,17 @@ class ArchitectureDiffEngine:
             summary_lines.append(f"Health Status: {b_hr.status} -> {h_hr.status}")
 
         if new_findings:
-            summary_lines.append(
-                f"New Architectural Violations ({len(new_findings)}): {', '.join(f.rule_id for f in new_findings[:3])}"
-            )
+            new_lines = []
+            for f in new_findings[:4]:
+                files_str = ", ".join(f.affected_files[:2])
+                new_lines.append(f"{f.rule_id} in [{files_str}]")
+            summary_lines.append(f"New Architectural Violations ({len(new_findings)}): {'; '.join(new_lines)}")
         if resolved_findings:
-            summary_lines.append(
-                f"Resolved Violations ({len(resolved_findings)}): {', '.join(f.rule_id for f in resolved_findings[:3])}"
-            )
+            res_lines = []
+            for f in resolved_findings[:4]:
+                files_str = ", ".join(f.affected_files[:2])
+                res_lines.append(f"{f.rule_id} in [{files_str}]")
+            summary_lines.append(f"Resolved Violations ({len(resolved_findings)}): {'; '.join(res_lines)}")
         if caveats:
             summary_lines.append(f"Coverage Caveats: {'; '.join(caveats)}")
 
