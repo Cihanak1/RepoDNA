@@ -19,6 +19,11 @@
     "exportError": "Dışa aktarma başarısız",
     "close": "Kapat",
     "reset": "Sıfırla",
+    "dismiss": "Kapat",
+    "none": "Yok",
+    "active": "Aktif",
+    "acyclic": "Döngüsüz",
+    "previousAnalysis": "Önceki analiz",
     "confidenceHigh": "Yüksek",
     "confidenceMedium": "Orta",
     "confidenceLow": "Düşük",
@@ -42,7 +47,9 @@
     "analyzeRepo": "Depoyu Analiz Et",
     "sourceLocal": "Yerel Dizin",
     "sourceGithub": "GitHub HTTPS",
-    "sourceDemo": "Demo Modu"
+    "sourceDemo": "Demo Modu",
+    "updatingAutomatically": "Tamamlandığında otomatik güncellenecek…",
+    "viewingPreviousSnapshot": "Tarama sürerken önceki anlık görüntü inceleniyor"
   },
   "launchpad": {
     "headline": "Projendeki dosyaların ve modüllerin nasıl birbirine bağlandığını keşfet.",
@@ -80,7 +87,11 @@
     "actionCycle": "Sıkı bağlantıları çözmek için graf üzerindeki döngüsel modülleri inceleyin.",
     "actionGod": "Bölünmesi gereken aşırı büyük modülleri Denetçi'de inceleyin.",
     "actionClean": "Mimari sağlıklı görünüyor. Modülleri keşfedin veya şeffaflık raporunu inceleyin.",
-    "actionLowCoverage": "Dil kapsamı kısmi. Döngüsel bağımlılıkların olmadığı kesin olarak söylenemez."
+    "actionLowCoverage": "Dil kapsamı kısmi. Döngüsel bağımlılıkların olmadığı kesin olarak söylenemez.",
+    "notEvaluatedLowAst": "Değerlendirilmedi (Düşük AST kapsamı)",
+    "acyclicZero": "0 döngü (Döngüsüz)",
+    "cyclesBreakdown": "{{cycles}} döngü ({{sccs}} SCC, {{modules}} modül)",
+    "gitNotAvailable": "N/A (Git geçmişi bulunamadı)"
   },
   "workspace": {
     "filesView": "Dosyalar",
@@ -153,6 +164,8 @@
     "symbolsHeading": "Tanımlı Semboller",
     "gitCommits": "Commit Sayısı",
     "gitChurn": "Değişim Skoru",
+    "comments": "yorum satırı",
+    "remediationHeading": "Çözüm Önerisi",
     "noCycles": "Bu dosya için herhangi bir döngüsel bağımlılık ihlali yok.",
     "noTriggeredRules": "Bu modül tarafından tetiklenen herhangi bir mimari kural ihlali yok."
   },
@@ -177,7 +190,103 @@
     "weight": "Ağırlık:",
     "pts": "puan",
     "deductionLabel": "Puan Kırılımı:",
-    "loading": "Mimari sağlık raporu yükleniyor…"
+    "loading": "Mimari sağlık raporu yükleniyor…",
+    "findingsHeading": "Önemli Bulgular ve Çözüm Planı",
+    "remediation": "Çözüm:",
+    "affectedModules": "Etkilenen modüller:",
+    "moreModules": "+{{count}} diğer",
+    "evaluationsHeading": "Kural Değerlendirmeleri ve Puan Kırılımları ({{triggered}} Tetiklendi, {{passed}} Geçti)",
+    "threshold": "Eşik Değer:",
+    "unverifiedRulesHeading": "Doğrulanamayan / Değerlendirilmeyen Kurallar ({{count}})",
+    "lowAstCoverage": "düşük AST kapsamı",
+    "issuesCount_one": "{{count}} bulgu",
+    "issuesCount_other": "{{count}} bulgu",
+    "noEvaluatedFindings": "Değerlendirilen kurallarda herhangi bir bulgu yok. AST kapsamı yetersiz olduğundan bağımlılık kuralları doğrulanamadı.",
+    "noEvaluatedFindingsGeneral": "Değerlendirilen kurallarda ihlal bulunamadı. Kapsam ve doğrulanamayan kuralları aşağıda inceleyin."
+  },
+  "rules": {
+    "ARCH-001": {
+      "title": "Döngüsel Bağımlılık İhlalleri (ADP)",
+      "remediation": "Ortak arayüz ve tipleri alt katmandaki bir modüle taşıyın veya karşılıklı içe aktarımı kırmak için Bağımlılık Tersine Çevirme (Dependency Inversion) uygulayın."
+    },
+    "ARCH-002": {
+      "title": "Aşırı Dışa Bağımlılık (Yüksek Fan-Out)",
+      "remediation": "Orkestratör modülleri odaklı alan servislerine veya cephe (facade) alt paketlerine bölerek doğrudan giden bağımlılıkları azaltın."
+    },
+    "ARCH-003": {
+      "title": "Kararlı Bağımlılıklar Prensibi (SDP) İhlali",
+      "remediation": "Soyut bir arayüz kullanarak bağımlılık yönünü tersine çevirin veya paylaşılan tipleri kararlı çekirdek katmana taşıyın."
+    },
+    "ARCH-004": {
+      "title": "Aşırı Büyük Modüller / God File Riski",
+      "remediation": "Büyük modülleri tekil sorumluluk sınırları boyunca daha küçük ve test edilebilir modüllere ayırın."
+    },
+    "ARCH-005": {
+      "title": "Yalıtılmış / Referans Verilmemiş Modüller",
+      "remediation": "Yalıtılmış modüllerin ölü kod, dinamik eklenti veya bağımsız betik olup olmadığını doğrulayın; kullanılmayan dosyaları temizleyin."
+    },
+    "ARCH-006": {
+      "title": "Aşırı Dizin Hiyerarşi Derinliği",
+      "remediation": "İç içe geçmiş derin paket dizinlerini düzleştirerek modül erişilebilirliğini artırın ve import yollarını kısaltın."
+    },
+    "SEC-001": {
+      "title": "Hassas Dosya veya Gizli Anahtar İfşası Riski",
+      "remediation": "Hassas dosyaları sürüm kontrolünden çıkarın, açığa çıkan kimlik bilgilerini derhal yenileyin ve yolları .gitignore dosyasına ekleyin."
+    }
+  },
+  "errors": {
+    "SCAN_CANCELLED": "Analiz kullanıcı tarafından iptal edildi.",
+    "SCAN_TIMEOUT": "Analiz zaman aşımına uğradı.",
+    "INTERNAL_SCAN_ERROR": "Analiz sırasında beklenmeyen bir hata oluştu.",
+    "JOB_NOT_FOUND": "Tarama işi bulunamadı.",
+    "ANALYSIS_NOT_FOUND": "Analiz kaydı bulunamadı.",
+    "RESULT_NOT_READY": "Analiz henüz tamamlanmadı. Lütfen bekleyin…",
+    "EMPTY_URL": "GitHub depo bağlantısı boş bırakılamaz.",
+    "INVALID_URL_CHARS": "Bağlantı adresi geçersiz karakterler içeriyor.",
+    "SSRF_IP_LITERAL": "Doğrudan IP adresleri güvenlik gereği engellenmiştir.",
+    "SSRF_LOCAL_HOST": "Yerel adresler ve iç ağ alan adları engellenmiştir.",
+    "EMPTY_PATH": "Dizin yolu boş bırakılamaz.",
+    "PATH_NOT_FOUND": "Belirtilen dizin yerel sistemde bulunamadı.",
+    "NOT_A_DIRECTORY": "Belirtilen hedef bir klasör değil.",
+    "SYSTEM_DIR_BLOCKED": "Sistem dizinlerinin taranması güvenlik gereği engellenmiştir.",
+    "FILESYSTEM_ROOT_BLOCKED": "Tüm disk kök dizininin taranması güvenlik gereği engellenmiştir.",
+    "SCAN_FAILED": "Analiz başarısız oldu. Lütfen dosya yolunu ve izinleri kontrol edin."
+  },
+  "palette": {
+    "searchPlaceholder": "Komut veya modül ara…",
+    "categoryNavigation": "Gezinme ve Eylemler",
+    "categoryGraph": "Graf Kontrolleri",
+    "categoryModules": "Proje Modülleri",
+    "actStudioTitle": "Mimari İnceleme Görünümüne Geç",
+    "actStudioSub": "Etkileşimli modül bağımlılık grafı ve denetçi paneli",
+    "actReportTitle": "Sağlık ve Şeffaflık Raporunu Aç",
+    "actReportSub": "Kural tabanlı mimari puan kırılımları, döngüler ve git analizi",
+    "actThemeTitle": "Karanlık / Aydınlık Temayı Değiştir",
+    "actThemeSub": "Tüm paneller ve tuval için renk temasını değiştir",
+    "actModeTitle": "Basit / İleri Düzey Çalışma Modunu Değiştir",
+    "actModeSub": "Şu an {{mode}} modunda. Bilişsel basitleştirmeyi aç/kapat.",
+    "actLangTitle": "Dili Değiştir (Türkçe / English)",
+    "actLangSub": "Şu an {{lang}}. Arayüz dilini değiştir.",
+    "actTourTitle": "RepoDNA Hızlı Başlangıç Rehberini Aç",
+    "actTourSub": "Depo analizine adım adım giriş rehberi",
+    "actDemoTitle": "Örnek Demo Veri Setini Yükle",
+    "actDemoSub": "Döngüler ve riskler içeren çok dilli örnek mimariyi incele",
+    "grpDirsTitle": "Grafı Dizin Paketlerine Göre Kümele (Düğümleri Daralt)",
+    "grpDirsSub": "Düğüm ve bağlantı sayısını azaltmak için dosyaları dizinlere göre topla",
+    "grpFilesTitle": "Grafı Tekil Dosya Modüllerine Genişlet",
+    "grpFilesSub": "Tüm tekil kaynak dosyaları ve doğrudan import bağlantılarını göster",
+    "layoutLayeredTitle": "Hiyerarşik Katmanlı Graf Düzenine Geç",
+    "layoutLayeredSub": "Üst düzey çağıranlardan alt yaprak modüllere doğru dikey akış",
+    "densityCompactTitle": "Graf Yoğunluğunu Kompakt Olarak Ayarla",
+    "densityCompactSub": "Ekranda daha fazla düğüm görebilmek için minimum boşluk",
+    "fltCyclesTitle": "Döngüsel Bağımlılık Filtresini Aç/Kapat (Yalnızca Döngüler)",
+    "fltCyclesSub": "Tarjan SCC bağımlılık döngülerine katılan modülleri izole et",
+    "fltResetTitle": "Tüm Graf ve Gezgin Filtrelerini Sıfırla",
+    "fltResetSub": "Arama, dil, döngü, merkez ve komşuluk filtrelerini temizle",
+    "expJsonTitle": "Makine Tarafından Okunabilir Analiz JSON'ı İndir",
+    "expJsonSub": "Tam bağımlılık grafı, SCC döngüleri ve sağlık bulguları dökümü",
+    "expHtmlTitle": "Bağımsız HTML Sağlık Raporu İndir",
+    "expHtmlSub": "Çözüm kanıtlarını içeren bağımsız mimari sağlık dokümanı"
   },
   "onboarding": {
     "title": "RepoDNA Hızlı Başlangıç Rehberi",
@@ -210,6 +319,6 @@
     "astCoverageTitle": "AST Dil Kapsamı",
     "astCoverageDesc": "Statik bağımlılıkların güvenilir tespiti için tam Tree-sitter sözdizim ağacı ile taranan kaynak kod oranı.",
     "confidenceTitle": "Güvenilirlik Seviyesi",
-    "confidenceDesc": "Dil desteği ve doğrulanmış analiz kapsamına göre belirlenen güven seviyesi. Kısmi kapsamlı depolarda dürüstçe bildirilir."
+    "confidenceDesc": "Doğruluk olasılığı değil; kodun ne kadarının Tree-sitter AST ile çözümlenebildiğini gösteren kapsam temelli bir değerlendirmedir. Kısmi dillerde dürüstçe Düşük veya Değerlendirilmedi olarak işaretlenir."
   }
 }

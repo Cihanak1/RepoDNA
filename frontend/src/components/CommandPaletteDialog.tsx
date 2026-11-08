@@ -42,7 +42,7 @@ interface CommandPaletteDialogProps {
 
 interface PaletteAction {
   id: string;
-  category: 'Navigation & Actions' | 'Graph Controls' | 'Repository Modules';
+  category: string;
   title: string;
   subtitle: string;
   icon: React.ReactNode;
@@ -69,7 +69,7 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
   onToggleLanguage,
   onOpenTour,
 }) => {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [recent, setRecent] = useState(() =>
@@ -134,12 +134,16 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
   }, [onClose]);
 
   const actions = useMemo<PaletteAction[]>(() => {
+    const navCategory = t('palette.categoryNavigation');
+    const graphCategory = t('palette.categoryGraph');
+    const modulesCategory = t('palette.categoryModules');
+
     const baseActions: PaletteAction[] = [
       {
         id: 'act-studio',
-        category: 'Navigation & Actions',
-        title: 'Switch to Architecture Studio View',
-        subtitle: 'Interactive module dependency graph and inspector',
+        category: navCategory,
+        title: t('palette.actStudioTitle'),
+        subtitle: t('palette.actStudioSub'),
         icon: <FileCode2 className="w-4 h-4 text-accent" aria-hidden="true" />,
         badge: 'View',
         onRun: () => {
@@ -149,9 +153,9 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
       },
       {
         id: 'act-report',
-        category: 'Navigation & Actions',
-        title: 'Open Health & Transparency Report',
-        subtitle: 'Rule-based architectural deductions, circular chains, and git churn',
+        category: navCategory,
+        title: t('palette.actReportTitle'),
+        subtitle: t('palette.actReportSub'),
         icon: <ShieldCheck className="w-4 h-4 text-success" aria-hidden="true" />,
         badge: 'View',
         onRun: () => {
@@ -161,9 +165,9 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
       },
       {
         id: 'act-theme',
-        category: 'Navigation & Actions',
-        title: 'Toggle Dark / Light Workstation Theme',
-        subtitle: 'Switch color scheme across all panels and canvas',
+        category: navCategory,
+        title: t('palette.actThemeTitle'),
+        subtitle: t('palette.actThemeSub'),
         icon: <Sun className="w-4 h-4 text-warning" aria-hidden="true" />,
         badge: 'Theme',
         onRun: () => {
@@ -173,9 +177,9 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
       },
       {
         id: 'act-mode',
-        category: 'Navigation & Actions',
-        title: 'Toggle Simple / Advanced Workstation Mode',
-        subtitle: `Currently in ${workstationMode} mode. Toggle cognitive simplification.`,
+        category: navCategory,
+        title: t('palette.actModeTitle'),
+        subtitle: t('palette.actModeSub', { mode: workstationMode }),
         icon: <Sliders className="w-4 h-4 text-accent" aria-hidden="true" />,
         badge: 'Mode',
         onRun: () => {
@@ -185,9 +189,11 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
       },
       {
         id: 'act-lang',
-        category: 'Navigation & Actions',
-        title: 'Switch Language (Türkçe / English)',
-        subtitle: `Currently ${i18n.language.startsWith('tr') ? 'Türkçe' : 'English'}. Toggle interface language.`,
+        category: navCategory,
+        title: t('palette.actLangTitle'),
+        subtitle: t('palette.actLangSub', {
+          lang: i18n.language.startsWith('tr') ? 'Türkçe' : 'English',
+        }),
         icon: <Languages className="w-4 h-4 text-accent" aria-hidden="true" />,
         badge: 'Lang',
         onRun: () => {
@@ -197,9 +203,9 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
       },
       {
         id: 'act-tour',
-        category: 'Navigation & Actions',
-        title: 'Open RepoDNA Quick Guide',
-        subtitle: 'Step-by-step introduction to repository analysis',
+        category: navCategory,
+        title: t('palette.actTourTitle'),
+        subtitle: t('palette.actTourSub'),
         icon: <Compass className="w-4 h-4 text-accent" aria-hidden="true" />,
         badge: 'Guide',
         onRun: () => {
@@ -209,9 +215,9 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
       },
       {
         id: 'act-demo',
-        category: 'Navigation & Actions',
-        title: 'Load Labeled Demo Showcase Dataset',
-        subtitle: 'Inspect multi-language sample architecture with cycles and hotspots',
+        category: navCategory,
+        title: t('palette.actDemoTitle'),
+        subtitle: t('palette.actDemoSub'),
         icon: <Sparkles className="w-4 h-4 text-warning" aria-hidden="true" />,
         badge: 'Scan',
         onRun: () => {
@@ -221,9 +227,9 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
       },
       {
         id: 'grp-dirs',
-        category: 'Graph Controls',
-        title: 'Group Graph by Directory Packages (Collapse Nodes)',
-        subtitle: 'Aggregate files by directory to reduce node and edge count',
+        category: graphCategory,
+        title: t('palette.grpDirsTitle'),
+        subtitle: t('palette.grpDirsSub'),
         icon: <FolderTree className="w-4 h-4 text-accent" aria-hidden="true" />,
         badge: 'Cluster',
         onRun: () => {
@@ -234,9 +240,9 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
       },
       {
         id: 'grp-files',
-        category: 'Graph Controls',
-        title: 'Expand Graph to Individual File Modules',
-        subtitle: 'Show all individual source files and direct import edges',
+        category: graphCategory,
+        title: t('palette.grpFilesTitle'),
+        subtitle: t('palette.grpFilesSub'),
         icon: <Layers className="w-4 h-4 text-accent" aria-hidden="true" />,
         badge: 'Modules',
         onRun: () => {
@@ -247,9 +253,9 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
       },
       {
         id: 'layout-layered',
-        category: 'Graph Controls',
-        title: 'Switch to Hierarchical Layered Graph Layout',
-        subtitle: 'Daguerre-style vertical flow showing top-level callers to bottom-level leaves',
+        category: graphCategory,
+        title: t('palette.layoutLayeredTitle'),
+        subtitle: t('palette.layoutLayeredSub'),
         icon: <Layers className="w-4 h-4 text-accent" aria-hidden="true" />,
         badge: 'Layout',
         onRun: () => {
@@ -260,9 +266,9 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
       },
       {
         id: 'density-compact',
-        category: 'Graph Controls',
-        title: 'Set Graph Density to Compact',
-        subtitle: 'Minimal spacing to view more nodes on screen',
+        category: graphCategory,
+        title: t('palette.densityCompactTitle'),
+        subtitle: t('palette.densityCompactSub'),
         icon: <SlidersHorizontal className="w-4 h-4 text-muted" aria-hidden="true" />,
         badge: 'Density',
         onRun: () => {
@@ -273,9 +279,9 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
       },
       {
         id: 'flt-cycles',
-        category: 'Graph Controls',
-        title: 'Toggle Circular Dependency Filter (Cycles Only)',
-        subtitle: 'Isolate modules participating in Tarjan SCC dependency cycles',
+        category: graphCategory,
+        title: t('palette.fltCyclesTitle'),
+        subtitle: t('palette.fltCyclesSub'),
         icon: <RefreshCcw className="w-4 h-4 text-danger" aria-hidden="true" />,
         badge: 'Filter',
         onRun: () => {
@@ -286,9 +292,9 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
       },
       {
         id: 'flt-reset',
-        category: 'Graph Controls',
-        title: 'Reset All Graph & Explorer Filters',
-        subtitle: 'Clear search, language, cycle, hub, and neighborhood filters',
+        category: graphCategory,
+        title: t('palette.fltResetTitle'),
+        subtitle: t('palette.fltResetSub'),
         icon: <RefreshCcw className="w-4 h-4 text-muted" aria-hidden="true" />,
         badge: 'Reset',
         onRun: () => {
@@ -298,9 +304,9 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
       },
       {
         id: 'exp-json',
-        category: 'Navigation & Actions',
-        title: 'Export Machine-Readable Analysis JSON',
-        subtitle: 'Full dependency graph, SCC cycles, and health findings dump',
+        category: navCategory,
+        title: t('palette.expJsonTitle'),
+        subtitle: t('palette.expJsonSub'),
         icon: <Download className="w-4 h-4 text-accent" aria-hidden="true" />,
         badge: 'Export',
         onRun: () => {
@@ -310,9 +316,9 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
       },
       {
         id: 'exp-html',
-        category: 'Navigation & Actions',
-        title: 'Export Standalone HTML Health Report',
-        subtitle: 'Self-contained architectural health document with remediation evidence',
+        category: navCategory,
+        title: t('palette.expHtmlTitle'),
+        subtitle: t('palette.expHtmlSub'),
         icon: <Download className="w-4 h-4 text-success" aria-hidden="true" />,
         badge: 'Export',
         onRun: () => {
@@ -324,7 +330,7 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
 
     const fileActions: PaletteAction[] = files.slice(0, 100).map((file) => ({
       id: `file-${file.id}`,
-      category: 'Repository Modules',
+      category: modulesCategory,
       title: file.id,
       subtitle: `${file.language} · ${file.lines_code} LOC · ${file.support_level}${
         file.in_cycle ? ' · IN CYCLE' : ''
@@ -363,6 +369,7 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
     onOpenTour,
     workstationMode,
     i18n.language,
+    t,
     onClose,
   ]);
 
@@ -455,11 +462,11 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
             aria-activedescendant={
               filteredActions[activeIndex] ? `command-option-${activeIndex}` : undefined
             }
-            aria-label="Search commands or modules"
+            aria-label={t('palette.searchPlaceholder')}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Type a command, action, or module path... (Esc to close)"
+            placeholder={t('palette.searchPlaceholder')}
             className="flex-1 bg-transparent border-0 text-sm font-medium text-ink placeholder:text-muted focus:outline-none"
           />
           {query && (

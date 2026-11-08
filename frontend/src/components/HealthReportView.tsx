@@ -186,8 +186,10 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
               </span>
               <span className="text-[11px] text-muted">
                 {cat.status === 'not_evaluated'
-                  ? 'low AST coverage'
-                  : `${cat.findings_count} issue${cat.findings_count === 1 ? '' : 's'}`}
+                  ? t('report.lowAstCoverage')
+                  : cat.findings_count === 1
+                  ? t('report.issuesCount_one', { count: 1 })
+                  : t('report.issuesCount_other', { count: cat.findings_count })}
               </span>
             </div>
             <div className="w-full h-1.5 rounded-full bg-canvas overflow-hidden mt-1">
@@ -211,7 +213,7 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
         <section aria-label="Key architectural findings" className="space-y-4">
           <h3 className="text-sm font-bold text-ink m-0 flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-accent" />
-            Key Findings &amp; Remediation Plan
+            {t('report.findingsHeading')}
           </h3>
 
           {hr.findings.length === 0 ? (
@@ -234,7 +236,7 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-xs font-bold text-ink">{fn.rule_id}</span>
-                      <span className="text-xs font-bold text-ink">{fn.title}</span>
+                      <span className="text-xs font-bold text-ink">{t(`rules.${fn.rule_id}.title`, fn.title)}</span>
                     </div>
                     <span
                       className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono border ${
@@ -248,11 +250,11 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
                   </div>
 
                   <p className="mt-2 text-xs text-ink leading-relaxed font-normal m-0">
-                    <strong>Remediation:</strong> {fn.remediation}
+                    <strong>{t('report.remediation')}</strong> {t(`rules.${fn.rule_id}.remediation`, fn.remediation)}
                   </p>
 
                   <div className="mt-2.5 pt-2 border-t border-line/40 flex flex-wrap items-center gap-2 text-[11px] text-muted">
-                    <span>Affected modules:</span>
+                    <span>{t('report.affectedModules')}</span>
                     {fn.affected_files.slice(0, 4).map((f) => (
                       <button
                         key={f}
@@ -264,7 +266,7 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
                       </button>
                     ))}
                     {fn.affected_files.length > 4 && (
-                      <span>+{fn.affected_files.length - 4} more</span>
+                      <span>{t('report.moreModules', { count: fn.affected_files.length - 4 })}</span>
                     )}
                   </div>
                 </div>
@@ -278,7 +280,10 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
       {activeReportTab === 'evidence' && (
         <section aria-labelledby="rules-report-heading" className="space-y-4">
           <h3 id="rules-report-heading" className="text-sm font-bold text-ink m-0">
-            Rule Evaluations &amp; Mathematical Deductions ({hr.findings.length} Triggered, {hr.passed_rules.length} Passed)
+            {t('report.evaluationsHeading', {
+              triggered: hr.findings.length,
+              passed: hr.passed_rules.length,
+            })}
           </h3>
 
           <div tabIndex={0} role="region" aria-labelledby="rules-report-heading" className="table-wrapper">
@@ -309,8 +314,8 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
                   <tr>
                     <td colSpan={5} className="p-6 text-center text-success font-medium">
                       {hr.dependency_graph_evaluated === false
-                        ? 'No findings from evaluated rules. Dependency rules remain unverified because AST coverage is insufficient.'
-                        : 'No findings in the evaluated rules. See coverage and unverified rules below.'}
+                        ? t('report.noEvaluatedFindings')
+                        : t('report.noEvaluatedFindingsGeneral')}
                     </td>
                   </tr>
                 ) : (
@@ -318,7 +323,7 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
                     <tr key={fn.rule_id} data-testid={`rule-card-${fn.rule_id}`} className="hover:bg-panel">
                       <th scope="row" className="p-3 text-left align-top font-semibold text-ink">
                         <div className="font-mono text-accent">{fn.rule_id}</div>
-                        <div>{fn.title}</div>
+                        <div>{t(`rules.${fn.rule_id}.title`, fn.title)}</div>
                       </th>
                       <td className="p-3 align-top">
                         <span
@@ -341,7 +346,7 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
                           {fn.formula_explanation}
                         </div>
                         <div className="text-[11px] text-muted">
-                          <strong>Threshold:</strong> {fn.threshold_description}
+                          <strong>{t('report.threshold')}</strong> {fn.threshold_description}
                         </div>
                         <ul role="list" className="m-0 pl-4 space-y-0.5 text-[11px] font-mono text-muted">
                           {fn.evidence.slice(0, 5).map((ev, i) => (
@@ -350,7 +355,7 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
                         </ul>
                       </td>
                       <td className="p-3 align-top text-muted leading-relaxed max-w-xs">
-                        {fn.remediation}
+                        {t(`rules.${fn.rule_id}.remediation`, fn.remediation)}
                       </td>
                     </tr>
                   ))
@@ -382,7 +387,7 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
             >
               <div className="font-semibold text-warning mb-1.5 flex items-center gap-1.5">
                 <AlertTriangle className="w-4 h-4 text-warning" aria-hidden="true" />
-                Unverified / Not Evaluated Rules ({hr.unverified_rules!.length})
+                {t('report.unverifiedRulesHeading', { count: hr.unverified_rules!.length })}
               </div>
               <ul role="list" className="m-0 pl-5 space-y-1 text-muted">
                 {hr.unverified_rules!.map((ur) => (

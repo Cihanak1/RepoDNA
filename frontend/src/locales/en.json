@@ -19,6 +19,11 @@
     "exportError": "Export failed",
     "close": "Close",
     "reset": "Reset",
+    "dismiss": "Dismiss",
+    "none": "None",
+    "active": "Active",
+    "acyclic": "Acyclic",
+    "previousAnalysis": "Previous analysis",
     "confidenceHigh": "High",
     "confidenceMedium": "Medium",
     "confidenceLow": "Low",
@@ -42,7 +47,9 @@
     "analyzeRepo": "Analyze Repository",
     "sourceLocal": "Local Folder",
     "sourceGithub": "GitHub HTTPS",
-    "sourceDemo": "Demo Dataset"
+    "sourceDemo": "Demo Dataset",
+    "updatingAutomatically": "Updating automatically when complete…",
+    "viewingPreviousSnapshot": "Viewing previous snapshot while scanning"
   },
   "launchpad": {
     "headline": "Understand how your project's files and modules connect.",
@@ -80,7 +87,11 @@
     "actionCycle": "Inspect circular dependency cycles in the graph to break tight coupling.",
     "actionGod": "Examine large oversized files in the Inspector to plan cohesive refactoring.",
     "actionClean": "Architecture is healthy. Explore modules or review the transparency report.",
-    "actionLowCoverage": "Language coverage is partial. Dependency cycles cannot be ruled out."
+    "actionLowCoverage": "Language coverage is partial. Dependency cycles cannot be ruled out.",
+    "notEvaluatedLowAst": "Not evaluated (Low AST coverage)",
+    "acyclicZero": "0 cycles (Acyclic)",
+    "cyclesBreakdown": "{{cycles}} cycles ({{sccs}} SCCs, {{modules}} modules)",
+    "gitNotAvailable": "N/A (Git not available)"
   },
   "workspace": {
     "filesView": "Files",
@@ -153,6 +164,8 @@
     "symbolsHeading": "Declared Symbols",
     "gitCommits": "Commits",
     "gitChurn": "Churn Score",
+    "comments": "comments",
+    "remediationHeading": "Remediation",
     "noCycles": "No circular dependency violations for this file.",
     "noTriggeredRules": "No health rule violations triggered by this module."
   },
@@ -177,7 +190,103 @@
     "weight": "Weight:",
     "pts": "pts",
     "deductionLabel": "Deduction:",
-    "loading": "Loading health report…"
+    "loading": "Loading health report…",
+    "findingsHeading": "Key Findings & Remediation Plan",
+    "remediation": "Remediation:",
+    "affectedModules": "Affected modules:",
+    "moreModules": "+{{count}} more",
+    "evaluationsHeading": "Rule Evaluations & Mathematical Deductions ({{triggered}} Triggered, {{passed}} Passed)",
+    "threshold": "Threshold:",
+    "unverifiedRulesHeading": "Unverified / Not Evaluated Rules ({{count}})",
+    "lowAstCoverage": "low AST coverage",
+    "issuesCount_one": "{{count}} issue",
+    "issuesCount_other": "{{count}} issues",
+    "noEvaluatedFindings": "No findings from evaluated rules. Dependency rules remain unverified because AST coverage is insufficient.",
+    "noEvaluatedFindingsGeneral": "No findings in the evaluated rules. See coverage and unverified rules below."
+  },
+  "rules": {
+    "ARCH-001": {
+      "title": "Circular Dependency Violations (ADP)",
+      "remediation": "Extract shared contracts/interfaces into a lower-level module or apply Dependency Inversion to break mutual imports."
+    },
+    "ARCH-002": {
+      "title": "Excessive Efferent Coupling (High Fan-Out)",
+      "remediation": "Decompose orchestrator modules into focused domain services or facade sub-packages to reduce direct fan-out."
+    },
+    "ARCH-003": {
+      "title": "Stable Dependencies Principle (SDP) Inversion",
+      "remediation": "Invert the dependency using an abstract interface or move shared types into the stable core layer."
+    },
+    "ARCH-004": {
+      "title": "Oversized Modules / God File Risk",
+      "remediation": "Split large modules along cohesive responsibility boundaries into smaller, testable modules."
+    },
+    "ARCH-005": {
+      "title": "Isolated / Potentially Unreferenced Modules",
+      "remediation": "Verify whether isolated modules are dead code, dynamically loaded plugins, or standalone scripts, and remove unused files."
+    },
+    "ARCH-006": {
+      "title": "Excessive Directory Hierarchy Depth",
+      "remediation": "Flatten deeply nested package directories to improve discoverability and shorten import paths."
+    },
+    "SEC-001": {
+      "title": "Potential Secret or Sensitive File Exposure",
+      "remediation": "Remove sensitive files from version control, rotate any exposed credentials immediately, and add patterns to .gitignore."
+    }
+  },
+  "errors": {
+    "SCAN_CANCELLED": "Analysis was cancelled by the user.",
+    "SCAN_TIMEOUT": "Analysis timed out before completion.",
+    "INTERNAL_SCAN_ERROR": "An unexpected error occurred during analysis.",
+    "JOB_NOT_FOUND": "Analysis job not found.",
+    "ANALYSIS_NOT_FOUND": "Analysis snapshot not found.",
+    "RESULT_NOT_READY": "Analysis is still processing. Please wait…",
+    "EMPTY_URL": "GitHub repository URL cannot be empty.",
+    "INVALID_URL_CHARS": "URL contains disallowed characters.",
+    "SSRF_IP_LITERAL": "Direct IP addresses are blocked to prevent SSRF.",
+    "SSRF_LOCAL_HOST": "Localhost and internal domain names are blocked.",
+    "EMPTY_PATH": "Directory path cannot be empty.",
+    "PATH_NOT_FOUND": "Directory not found on local machine.",
+    "NOT_A_DIRECTORY": "Target path is not a directory.",
+    "SYSTEM_DIR_BLOCKED": "Scanning system directories is forbidden.",
+    "FILESYSTEM_ROOT_BLOCKED": "Scanning an entire filesystem root is blocked.",
+    "SCAN_FAILED": "Analysis failed. Please check repository path and permissions."
+  },
+  "palette": {
+    "searchPlaceholder": "Search commands or modules…",
+    "categoryNavigation": "Navigation & Actions",
+    "categoryGraph": "Graph Controls",
+    "categoryModules": "Repository Modules",
+    "actStudioTitle": "Switch to Architecture Studio View",
+    "actStudioSub": "Interactive module dependency graph and inspector",
+    "actReportTitle": "Open Health & Transparency Report",
+    "actReportSub": "Rule-based architectural deductions, circular chains, and git churn",
+    "actThemeTitle": "Toggle Dark / Light Workstation Theme",
+    "actThemeSub": "Switch color scheme across all panels and canvas",
+    "actModeTitle": "Toggle Simple / Advanced Workstation Mode",
+    "actModeSub": "Currently in {{mode}} mode. Toggle cognitive simplification.",
+    "actLangTitle": "Switch Language (Türkçe / English)",
+    "actLangSub": "Currently {{lang}}. Toggle interface language.",
+    "actTourTitle": "Open RepoDNA Quick Guide",
+    "actTourSub": "Step-by-step introduction to repository analysis",
+    "actDemoTitle": "Load Labeled Demo Showcase Dataset",
+    "actDemoSub": "Inspect multi-language sample architecture with cycles and hotspots",
+    "grpDirsTitle": "Group Graph by Directory Packages (Collapse Nodes)",
+    "grpDirsSub": "Aggregate files by directory to reduce node and edge count",
+    "grpFilesTitle": "Expand Graph to Individual File Modules",
+    "grpFilesSub": "Show all individual source files and direct import edges",
+    "layoutLayeredTitle": "Switch to Hierarchical Layered Graph Layout",
+    "layoutLayeredSub": "Daguerre-style vertical flow showing top-level callers to bottom-level leaves",
+    "densityCompactTitle": "Set Graph Density to Compact",
+    "densityCompactSub": "Minimal spacing to view more nodes on screen",
+    "fltCyclesTitle": "Toggle Circular Dependency Filter (Cycles Only)",
+    "fltCyclesSub": "Isolate modules participating in Tarjan SCC dependency cycles",
+    "fltResetTitle": "Reset All Graph & Explorer Filters",
+    "fltResetSub": "Clear search, language, cycle, hub, and neighborhood filters",
+    "expJsonTitle": "Export Machine-Readable Analysis JSON",
+    "expJsonSub": "Full dependency graph, SCC cycles, and health findings dump",
+    "expHtmlTitle": "Export Standalone HTML Health Report",
+    "expHtmlSub": "Self-contained architectural health document with remediation evidence"
   },
   "onboarding": {
     "title": "RepoDNA Quick Guide",
@@ -210,6 +319,6 @@
     "astCoverageTitle": "AST Language Coverage",
     "astCoverageDesc": "Percentage of source code parsed with Tree-sitter abstract syntax trees for verified static dependency extraction.",
     "confidenceTitle": "Confidence Level",
-    "confidenceDesc": "Confidence rating based on language support and verified coverage. Repositories with partial coverage are flagged honestly."
+    "confidenceDesc": "A coverage-based assessment reflecting how completely imports and syntax could be resolved via Tree-sitter AST, not an empirical accuracy probability. Repositories with partial language support are honestly rated Low or Unverified."
   }
 }

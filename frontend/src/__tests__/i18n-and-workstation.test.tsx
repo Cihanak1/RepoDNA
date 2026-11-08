@@ -88,4 +88,60 @@ describe('i18n and Localization Integrity', () => {
     );
     expect(fallbackMode).toBe('simple');
   });
+
+  it('verifies deterministic ARCH-001..ARCH-006 and SEC-001 health rules parity in both locales', () => {
+    const requiredRules = [
+      'ARCH-001',
+      'ARCH-002',
+      'ARCH-003',
+      'ARCH-004',
+      'ARCH-005',
+      'ARCH-006',
+      'SEC-001',
+    ] as const;
+
+    for (const ruleId of requiredRules) {
+      const enRule = en.rules[ruleId];
+      const trRule = tr.rules[ruleId];
+
+      expect(enRule, `EN missing rule ${ruleId}`).toBeDefined();
+      expect(trRule, `TR missing rule ${ruleId}`).toBeDefined();
+      expect(enRule.title.length).toBeGreaterThan(5);
+      expect(trRule.title.length).toBeGreaterThan(5);
+      expect(enRule.remediation.length).toBeGreaterThan(15);
+      expect(trRule.remediation.length).toBeGreaterThan(15);
+    }
+  });
+
+  it('verifies backend error codes are mapped in both locales', () => {
+    const requiredErrors = [
+      'SCAN_CANCELLED',
+      'SCAN_TIMEOUT',
+      'INTERNAL_SCAN_ERROR',
+      'JOB_NOT_FOUND',
+      'ANALYSIS_NOT_FOUND',
+      'RESULT_NOT_READY',
+      'EMPTY_URL',
+      'INVALID_URL_CHARS',
+      'SSRF_IP_LITERAL',
+      'SSRF_LOCAL_HOST',
+      'EMPTY_PATH',
+      'PATH_NOT_FOUND',
+      'NOT_A_DIRECTORY',
+      'SYSTEM_DIR_BLOCKED',
+      'FILESYSTEM_ROOT_BLOCKED',
+      'SCAN_FAILED',
+    ] as const;
+
+    for (const errCode of requiredErrors) {
+      expect(en.errors[errCode], `EN missing error ${errCode}`).toBeDefined();
+      expect(tr.errors[errCode], `TR missing error ${errCode}`).toBeDefined();
+    }
+  });
+
+  it('verifies confidence explanation reflects coverage-based proxy rather than empirical probability', () => {
+    expect(en.help.confidenceDesc).toContain('coverage-based');
+    expect(en.help.confidenceDesc).not.toContain('accuracy percentage');
+    expect(tr.help.confidenceDesc).toContain('kapsam temelli');
+  });
 });

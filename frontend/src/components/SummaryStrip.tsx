@@ -98,7 +98,7 @@ export const SummaryStrip: React.FC<SummaryStripProps> = ({
           </div>
           {hr.confidence && hr.confidence !== 'none' && (
             <div className="text-[11px] text-muted mt-0.5">
-              Confidence:{' '}
+              {t('report.confidenceLabel')}{' '}
               <span
                 data-testid="summary-health-confidence"
                 className={
@@ -151,21 +151,29 @@ export const SummaryStrip: React.FC<SummaryStripProps> = ({
           <div className="min-w-0 pr-1">
             <div className="text-[11px] tracking-wide text-muted font-semibold flex items-center gap-1">
               <span>{t('summary.circularDeps')}</span>
-              {cyclesOnly && <span className="text-[10px] text-accent font-bold uppercase">(Active)</span>}
+              {cyclesOnly && (
+                <span className="text-[10px] text-accent font-bold uppercase">
+                  ({t('common.active')})
+                </span>
+              )}
             </div>
             <div className="text-sm font-bold mt-0.5 truncate">
               {isLowCoverage ? (
                 <span data-testid="summary-cycle-count" className="text-warning text-xs font-semibold">
-                  Not evaluated (Low AST coverage)
+                  {t('summary.notEvaluatedLowAst')}
                 </span>
               ) : hasCycles ? (
                 <span data-testid="summary-cycle-count" className="text-danger font-mono">
-                  {result.cycles.length} cycles ({gm.scc_count} SCCs, {gm.nodes_in_cycles} modules)
+                  {t('summary.cyclesBreakdown', {
+                    cycles: result.cycles.length,
+                    sccs: gm.scc_count,
+                    modules: gm.nodes_in_cycles,
+                  })}
                 </span>
               ) : (
                 <span data-testid="summary-cycle-count" className="text-success text-xs font-semibold flex items-center gap-1">
                   <CheckCircle2 className="w-3.5 h-3.5 text-success" />
-                  0 cycles (Acyclic)
+                  {t('summary.acyclicZero')}
                 </span>
               )}
             </div>
@@ -225,20 +233,28 @@ export const SummaryStrip: React.FC<SummaryStripProps> = ({
             <div>
               <div className="text-[11px] tracking-wide text-muted font-semibold flex items-center gap-1">
                 <span>{t('summary.circularDeps')}</span>
-                {cyclesOnly && <span className="text-[10px] text-accent font-bold uppercase">(Active)</span>}
+                {cyclesOnly && (
+                  <span className="text-[10px] text-accent font-bold uppercase">
+                    ({t('common.active')})
+                  </span>
+                )}
               </div>
               <div className="text-sm font-bold mt-0.5 font-mono">
                 {isLowCoverage ? (
                   <span data-testid="summary-cycle-count" className="text-warning text-xs font-sans font-semibold">
-                    Not evaluated (Low AST coverage)
+                    {t('summary.notEvaluatedLowAst')}
                   </span>
                 ) : result.cycles.length > 0 ? (
                   <span data-testid="summary-cycle-count" className="text-danger">
-                    {result.cycles.length} cycles ({gm.scc_count} SCCs, {gm.nodes_in_cycles} modules)
+                    {t('summary.cyclesBreakdown', {
+                      cycles: result.cycles.length,
+                      sccs: gm.scc_count,
+                      modules: gm.nodes_in_cycles,
+                    })}
                   </span>
                 ) : (
                   <span data-testid="summary-cycle-count" className="text-success text-xs font-sans font-semibold">
-                    0 cycles (Acyclic)
+                    {t('summary.acyclicZero')}
                   </span>
                 )}
               </div>
@@ -285,7 +301,7 @@ export const SummaryStrip: React.FC<SummaryStripProps> = ({
                     <span className="text-warning">{result.git_insights.hotspots.length} {t('summary.hotspots')}</span>
                   </>
                 ) : (
-                  <span className="text-muted font-sans font-normal">N/A (Git not available)</span>
+                  <span className="text-muted font-sans font-normal">{t('summary.gitNotAvailable')}</span>
                 )}
               </div>
             </div>

@@ -397,7 +397,8 @@ export const App: React.FC = () => {
           <div className="flex items-center gap-2">
             <AlertCircle className="w-4 h-4 text-danger shrink-0" aria-hidden="true" />
             <span>
-              <strong className="font-mono">[{errorBanner.code}]</strong> {errorBanner.message}
+              <strong className="font-mono">[{errorBanner.code}]</strong>{' '}
+              {t(`errors.${errorBanner.code}`, errorBanner.message)}
             </span>
           </div>
           <button
@@ -405,7 +406,7 @@ export const App: React.FC = () => {
             onClick={() => setErrorBanner(null)}
             className="px-2 py-0.5 rounded bg-danger-solid hover:bg-danger-solid text-white text-[11px] cursor-pointer"
           >
-            Dismiss
+            {t('common.dismiss')}
           </button>
         </div>
       )}
@@ -418,16 +419,16 @@ export const App: React.FC = () => {
         >
           <div>
             <strong className="tracking-wide font-bold text-warning mr-2">
-              Previous analysis ({result.repo_name})
+              {t('common.previousAnalysis')} ({result.repo_name})
             </strong>
             <span>
-              Viewing previous snapshot while scanning{' '}
+              {t('header.viewingPreviousSnapshot')}{' '}
               <code className="font-mono text-warning">{scanningTargetLabel}</code> &mdash;{' '}
               {activeJob.phase_message} ({activeJob.progress_percent.toFixed(0)}%)
             </span>
           </div>
           <span className="text-[11px] font-mono text-warning shrink-0">
-            Updating automatically when complete...
+            {t('header.updatingAutomatically')}
           </span>
         </div>
       )}

@@ -171,7 +171,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
         <div className="text-[11px] text-muted flex items-center gap-2 mt-2">
           <span>{selectedFile.lines_code.toLocaleString()} LOC</span>
           <span>&bull;</span>
-          <span>{selectedFile.lines_comment} comments</span>
+          <span>{selectedFile.lines_comment} {t('inspector.comments')}</span>
           <span>&bull;</span>
           <span>{(selectedFile.size_bytes / 1024).toFixed(1)} KB</span>
         </div>
@@ -258,13 +258,13 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                 }`}
               >
                 <div className="flex items-center justify-between font-bold">
-                  <span>{finding.rule_id}: {finding.title}</span>
+                  <span>{finding.rule_id}: {t(`rules.${finding.rule_id}.title`, finding.title)}</span>
                   <span className="uppercase text-[10px] px-1.5 py-0.5 rounded bg-panel font-mono border">
                     {finding.severity}
                   </span>
                 </div>
                 <p className="mt-1 text-ink leading-relaxed m-0 text-xs">
-                  {finding.remediation}
+                  {t(`rules.${finding.rule_id}.remediation`, finding.remediation)}
                 </p>
               </div>
             ))}
@@ -278,7 +278,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
             {t('inspector.directImportsHeading')} ({selectedFile.imports_internal.length})
           </h3>
           {selectedFile.imports_internal.length === 0 ? (
-            <p className="text-[11px] text-muted m-0 italic">None</p>
+            <p className="text-[11px] text-muted m-0 italic">{t('common.none')}</p>
           ) : (
             <div className="flex flex-col gap-1 max-h-32 overflow-y-auto">
               {selectedFile.imports_internal.map((targetId) => (
@@ -331,7 +331,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
                   {t('inspector.gitCommits')}
                 </span>
                 <span className="font-mono text-ink font-semibold">
-                  {selectedFile.git_commits} commits
+                  {selectedFile.git_commits} {t('summary.commits')}
                 </span>
               </div>
             )}
