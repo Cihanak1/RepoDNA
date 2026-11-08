@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import io
 import json
+import re
+import sys
 import tarfile
+import tomllib
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from repodna.cli.installer import AgentInstaller, run_doctor
+from repodna.cli.main import main as cli_main
 from repodna.context.builder import AgentContextBuilder
 from repodna.core.analyzer import run_repository_analysis
 from repodna.diff.engine import ArchitectureDiffEngine
@@ -197,8 +202,6 @@ def test_agent_installer_workflow(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_official_mcp_sdk_client_integration() -> None:
     """Verifies end-to-end communication using official Python MCP SDK client over stdio."""
-    import sys
-
     from mcp.client.session import ClientSession
     from mcp.client.stdio import StdioServerParameters, stdio_client
 
@@ -316,7 +319,7 @@ def test_security_config_backup_and_preservation(tmp_path: Path) -> None:
     # Pre-create an existing agent MCP config
     agents_dir = tmp_path / ".agents"
     agents_dir.mkdir(parents=True)
-    mcp_file = agents_dir / "mcp.json"
+    mcp_file = agents_dir / "mcp_config.json"
     original_config = {
         "mcpServers": {
             "custom_tool": {"command": "custom_binary", "args": ["--run"]}
@@ -329,7 +332,7 @@ def test_security_config_backup_and_preservation(tmp_path: Path) -> None:
     assert res["status"] == "success"
 
     # Backup file must exist and contain the original user settings
-    bak_file = agents_dir / "mcp.json.bak"
+    bak_file = agents_dir / "mcp_config.json.bak"
     assert bak_file.exists()
     bak_content = json.loads(bak_file.read_text(encoding="utf-8"))
     assert "custom_tool" in bak_content["mcpServers"]
@@ -399,4 +402,177 @@ def test_security_corrupted_mcp_requests() -> None:
     # 5. Invalid tool arguments type
     resp5 = server.call_tool("repodna_find_modules", "invalid string instead of dict")  # type: ignore[arg-type]
     assert resp5.get("isError") is True
+
+
+def test_codex_installer_toml_lifecycle(tmp_path: Path) -> None:
+    """Verifies that Codex installer uses config.toml under [mcp_servers.repodna] and preserves existing TOML."""
+    # 1. Pre-create existing config.toml with other servers and settings
+    codex_dir = tmp_path / ".codex"
+    codex_dir.mkdir(parents=True)
+    initial_toml = (
+        'model = "gpt-5"\n\n'
+        "[mcp_servers.other_server]\n"
+        'command = "other_bin"\n'
+        'args = ["--start"]\n'
+    )
+    config_file = codex_dir / "config.toml"
+    config_file.write_text(initial_toml, encoding="utf-8")
+
+    installer = AgentInstaller(agent="codex", scope="project", dry_run=False, repo_root=tmp_path)
+
+    # 2. Install
+    res = installer.install()
+    assert res["status"] == "success"
+
+    # Backup was created
+    bak_file = codex_dir / "config.toml.bak"
+    assert bak_file.exists()
+    assert "[mcp_servers.other_server]" in bak_file.read_text(encoding="utf-8")
+
+    # Config has both other_server and repodna
+    updated = tomllib.loads(config_file.read_text(encoding="utf-8"))
+    assert "other_server" in updated["mcp_servers"]
+    assert "repodna" in updated["mcp_servers"]
+    assert updated["mcp_servers"]["repodna"]["args"] == ["-m", "repodna.mcp"]
+    assert str(tmp_path) in updated["mcp_servers"]["repodna"]["cwd"]
+
+    # Skill was installed
+    assert (codex_dir / "skills" / "repodna" / "SKILL.md").exists()
+
+    # 3. Uninstall
+    uninst = installer.uninstall()
+    assert uninst["status"] == "uninstalled"
+    uninst_text = config_file.read_text(encoding="utf-8")
+    assert "[mcp_servers.repodna]" not in uninst_text
+    # other_server must remain intact!
+    assert "[mcp_servers.other_server]" in uninst_text
+    assert not (codex_dir / "skills" / "repodna").exists()
+
+
+def test_antigravity_installer_json_lifecycle(tmp_path: Path) -> None:
+    """Verifies that Antigravity installer uses .agents/mcp_config.json and preserves existing servers."""
+    agents_dir = tmp_path / ".agents"
+    agents_dir.mkdir(parents=True)
+    initial_json = {
+        "mcpServers": {
+            "existing_tool": {"command": "tool_exec", "args": []}
+        }
+    }
+    mcp_config_file = agents_dir / "mcp_config.json"
+    mcp_config_file.write_text(json.dumps(initial_json, indent=2), encoding="utf-8")
+
+    installer = AgentInstaller(agent="antigravity", scope="project", dry_run=False, repo_root=tmp_path)
+    res = installer.install()
+    assert res["status"] == "success"
+
+    # Verify backup
+    bak_file = agents_dir / "mcp_config.json.bak"
+    assert bak_file.exists()
+
+    # Verify content
+    data = json.loads(mcp_config_file.read_text(encoding="utf-8"))
+    assert "existing_tool" in data["mcpServers"]
+    assert "repodna" in data["mcpServers"]
+    assert data["mcpServers"]["repodna"]["args"] == ["-m", "repodna.mcp"]
+
+    # Verify skill
+    assert (agents_dir / "skills" / "repodna" / "SKILL.md").exists()
+
+    # Uninstall
+    uninst = installer.uninstall()
+    assert uninst["status"] == "uninstalled"
+    after_uninst = json.loads(mcp_config_file.read_text(encoding="utf-8"))
+    assert "repodna" not in after_uninst["mcpServers"]
+    assert "existing_tool" in after_uninst["mcpServers"]
+
+
+def test_installer_verify_live_connection_and_not_ready_on_fake_config(tmp_path: Path) -> None:
+    """Verifies that verify() tests live MCP execution and does NOT report READY when command is broken."""
+    agents_dir = tmp_path / ".agents"
+    agents_dir.mkdir(parents=True)
+    mcp_config_file = agents_dir / "mcp_config.json"
+    # Point to a broken/fake binary
+    broken_json = {
+        "mcpServers": {
+            "repodna": {"command": "non_existent_fake_python_binary_99999", "args": ["-m", "repodna.mcp"]}
+        }
+    }
+    mcp_config_file.write_text(json.dumps(broken_json, indent=2), encoding="utf-8")
+
+    # Install skill so skill_installed is True
+    skill_dir = agents_dir / "skills" / "repodna"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("# Test Skill", encoding="utf-8")
+
+    installer = AgentInstaller(agent="antigravity", scope="project", dry_run=False, repo_root=tmp_path)
+    v = installer.verify()
+    ag_v = v["antigravity"]
+    assert ag_v["skill_installed"] is True
+    assert ag_v["mcp_configured"] is True
+    # Live connection must fail!
+    assert ag_v["mcp_connected"] is False
+    # Integration status must NOT be READY!
+    assert ag_v["integration_status"] != "READY"
+    assert "ERROR" in ag_v["integration_status"]
+
+
+def test_skill_examples_automated_validation() -> None:
+    """Automated test validating all tool calls and CLI fallback commands documented in SKILL.md and workflows.md."""
+    skill_path = Path("integrations/agent-skills/repodna/SKILL.md")
+    workflows_path = Path("integrations/agent-skills/repodna/examples/workflows.md")
+    assert skill_path.exists()
+    assert workflows_path.exists()
+
+    server = RepoDNAMCPServer()
+    registered_tools = {t["name"] for t in server.get_tools_list()}
+
+    # 1. Validate all documented tool calls
+    for doc in [skill_path, workflows_path]:
+        text = doc.read_text(encoding="utf-8")
+        # Find calls like repodna_find_modules(target=".", query="auth login")
+        calls = re.findall(r"`(repodna_[a-z_]+)\(([^)]*)\)`", text)
+        assert len(calls) >= 5, f"Expected at least 5 documented tool calls in {doc}"
+
+        for tool_name, _raw_args in calls:
+            # Must be registered or supported alias
+            assert tool_name in registered_tools or tool_name in (
+                "repodna_module_findings",
+                "repodna_module_dependencies",
+                "repodna_architecture_findings",
+                "repodna_dependencies",
+                "repodna_analysis_coverage",
+            ), f"Unknown tool '{tool_name}' documented in {doc}"
+
+            # Execute tool with demo target (or local repo for diff) to ensure no runtime crashes
+            target_arg = "." if tool_name == "repodna_architecture_diff" else "demo"
+            call_args: dict[str, Any] = {"target": target_arg}
+            if tool_name == "repodna_change_impact":
+                call_args["changed_files"] = ["backend/repodna/core/analyzer.py"] if target_arg == "." else ["service.py"]
+            res = server.call_tool(tool_name, call_args)
+            assert not res.get("isError"), f"Tool call {tool_name} failed: {res}"
+
+    # 2. Validate documented CLI fallback commands
+    cli_test_commands = [
+        ["context", "--target", "demo", "--mode", "compact"],
+        ["context", "--target", "demo", "--mode", "focused", "--query", "service"],
+        ["context", "--target", "demo", "--mode", "deep", "--max-tokens", "1000"],
+        ["analyze", "demo", "--format", "json"],
+        ["doctor"],
+    ]
+    for cmd in cli_test_commands:
+        ret = cli_main(cmd)
+        assert ret == 0, f"Documented CLI command 'repodna {' '.join(cmd)}' failed with exit code {ret}"
+
+
+def test_official_mcp_sdk_required_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verifies that server.run() raises an explicit RuntimeError if official MCP SDK is missing."""
+    import repodna.mcp.server as srv_mod
+    monkeypatch.setattr(srv_mod, "HAS_OFFICIAL_MCP", False)
+
+    server = RepoDNAMCPServer()
+    with pytest.raises(RuntimeError) as exc_info:
+        server.run(transport="stdio")
+
+    assert "requires the official Python Model Context Protocol SDK" in str(exc_info.value)
+
 
