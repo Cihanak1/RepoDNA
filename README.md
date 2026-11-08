@@ -1,7 +1,7 @@
 # RepoDNA — Developer Repository Intelligence Platform
 
 [![CI](https://github.com/Cihanak1/RepoDNA/actions/workflows/ci.yml/badge.svg)](https://github.com/Cihanak1/RepoDNA/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.1.1-38bdf8)](https://github.com/Cihanak1/RepoDNA/releases)
+[![Release](https://img.shields.io/badge/release-v0.2.0-38bdf8)](https://github.com/Cihanak1/RepoDNA/releases)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776ab?logo=python&logoColor=white)](https://www.python.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-10b981.svg)](./LICENSE)
@@ -16,13 +16,27 @@ Built for software architects, staff engineers, and open-source maintainers, Rep
 
 | Architecture Studio (Dark Theme) | Architecture Studio (Light Theme) |
 | :---: | :---: |
-| ![Architecture Studio Dark](./docs/screenshots/repodna-studio-dark.png) | ![Architecture Studio Light](./docs/screenshots/repodna-studio-light.png) |
+| ![Architecture Studio Dark](./docs/design/after/studio-dark.png) | ![Architecture Studio Light](./docs/design/after/studio-light.png) |
 
 | Command Palette (`Ctrl+K`) | Explainable Health & Transparency Report | Responsive Mobile View |
 | :---: | :---: | :---: |
-| ![Command Palette](./docs/screenshots/repodna-command-palette.png) | ![Health Report](./docs/screenshots/repodna-health-report.png) | ![Mobile Responsive](./docs/screenshots/repodna-mobile.png) |
+| ![Command Palette](./docs/design/after/commands.png) | ![Health Report](./docs/design/after/report.png) | ![Mobile Responsive](./docs/design/after/viewport-390.png) |
 
 ---
+
+## Precision Engineering Workstation
+
+The current workspace adds resizable Explorer and Inspector panels, a canvas focus mode,
+persistent panel widths and graph preferences, package coverage summaries, and a command
+palette with recent commands. Mobile and tablet use Files / Canvas / Inspector navigation.
+
+Use **Ctrl/Cmd+K** for commands, **/** for file search, **Alt+F** for canvas focus,
+**Alt+I** for the inspector, and **Escape** to leave focus or a dialog. Panel separators
+support dragging, arrow keys, Home and End. Select a node and use **Zoom to selection**
+for readable detail; **Fit & Reset** restores the deterministic overview.
+
+[Design audit, before/after captures, validation and performance evidence](docs/design/DELIVERY.md).
+RepoDNA Workstation version: **v0.2.0**.
 
 ## System Architecture
 

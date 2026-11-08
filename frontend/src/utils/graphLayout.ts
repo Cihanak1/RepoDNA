@@ -28,12 +28,23 @@ export interface ModuleNodeData extends Record<string, unknown> {
   representativeFileId?: string;
 }
 
+export function normalizeSearchText(text: string): string {
+  return text
+    .replace(/[İIı]/g, 'i')
+    .replace(/[Şş]/g, 's')
+    .replace(/[Ğğ]/g, 'g')
+    .replace(/[Üü]/g, 'u')
+    .replace(/[Öö]/g, 'o')
+    .replace(/[Çç]/g, 'c')
+    .toLowerCase();
+}
+
 export function filterFiles(
   files: FileNode[],
   edges: DependencyEdge[],
   options: GraphFilterOptions
 ): { filteredFiles: FileNode[]; filteredEdges: DependencyEdge[]; neighborIds: Set<string> } {
-  const q = options.searchQuery.trim().toLowerCase();
+  const q = normalizeSearchText(options.searchQuery.trim());
 
   let baseFiles = files.filter((f) => {
     if (options.languageFilter !== 'ALL' && f.language !== options.languageFilter) {
@@ -52,8 +63,8 @@ export function filterFiles(
       return false;
     }
     if (q) {
-      const pathMatch = f.id.toLowerCase().includes(q);
-      const symMatch = f.symbols.some((s) => s.name.toLowerCase().includes(q));
+      const pathMatch = normalizeSearchText(f.id).includes(q);
+      const symMatch = f.symbols.some((s) => normalizeSearchText(s.name).includes(q));
       if (!pathMatch && !symMatch) {
         return false;
       }
@@ -133,7 +144,7 @@ export function collapseByDirectory(
       directory: 'Directory Package',
       extension: '',
       language: rep.language,
-      support_level: rep.support_level,
+      support_level: group.every(file => file.support_level === 'full_ast') ? 'full_ast' : group.every(file => file.support_level === 'unsupported') ? 'unsupported' : 'partial_static',
       size_bytes: totalBytes,
       lines_total: totalLines,
       lines_code: totalLoc,
@@ -245,6 +256,11 @@ export function buildFlowElements(
     return {
       id: file.id,
       type: 'moduleNode',
+      width: 256,
+      height: 100,
+      selected: file.id === effectiveSelectedId,
+      ariaLabel: `${file.name}, ${file.language}, ${file.support_level}${file.in_cycle ? ', cycle participant' : ''}`,
+      style: { opacity: effectiveSelectedId && file.id !== effectiveSelectedId && !neighborIds.has(file.id) && !file.in_cycle && groupingMode === 'files' ? 0.92 : 1 },
       position: pos,
       data: {
         file,
@@ -266,22 +282,22 @@ export function buildFlowElements(
       (edge.source === effectiveSelectedId || edge.target === effectiveSelectedId);
 
     const strokeColor = isCycleEdge
-      ? '#ef4444'
+      ? 'var(--danger)'
       : isFocusedEdge
-      ? '#38bdf8'
-      : '#64748b';
+      ? 'var(--brand-accent)'
+      : 'var(--edge-color)';
 
     return {
       id: edge.id,
       source: edge.source,
       target: edge.target,
-      animated: isCycleEdge || isFocusedEdge,
+      animated: false,
       label:
-        showEdgeLabels && edge.import_names.length > 0
+        showEdgeLabels && isFocusedEdge && edge.import_names.length > 0
           ? edge.import_names.slice(0, 2).join(', ')
           : undefined,
-      labelStyle: { fontSize: 10, fill: '#94a3b8', fontWeight: 500 },
-      labelBgStyle: { fill: 'rgba(15, 23, 42, 0.82)', rx: 4, ry: 4 },
+      labelStyle: { fontSize: 10, fill: 'var(--text-secondary)', fontWeight: 500 },
+      labelBgStyle: { fill: 'var(--bg-panel)', rx: 4, ry: 4 },
       style: {
         stroke: strokeColor,
         strokeWidth: isCycleEdge ? 2.5 : isFocusedEdge ? 2.2 : 1.4,
@@ -338,8 +354,8 @@ function computeNodePositions(
     const sortedDirs = Array.from(dirGroups.entries()).sort((a, b) => a[0].localeCompare(b[0]));
     const cols = Math.max(1, Math.ceil(Math.sqrt(sortedDirs.length)));
     const groupW = Math.round(680 * spacingScale);
-    const groupH = Math.round(440 * spacingScale);
-    const cellW = Math.round(300 * spacingScale);
+    const groupH = Math.max(440, Math.ceil(Math.max(...sortedDirs.map(([, items]) => items.length)) / 2) * 145 + 80) * spacingScale;
+    const cellW = Math.max(280, Math.round(300 * spacingScale));
     const cellH = Math.round(145 * spacingScale);
 
     sortedDirs.forEach(([, groupFiles], groupIdx) => {
@@ -379,7 +395,7 @@ function computeNodePositions(
   });
 
   for (const f of sortedByStability) {
-    let layer = 0;
+    let layer: number;
     if (f.fan_in === 0 && f.fan_out > 0) {
       layer = 0;
     } else if (f.instability >= 0.65) {
@@ -403,8 +419,8 @@ function computeNodePositions(
   }
 
   const maxRowItems = densityMode === 'compact' ? 6 : 5;
-  const colSpacing = Math.round(300 * spacingScale);
-  const rowSpacing = Math.round(155 * spacingScale);
+  const colSpacing = Math.max(280, Math.round(300 * spacingScale));
+  const rowSpacing = Math.max(120, Math.round(125 * spacingScale));
   let currentY = 0;
 
   for (const layerKey of [0, 1, 2, 3, 4]) {
@@ -424,7 +440,7 @@ function computeNodePositions(
         y: currentY + row * rowSpacing,
       });
     });
-    currentY += totalRows * (rowSpacing + 10) + 45;
+    currentY += totalRows * rowSpacing + 24;
   }
 
   return positions;

@@ -1,13 +1,14 @@
 import { expect, test } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 
-const ARTIFACT_DIR =
-  'C:/Users/cihan/.gemini/antigravity/brain/a701aa39-50b3-49a3-8f4f-56daa1b4c267';
+const ARTIFACT_DIR = '../docs/design/after';
 
 test.describe('RepoDNA End-to-End Verification & Workstation Audit', () => {
   test('verifies launchpad, live scan, dark/light themes, Ctrl+K command palette, package clustering, density, responsive layout, and exports', async ({
     page,
   }) => {
     const t0 = Date.now();
+    test.setTimeout(90000);
     await page.goto('/');
 
     // 1. Verify no auto-scan occurred; launchpad is visible
@@ -109,6 +110,8 @@ test.describe('RepoDNA End-to-End Verification & Workstation Audit', () => {
     await expect(page.getByTestId('export-status-badge')).toContainText('Exported JSON report');
 
     // 11. Test SSRF / Security rejection in the UI
+    const changeSource = page.getByRole('button', { name: 'Change repository', exact: true });
+    if (await changeSource.isVisible()) await changeSource.click();
     await page.getByRole('button', { name: /GitHub HTTPS/i }).click();
     const targetInput = page.locator('#repo-target-input');
     await targetInput.fill('http://127.0.0.1/internal/secret');
@@ -141,6 +144,7 @@ test.describe('RepoDNA End-to-End Verification & Workstation Audit', () => {
   test('regression: recovers from transient 409 RESULT_NOT_READY, labels Previous analysis during scan, and analyzes live Cihanak1/NiceWP repository', async ({
     page,
   }) => {
+    test.setTimeout(90000);
     await page.goto('/');
     await expect(page.getByTestId('welcome-launchpad')).toBeVisible();
 
@@ -173,6 +177,8 @@ test.describe('RepoDNA End-to-End Verification & Workstation Audit', () => {
     });
 
     // 3. Start a real GitHub HTTPS scan of https://github.com/Cihanak1/NiceWP
+    const changeSource = page.getByRole('button', { name: 'Change repository', exact: true });
+    if (await changeSource.isVisible()) await changeSource.click();
     await page.getByRole('button', { name: /GitHub HTTPS/i }).click();
     const targetInput = page.locator('#repo-target-input');
     await targetInput.fill('https://github.com/Cihanak1/NiceWP');
@@ -181,6 +187,7 @@ test.describe('RepoDNA End-to-End Verification & Workstation Audit', () => {
     // Verify that while NiceWP is being cloned/scanned, the existing Demo result is clearly labeled "Previous analysis"
     await expect(page.getByTestId('previous-analysis-banner')).toBeVisible();
     await expect(page.getByTestId('previous-analysis-badge')).toBeVisible();
+    await page.screenshot({path: `${ARTIFACT_DIR}/loading-previous.png`});
 
     // 4. Wait for the NiceWP scan to finish and verify it automatically loads into Architecture Studio with zero POLL_ERROR
     await expect(page.getByTestId('previous-analysis-banner')).toBeHidden({ timeout: 45000 });
@@ -211,5 +218,11 @@ test.describe('RepoDNA End-to-End Verification & Workstation Audit', () => {
     await expect(page.getByTestId('unverified-rules-box')).toContainText('ARCH-001');
     await expect(page.getByTestId('partial-static-languages-list')).toContainText('C#');
     await expect(page.getByTestId('supported-ast-languages-list')).not.toContainText('C#');
+    await page.screenshot({path: `${ARTIFACT_DIR}/nicewp-report.png`});
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    const accessibility = await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa','wcag22aa']).analyze();
+    expect(accessibility.violations.map(v => ({id:v.id,nodes:v.nodes.map(n => n.target)}))).toEqual([]);
+    await page.screenshot({path: `${ARTIFACT_DIR}/nicewp-mobile.png`});
   });
 });

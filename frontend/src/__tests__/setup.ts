@@ -1,5 +1,31 @@
 import '@testing-library/jest-dom';
 
+// Polyfill localStorage in JSDOM / Node 22 if unavailable
+if (typeof window !== 'undefined') {
+  try {
+    if (!window.localStorage || typeof window.localStorage.getItem !== 'function') {
+      const memoryStore = new Map<string, string>();
+      const mockStorage = {
+        getItem: (k: string) => memoryStore.get(k) ?? null,
+        setItem: (k: string, v: string) => memoryStore.set(k, String(v)),
+        removeItem: (k: string) => memoryStore.delete(k),
+        clear: () => memoryStore.clear(),
+        key: (i: number) => Array.from(memoryStore.keys())[i] ?? null,
+        get length() {
+          return memoryStore.size;
+        },
+      };
+      Object.defineProperty(window, 'localStorage', {
+        value: mockStorage,
+        configurable: true,
+        writable: true,
+      });
+    }
+  } catch {
+    // ignore
+  }
+}
+
 // Polyfill ResizeObserver and HTMLDialogElement methods for jsdom unit tests
 if (typeof window !== 'undefined') {
   class ResizeObserverStub {

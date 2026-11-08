@@ -1,24 +1,28 @@
 {
   "name": "repodna-frontend",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite --port 5173",
     "build": "tsc -b && vite build",
     "typecheck": "tsc --noEmit",
-    "lint": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "preview": "vite preview --port 4173"
   },
   "dependencies": {
     "@xyflow/react": "^12.4.4",
+    "i18next": "^27.0.1",
     "lucide-react": "^0.475.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-i18next": "^18.0.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
+    "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.50.0",
     "@tailwindcss/vite": "^4.0.6",
     "@testing-library/jest-dom": "^6.6.3",
@@ -27,9 +31,12 @@
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
     "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^10.14.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "jsdom": "^26.0.0",
     "tailwindcss": "^4.0.6",
     "typescript": "~5.7.3",
+    "typescript-eslint": "^8.72.1",
     "vite": "^6.1.0",
     "vitest": "^3.0.5"
   }

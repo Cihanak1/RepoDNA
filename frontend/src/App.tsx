@@ -1,13 +1,10 @@
-import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import React, { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   AlertCircle,
-  FolderOpen,
-  Github,
-  Play,
-  ShieldCheck,
-  Sparkles,
 } from 'lucide-react';
 import {
+  ApiError,
   cancelScanJob,
   fetchBackendHealth,
   fetchJobProgress,
@@ -16,15 +13,19 @@ import {
   startAsyncScanJob,
 } from './api/client';
 import { CommandPaletteDialog } from './components/CommandPaletteDialog';
-import { DependencyGraph } from './components/DependencyGraph';
 import { ExplorerSidebar } from './components/ExplorerSidebar';
 import { FolderBrowserDialog } from './components/FolderBrowserDialog';
 import { HeaderBar } from './components/HeaderBar';
-import { HealthReportView } from './components/HealthReportView';
 import { InspectorPanel } from './components/InspectorPanel';
+import { Launchpad } from './components/Launchpad';
+import { OnboardingTour } from './components/OnboardingTour';
+import { PanelResizer } from './components/PanelResizer';
+import { readPreference, savePreference, type WorkstationMode } from './utils/preferences';
 import { SummaryStrip } from './components/SummaryStrip';
 import type {
   AnalysisResult,
+  DependencyEdge,
+  FileNode,
   ScanLimits,
   ScanProgress,
   SourceType,
@@ -36,7 +37,11 @@ import {
   type LayoutMode,
 } from './utils/graphLayout';
 
+const DependencyGraph = lazy(() => import('./components/DependencyGraph').then(module => ({ default: module.DependencyGraph })));
+const HealthReportView = lazy(() => import('./components/HealthReportView').then(module => ({ default: module.HealthReportView })));
+
 export const App: React.FC = () => {
+  const { t, i18n } = useTranslation();
   const [defaultWorkspacePath, setDefaultWorkspacePath] = useState<string>('');
   const [sourceType, setSourceType] = useState<SourceType>('local');
   const [targetInput, setTargetInput] = useState<string>('');
@@ -50,16 +55,51 @@ export const App: React.FC = () => {
 
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
   const [activeJob, setActiveJob] = useState<ScanProgress | null>(null);
   const [scanningTargetLabel, setScanningTargetLabel] = useState<string>('');
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [errorBanner, setErrorBanner] = useState<{ code: string; message: string } | null>(null);
 
+  // Workstation Mode (Simple vs Advanced)
+  const [workstationMode, setWorkstationMode] = useState<WorkstationMode>(() =>
+    readPreference<WorkstationMode>('mode', 'simple', (v): v is WorkstationMode => v === 'simple' || v === 'advanced')
+  );
+  useEffect(() => { savePreference('mode', workstationMode); }, [workstationMode]);
+
   const [activeTab, setActiveTab] = useState<'studio' | 'report'>('studio');
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
-  const [layoutMode, setLayoutMode] = useState<LayoutMode>('layered');
-  const [densityMode, setDensityMode] = useState<GraphDensityMode>('balanced');
-  const [groupingMode, setGroupingMode] = useState<GraphGroupingMode>('files');
+  const [layoutMode, setLayoutMode] = useState(() => readPreference<LayoutMode>('layout', 'layered', (v): v is LayoutMode => v === 'layered' || v === 'cluster' || v === 'radial'));
+  const [densityMode, setDensityMode] = useState(() => readPreference<GraphDensityMode>('density', 'balanced', (v): v is GraphDensityMode => v === 'compact' || v === 'balanced' || v === 'spacious'));
+  const [groupingMode, setGroupingMode] = useState(() => readPreference<GraphGroupingMode>('grouping', 'files', (v): v is GraphGroupingMode => v === 'files' || v === 'directories'));
+  useEffect(() => { savePreference('layout', layoutMode); }, [layoutMode]);
+  useEffect(() => { savePreference('density', densityMode); }, [densityMode]);
+  useEffect(() => { savePreference('grouping', groupingMode); }, [groupingMode]);
+
+  const [explorerWidth, setExplorerWidth] = useState(() => readPreference('explorerWidth', 260, (v): v is number => typeof v === 'number' && v >= 220 && v <= 400));
+  const [inspectorWidth, setInspectorWidth] = useState(() => readPreference('inspectorWidth', 320, (v): v is number => typeof v === 'number' && v >= 260 && v <= 460));
+  const [showExplorer, setShowExplorer] = useState(true);
+  const [showInspector, setShowInspector] = useState(true);
+  const [focusMode, setFocusMode] = useState(false);
+  const [mobileView, setMobileView] = useState<'files' | 'canvas' | 'inspector'>('canvas');
+  useEffect(() => { savePreference('explorerWidth', explorerWidth); }, [explorerWidth]);
+  useEffect(() => { savePreference('inspectorWidth', inspectorWidth); }, [inspectorWidth]);
+  useEffect(() => {
+    const shortcut = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLElement && (event.target.closest('input,textarea,select,[contenteditable=true],dialog[open]'))) return;
+      if (event.key === 'Escape') setFocusMode(false);
+      if (event.altKey && event.key.toLowerCase() === 'f') { event.preventDefault(); setFocusMode(v => !v); setMobileView('canvas'); }
+      if (event.altKey && event.key.toLowerCase() === 'i') { event.preventDefault(); setShowInspector(v => !v); }
+      if (event.altKey && event.key.toLowerCase() === 'm') {
+        event.preventDefault();
+        setWorkstationMode(v => (v === 'simple' ? 'advanced' : 'simple'));
+      }
+      if (event.key === '/') { event.preventDefault(); setShowExplorer(true); setMobileView('files'); requestAnimationFrame(() => document.getElementById('explorer-search-input')?.focus()); }
+    };
+    window.addEventListener('keydown', shortcut);
+    return () => window.removeEventListener('keydown', shortcut);
+  }, []);
+  const selectFile = (id: string) => { setSelectedFileId(id); setMobileView('inspector'); setShowInspector(true); };
 
   // Explorer & Graph Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -95,14 +135,20 @@ export const App: React.FC = () => {
       .then((info) => {
         if (!mounted) return;
         setDefaultWorkspacePath(info.default_workspace);
-        setTargetInput((prev) => prev || info.default_workspace);
+        setTargetInput((prev) => (prev ? prev : info.default_workspace));
       })
-      .catch(() => {
-        // Backend may still be starting
+      .catch((err) => {
+        if (!mounted) return;
+        console.warn('Backend /api/health unavailable on mount:', err);
       });
     return () => {
       mounted = false;
-      scanSessionIdRef.current += 1;
+    };
+  }, []);
+
+  // Clean up any polling timer on unmount
+  useEffect(() => {
+    return () => {
       if (pollTimerRef.current !== null) {
         window.clearTimeout(pollTimerRef.current);
         pollTimerRef.current = null;
@@ -110,40 +156,32 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // Update document title dynamically for accessibility
-  useEffect(() => {
-    if (result) {
-      const scoreText =
-        result.health_report.overall_score !== null
-          ? `${result.health_report.overall_score.toFixed(0)}/100`
-          : 'N/A';
-      document.title = `${result.repo_name} (${scoreText}) | RepoDNA`;
-    } else {
-      document.title = 'RepoDNA — Developer Repository Intelligence Platform';
-    }
-  }, [result]);
-
-  const stopPolling = () => {
+  const handleCancelJob = async () => {
+    scanSessionIdRef.current += 1;
+    pollInFlightRef.current = false;
     if (pollTimerRef.current !== null) {
       window.clearTimeout(pollTimerRef.current);
       pollTimerRef.current = null;
     }
-    pollInFlightRef.current = false;
+
+    if (!activeJob) return;
+    try {
+      await cancelScanJob(activeJob.job_id);
+    } catch (err) {
+      console.warn('Failed to request scan cancellation:', err);
+    } finally {
+      setActiveJob(null);
+    }
   };
 
   const handleTriggerScan = async (
     overrideSource?: SourceType,
     overrideTarget?: string
   ) => {
-    scanSessionIdRef.current += 1;
-    const currentSession = scanSessionIdRef.current;
-    stopPolling();
-    setErrorBanner(null);
+    const activeSource = overrideSource ?? sourceType;
+    const activeTarget = (overrideTarget ?? targetInput).trim();
 
-    const effSource = overrideSource ?? sourceType;
-    const effTarget = (overrideTarget ?? targetInput).trim();
-
-    if (!effTarget) {
+    if (!activeTarget) {
       setErrorBanner({
         code: 'EMPTY_TARGET',
         message: 'Please enter a valid local directory path or HTTPS GitHub repository URL.',
@@ -151,115 +189,109 @@ export const App: React.FC = () => {
       return;
     }
 
-    setScanningTargetLabel(effTarget);
+    setErrorBanner(null);
+    setScanningTargetLabel(activeTarget);
+
+    scanSessionIdRef.current += 1;
+    const currentSessionId = scanSessionIdRef.current;
+    pollInFlightRef.current = false;
+    if (pollTimerRef.current !== null) {
+      window.clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
 
     try {
-      const initialJob = await startAsyncScanJob({
-        source_type: effSource,
-        target: effTarget,
-        branch: effSource === 'github' && branchInput.trim() ? branchInput.trim() : null,
+      const job = await startAsyncScanJob({
+        source_type: activeSource,
+        target: activeTarget,
+        branch: activeSource === 'github' && branchInput.trim() ? branchInput.trim() : undefined,
         limits,
       });
-      if (currentSession !== scanSessionIdRef.current) {
+
+      setActiveJob(job);
+
+      if (job.status === 'completed') {
+        const fullResult = await fetchJobResultWithRetry(job.job_id);
+        setResult(fullResult);
+        setActiveJob(null);
+        setSelectedFileId(fullResult.files[0]?.id ?? null);
         return;
       }
-      setActiveJob(initialJob);
 
-      const pollOnce = async () => {
-        if (currentSession !== scanSessionIdRef.current) {
-          return;
-        }
-        if (pollInFlightRef.current) {
-          return;
-        }
-        pollInFlightRef.current = true;
-        try {
-          const progress = await fetchJobProgress(initialJob.job_id);
-          if (currentSession !== scanSessionIdRef.current) {
+      const schedulePoll = (jobId: string, delayMs: number) => {
+        if (scanSessionIdRef.current !== currentSessionId) return;
+        pollTimerRef.current = window.setTimeout(async () => {
+          if (scanSessionIdRef.current !== currentSessionId) return;
+          if (pollInFlightRef.current) {
+            schedulePoll(jobId, 400);
             return;
           }
-          setActiveJob(progress);
 
-          if (progress.status === 'completed') {
-            stopPolling();
-            const finalResult = await fetchJobResultWithRetry(initialJob.job_id);
-            if (currentSession !== scanSessionIdRef.current) {
+          pollInFlightRef.current = true;
+          try {
+            const status = await fetchJobProgress(jobId);
+            if (scanSessionIdRef.current !== currentSessionId) return;
+
+            setActiveJob(status);
+
+            if (status.status === 'completed') {
+              pollInFlightRef.current = false;
+              const fullResult = await fetchJobResultWithRetry(jobId);
+              setResult(fullResult);
+              setActiveTab('studio');
+              setSelectedFileId(fullResult.files[0]?.id ?? null);
+              setActiveJob(null);
               return;
             }
-            setResult(finalResult);
-            setActiveJob(null);
-            setActiveTab('studio');
-            const firstCycleFile = finalResult.files.find((f) => f.in_cycle);
-            const firstFile =
-              firstCycleFile ??
-              [...finalResult.files].sort(
-                (a, b) => b.fan_in + b.fan_out - (a.fan_in + a.fan_out)
-              )[0] ??
-              null;
-            setSelectedFileId(firstFile ? firstFile.id : null);
-            return;
-          }
 
-          if (progress.status === 'failed' || progress.status === 'cancelled') {
-            stopPolling();
+            if (status.status === 'failed') {
+              pollInFlightRef.current = false;
+              setErrorBanner({
+                code: status.error_code ?? 'SCAN_FAILED',
+                message: status.error_message ?? 'Scan failed without a detailed error message.',
+              });
+              setActiveJob(null);
+              return;
+            }
+
+            if (status.status === 'cancelled') {
+              pollInFlightRef.current = false;
+              setActiveJob(null);
+              return;
+            }
+
+            pollInFlightRef.current = false;
+            schedulePoll(jobId, 500);
+          } catch (pollErr: unknown) {
+            pollInFlightRef.current = false;
+            if (scanSessionIdRef.current !== currentSessionId) return;
+
+            const isConflict409 =
+              pollErr instanceof Error && pollErr.message.includes('409');
+            if (isConflict409) {
+              schedulePoll(jobId, 1000);
+              return;
+            }
+
             setErrorBanner({
-              code: progress.error_code || progress.status.toUpperCase(),
-              message: progress.error_message || progress.phase_message,
+              code: 'NETWORK_ERROR',
+              message:
+                pollErr instanceof Error
+                  ? pollErr.message
+                  : 'Failed to poll scan job status from backend.',
             });
             setActiveJob(null);
-            return;
           }
-
-          // Schedule next single-flight poll only after current poll settles
-          pollTimerRef.current = window.setTimeout(() => {
-            void pollOnce();
-          }, 180);
-        } catch (err) {
-          if (currentSession !== scanSessionIdRef.current) {
-            return;
-          }
-          stopPolling();
-          const code =
-            err && typeof err === 'object' && 'code' in err
-              ? String((err as { code: string }).code)
-              : 'POLL_ERROR';
-          setErrorBanner({
-            code,
-            message: err instanceof Error ? err.message : 'Failed to poll scan job status.',
-          });
-          setActiveJob(null);
-        } finally {
-          pollInFlightRef.current = false;
-        }
+        }, delayMs);
       };
 
-      await pollOnce();
+      schedulePoll(job.job_id, 300);
     } catch (err: unknown) {
-      if (currentSession !== scanSessionIdRef.current) {
-        return;
-      }
-      const code =
-        err && typeof err === 'object' && 'code' in err
-          ? String((err as { code: string }).code)
-          : 'SCAN_REJECTED';
-      const message = err instanceof Error ? err.message : 'Failed to initiate repository scan.';
-      setErrorBanner({ code, message });
-      setActiveJob(null);
-    }
-  };
-
-  const handleCancelJob = async () => {
-    if (!activeJob) return;
-    scanSessionIdRef.current += 1;
-    stopPolling();
-    try {
-      const cancelled = await cancelScanJob(activeJob.job_id);
-      setActiveJob(null);
+      if (scanSessionIdRef.current !== currentSessionId) return;
       setErrorBanner({
-        code: cancelled.error_code || 'SCAN_CANCELLED',
-        message: 'Repository scan was cancelled by user.',
+        code: err instanceof ApiError ? err.code : 'SCAN_INIT_FAILED',
+        message: err instanceof Error ? err.message : 'Failed to start scan job.',
       });
-    } catch {
       setActiveJob(null);
     }
   };
@@ -274,22 +306,25 @@ export const App: React.FC = () => {
     setFocusNeighborhood(false);
   };
 
+  const handleSelectFileFromReport = (fileId: string) => {
+    setSelectedFileId(fileId);
+    setActiveTab('studio');
+    setMobileView('inspector');
+    setShowInspector(true);
+  };
+
   const handleToggleThemeFromPalette = () => {
-    const meta = document.querySelector<HTMLMetaElement>('meta[name="color-scheme"]');
-    const current = meta?.content === 'light' ? 'light' : 'dark';
-    const next = current === 'dark' ? 'light' : 'dark';
-    try {
-      localStorage.setItem('color-scheme', next);
-    } catch {
-      // ignore
-    }
-    if (meta) meta.content = next;
-    window.dispatchEvent(new StorageEvent('storage', { key: 'color-scheme', newValue: next }));
+    const themeBtn = document.querySelector<HTMLButtonElement>('[data-testid="theme-toggle-btn"]');
+    themeBtn?.click();
   };
 
   const { filteredFiles, filteredEdges, neighborIds } = useMemo(() => {
     if (!result) {
-      return { filteredFiles: [], filteredEdges: [], neighborIds: new Set<string>() };
+      return {
+        filteredFiles: [] as FileNode[],
+        filteredEdges: [] as DependencyEdge[],
+        neighborIds: new Set<string>(),
+      };
     }
     return filterFiles(result.files, result.edges, {
       searchQuery: deferredSearchQuery,
@@ -320,17 +355,16 @@ export const App: React.FC = () => {
     return result.files.find((f) => f.id === selectedFileId) ?? null;
   }, [result, selectedFileId]);
 
-  const handleSelectFileFromReport = (fileId: string) => {
-    setSelectedFileId(fileId);
-    setActiveTab('studio');
-  };
-
   return (
-    <div className="min-h-screen lg:h-screen lg:overflow-hidden flex flex-col bg-slate-950 text-slate-100">
-      <a href="#main-workspace" className="skip-link visually-hidden">
-        Skip to main workspace
+    <div className="app-shell flex flex-col bg-canvas text-ink font-sans selection:bg-accent/20">
+      <a
+        href="#main-workspace"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:px-3 focus:py-1.5 focus:bg-accent focus:text-white focus:rounded focus:outline-none"
+      >
+        Skip to main content
       </a>
 
+      {/* Workstation Header Bar */}
       <HeaderBar
         sourceType={sourceType}
         onSourceTypeChange={setSourceType}
@@ -340,36 +374,39 @@ export const App: React.FC = () => {
         onBranchInputChange={setBranchInput}
         limits={limits}
         onLimitsChange={setLimits}
-        onTriggerScan={(s, t) => void handleTriggerScan(s, t)}
+        onTriggerScan={handleTriggerScan}
         onOpenFolderBrowser={() => setFolderDialogOpen(true)}
         activeJob={activeJob}
-        onCancelJob={() => void handleCancelJob()}
+        onCancelJob={handleCancelJob}
         result={result}
         activeTab={activeTab}
         onTabChange={setActiveTab}
         defaultWorkspacePath={defaultWorkspacePath}
         onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+        workstationMode={workstationMode}
+        onWorkstationModeChange={setWorkstationMode}
+        onOpenTour={() => setTourOpen(true)}
       />
 
-      {/* Error / Security Rejection Alert */}
       {errorBanner && (
         <div
           role="alert"
           data-testid="error-alert-banner"
-          className="bg-red-950/70 border-b border-red-700/70 px-4 py-2.5 flex items-center justify-between gap-3 text-xs text-red-200"
+          className="bg-danger/10 border-b border-danger/70 px-4 py-2 flex items-center justify-between gap-3 text-xs text-danger"
         >
           <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-red-400 shrink-0" aria-hidden="true" />
+            <AlertCircle className="w-4 h-4 text-danger shrink-0" aria-hidden="true" />
             <span>
-              <strong className="font-mono">[{errorBanner.code}]</strong> {errorBanner.message}
+              <strong className="font-mono">[{errorBanner.code}]</strong>{' '}
+              {t(`errors.${errorBanner.code}`, errorBanner.message)}
             </span>
           </div>
           <button
             type="button"
             onClick={() => setErrorBanner(null)}
-            className="px-2 py-0.5 rounded bg-red-900/60 hover:bg-red-800 text-red-100 text-[11px] cursor-pointer"
+            className="px-2 py-0.5 rounded bg-danger-solid hover:bg-danger-solid text-white text-[11px] cursor-pointer"
           >
-            Dismiss
+            {t('common.dismiss')}
           </button>
         </div>
       )}
@@ -378,20 +415,20 @@ export const App: React.FC = () => {
         <div
           role="status"
           data-testid="previous-analysis-banner"
-          className="bg-amber-950/60 border-b border-amber-700/60 px-4 py-2 flex items-center justify-between gap-3 text-xs text-amber-200"
+          className="bg-warning/10 border-b border-warning/60 px-4 py-1.5 flex items-center justify-between gap-3 text-xs text-warning"
         >
           <div>
-            <strong className="uppercase tracking-wider font-bold text-amber-300 mr-2">
-              Previous analysis ({result.repo_name})
+            <strong className="tracking-wide font-bold text-warning mr-2">
+              {t('common.previousAnalysis')} ({result.repo_name})
             </strong>
             <span>
-              Viewing previous snapshot while scanning{' '}
-              <code className="font-mono text-amber-100">{scanningTargetLabel}</code> &mdash;{' '}
+              {t('header.viewingPreviousSnapshot')}{' '}
+              <code className="font-mono text-warning">{scanningTargetLabel}</code> &mdash;{' '}
               {activeJob.phase_message} ({activeJob.progress_percent.toFixed(0)}%)
             </span>
           </div>
-          <span className="text-[11px] font-mono text-amber-300 shrink-0">
-            Updating automatically when complete...
+          <span className="text-[11px] font-mono text-warning shrink-0">
+            {t('header.updatingAutomatically')}
           </span>
         </div>
       )}
@@ -406,179 +443,193 @@ export const App: React.FC = () => {
           }}
           onOpenReportTab={() => setActiveTab('report')}
           isPreviousAnalysis={activeJob !== null}
+          workstationMode={workstationMode}
         />
       )}
 
       <main id="main-workspace" tabIndex={-1} className="flex-1 flex flex-col overflow-hidden">
         {!result ? (
-          /* Explicit Consent Launchpad — Never auto-scans local folders without user action */
-          <div
-            data-testid="welcome-launchpad"
-            className="flex-1 flex items-center justify-center p-6"
-          >
-            <div className="max-w-3xl w-full bg-slate-900/75 border border-slate-800 rounded-2xl p-6 lg:p-8 shadow-2xl space-y-6">
-              <div className="space-y-2">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-sky-500/15 border border-sky-500/30 text-sky-300 text-xs font-medium">
-                  <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
-                  Zero Unsolicited Scanning &bull; Read-Only Static AST Intelligence
-                </div>
-                <h2 className="text-2xl font-bold text-slate-100 m-0">
-                  Analyze Repository Architecture &amp; Module Health
-                </h2>
-                <p className="text-xs text-slate-300 leading-relaxed m-0">
-                  Select a local source directory, enter a public HTTPS GitHub URL, or inspect the labeled Demo dataset. RepoDNA uses Tree-sitter AST parsing and Tarjan Strongly Connected Components to map internal module relationships, detect circular dependencies, and compute explainable rule-based health scores without executing a single line of repository code.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-                {/* Action 1: Analyze Current Local Workspace */}
-                <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between gap-4">
-                  <div className="space-y-1.5">
-                    <div className="w-8 h-8 rounded-lg bg-sky-500/15 border border-sky-500/30 flex items-center justify-center">
-                      <FolderOpen className="w-4 h-4 text-sky-400" aria-hidden="true" />
-                    </div>
-                    <h3 className="text-sm font-semibold text-slate-100 m-0">
-                      Local Repository Scan
-                    </h3>
-                    <p className="text-[11px] text-slate-400 m-0">
-                      Explicitly scan this workspace or browse any local directory on your machine.
-                    </p>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    {defaultWorkspacePath && (
-                      <button
-                        type="button"
-                        data-testid="launchpad-scan-workspace-btn"
-                        onClick={() => {
-                          setSourceType('local');
-                          setTargetInput(defaultWorkspacePath);
-                          void handleTriggerScan('local', defaultWorkspacePath);
-                        }}
-                        className="w-full px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
-                      >
-                        <Play className="w-3.5 h-3.5" aria-hidden="true" />
-                        Analyze Current Workspace
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setFolderDialogOpen(true)}
-                      className="w-full px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-medium text-slate-200 cursor-pointer"
-                    >
-                      Browse Other Folder...
-                    </button>
-                  </div>
-                </div>
-
-                {/* Action 2: Public HTTPS GitHub Repository */}
-                <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between gap-4">
-                  <div className="space-y-1.5">
-                    <div className="w-8 h-8 rounded-lg bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center">
-                      <Github className="w-4 h-4 text-indigo-400" aria-hidden="true" />
-                    </div>
-                    <h3 className="text-sm font-semibold text-slate-100 m-0">
-                      GitHub HTTPS Clone
-                    </h3>
-                    <p className="text-[11px] text-slate-400 m-0">
-                      Clones into an isolated temporary folder with hooks and symlinks disabled, then cleans up automatically.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSourceType('github');
-                      setTargetInput('https://github.com/Cihanak1/AImage');
-                    }}
-                    className="w-full px-3 py-2 rounded-lg bg-indigo-600/25 hover:bg-indigo-600/35 border border-indigo-500/40 text-indigo-200 text-xs font-semibold cursor-pointer"
-                  >
-                    Enter GitHub HTTPS URL
-                  </button>
-                </div>
-
-                {/* Action 3: Labeled Demo Dataset */}
-                <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between gap-4">
-                  <div className="space-y-1.5">
-                    <div className="w-8 h-8 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center">
-                      <Sparkles className="w-4 h-4 text-amber-400" aria-hidden="true" />
-                    </div>
-                    <h3 className="text-sm font-semibold text-slate-100 m-0">
-                      Labeled Demo Showcase
-                    </h3>
-                    <p className="text-[11px] text-slate-400 m-0">
-                      Explore a multi-language architecture with circular dependencies, dynamic imports, and churn hotspots.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    data-testid="launchpad-demo-btn"
-                    onClick={() => {
-                      setSourceType('demo');
-                      setTargetInput('demo');
-                      void handleTriggerScan('demo', 'demo');
-                    }}
-                    className="w-full px-3 py-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 text-xs font-semibold cursor-pointer"
-                  >
-                    Load Labeled Demo Mode
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : activeTab === 'studio' ? (
-          <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
-            <ExplorerSidebar
-              allFiles={result.files}
-              filteredFiles={filteredFiles}
-              selectedFileId={selectedFileId}
-              onSelectFile={setSelectedFileId}
-              searchQuery={searchQuery}
-              onSearchChange={setSearchQuery}
-              languageFilter={languageFilter}
-              onLanguageFilterChange={setLanguageFilter}
-              supportFilter={supportFilter}
-              onSupportFilterChange={setSupportFilter}
-              cyclesOnly={cyclesOnly}
-              onCyclesOnlyChange={setCyclesOnly}
-              hubsOnly={hubsOnly}
-              onHubsOnlyChange={setHubsOnly}
-              orphansOnly={orphansOnly}
-              onOrphansOnlyChange={setOrphansOnly}
-              onResetFilters={handleResetFilters}
-            />
-
-            <DependencyGraph
-              files={filteredFiles}
-              edges={filteredEdges}
-              selectedFileId={selectedFileId}
-              neighborIds={neighborIds}
-              onSelectFile={setSelectedFileId}
-              layoutMode={layoutMode}
-              onLayoutModeChange={setLayoutMode}
-              densityMode={densityMode}
-              onDensityModeChange={setDensityMode}
-              groupingMode={groupingMode}
-              onGroupingModeChange={setGroupingMode}
-              focusNeighborhood={focusNeighborhood}
-              onToggleFocusNeighborhood={() => setFocusNeighborhood((prev) => !prev)}
-              highlightCycles={highlightCycles}
-              onToggleHighlightCycles={() => setHighlightCycles((prev) => !prev)}
-            />
-
-            <InspectorPanel
-              selectedFile={selectedFile}
-              allCycles={result.cycles}
-              allFindings={result.health_report.findings}
-              onSelectFile={setSelectedFileId}
-            />
-          </div>
-        ) : (
-          <HealthReportView
-            result={result}
-            onSelectFileInStudio={handleSelectFileFromReport}
+          <Launchpad
+            workspace={defaultWorkspacePath}
+            scanning={activeJob !== null}
+            onWorkspace={() => {
+              setSourceType('local');
+              setTargetInput(defaultWorkspacePath);
+              void handleTriggerScan('local', defaultWorkspacePath);
+            }}
+            onBrowse={() => setFolderDialogOpen(true)}
+            onGithub={() => {
+              setSourceType('github');
+              setTargetInput('https://github.com/');
+              document.getElementById('repo-target-input')?.focus();
+            }}
+            onDemo={() => {
+              setSourceType('demo');
+              setTargetInput('demo');
+              void handleTriggerScan('demo', 'demo');
+            }}
           />
+        ) : activeTab === 'studio' ? (
+          <>
+            <div className="workspace-controls" role="toolbar" aria-label="Workspace panels">
+              <span className="text-muted text-xs mr-auto hidden sm:block">
+                Architecture / {groupingMode === 'files' ? t('workspace.modulesLabel') : t('workspace.packagesLabel')}
+              </span>
+              {(['files', 'canvas', 'inspector'] as const).map((view) => (
+                <button
+                  key={view}
+                  className="mobile-view"
+                  aria-pressed={mobileView === view}
+                  onClick={() => setMobileView(view)}
+                >
+                  {view === 'files'
+                    ? t('workspace.filesView')
+                    : view === 'canvas'
+                    ? t('workspace.canvasView')
+                    : t('workspace.inspectorView')}
+                </button>
+              ))}
+              <button
+                className="desktop-panel-toggle"
+                aria-pressed={showExplorer && !focusMode}
+                onClick={() => {
+                  setFocusMode(false);
+                  setShowExplorer((v) => !v);
+                }}
+              >
+                {t('workspace.explorerToggle')}
+              </button>
+              <button
+                className="desktop-panel-toggle"
+                aria-pressed={showInspector && !focusMode}
+                title="Toggle inspector (Alt+I)"
+                onClick={() => {
+                  setFocusMode(false);
+                  setShowInspector((v) => !v);
+                }}
+              >
+                {t('workspace.inspectorToggle')}
+              </button>
+              <button
+                aria-pressed={focusMode}
+                title="Focus canvas (Alt+F), Escape to exit"
+                onClick={() => {
+                  setFocusMode((v) => !v);
+                  setMobileView('canvas');
+                }}
+              >
+                {focusMode ? t('workspace.exitFocus') : t('workspace.focusCanvas')}
+              </button>
+            </div>
+
+            <div
+              className="workspace-panels"
+              data-mobile={mobileView}
+              data-explorer={showExplorer && !focusMode}
+              data-inspector={showInspector && !focusMode}
+              style={
+                {
+                  '--explorer-width': `${explorerWidth}px`,
+                  '--inspector-width': `${inspectorWidth}px`,
+                } as React.CSSProperties
+              }
+            >
+              <ExplorerSidebar
+                allFiles={result.files}
+                filteredFiles={filteredFiles}
+                selectedFileId={selectedFileId}
+                onSelectFile={selectFile}
+                searchQuery={searchQuery}
+                onSearchChange={setSearchQuery}
+                languageFilter={languageFilter}
+                onLanguageFilterChange={setLanguageFilter}
+                supportFilter={supportFilter}
+                onSupportFilterChange={setSupportFilter}
+                cyclesOnly={cyclesOnly}
+                onCyclesOnlyChange={setCyclesOnly}
+                hubsOnly={hubsOnly}
+                onHubsOnlyChange={setHubsOnly}
+                orphansOnly={orphansOnly}
+                onOrphansOnlyChange={setOrphansOnly}
+                onResetFilters={handleResetFilters}
+              />
+
+              {showExplorer && !focusMode && (
+                <PanelResizer
+                  label={t('workspace.resizeExplorer')}
+                  value={explorerWidth}
+                  min={220}
+                  max={400}
+                  onChange={setExplorerWidth}
+                />
+              )}
+
+              <Suspense
+                fallback={
+                  <div className="graph-workspace grid place-content-center text-xs text-muted" role="status">
+                    {t('graph.loading')}
+                  </div>
+                }
+              >
+                <DependencyGraph
+                  files={filteredFiles}
+                  edges={filteredEdges}
+                  selectedFileId={selectedFileId}
+                  neighborIds={neighborIds}
+                  onSelectFile={selectFile}
+                  layoutMode={layoutMode}
+                  onLayoutModeChange={setLayoutMode}
+                  densityMode={densityMode}
+                  onDensityModeChange={setDensityMode}
+                  groupingMode={groupingMode}
+                  onGroupingModeChange={setGroupingMode}
+                  focusNeighborhood={focusNeighborhood}
+                  onToggleFocusNeighborhood={() => setFocusNeighborhood((prev) => !prev)}
+                  highlightCycles={highlightCycles}
+                  onToggleHighlightCycles={() => setHighlightCycles((prev) => !prev)}
+                  workstationMode={workstationMode}
+                />
+              </Suspense>
+
+              {showInspector && !focusMode && (
+                <PanelResizer
+                  label={t('workspace.resizeInspector')}
+                  value={inspectorWidth}
+                  min={260}
+                  max={460}
+                  reverse
+                  onChange={setInspectorWidth}
+                />
+              )}
+
+              <InspectorPanel
+                key={selectedFileId}
+                packageFiles={
+                  groupingMode === 'directories' && selectedFile
+                    ? result.files.filter((file) => file.directory === selectedFile.directory)
+                    : undefined
+                }
+                onExpandPackage={() => setGroupingMode('files')}
+                selectedFile={selectedFile}
+                allCycles={result.cycles}
+                allFindings={result.health_report.findings}
+                onSelectFile={selectFile}
+                workstationMode={workstationMode}
+              />
+            </div>
+          </>
+        ) : (
+          <Suspense fallback={<p role="status" className="p-6 text-xs text-muted">{t('report.loading')}</p>}>
+            <HealthReportView
+              result={result}
+              onSelectFileInStudio={handleSelectFileFromReport}
+              workstationMode={workstationMode}
+            />
+          </Suspense>
         )}
       </main>
 
+      {/* Modals & Dialogs */}
       <FolderBrowserDialog
         isOpen={folderDialogOpen}
         initialPath={
@@ -597,7 +648,7 @@ export const App: React.FC = () => {
         isOpen={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
         files={result ? result.files : []}
-        onSelectFile={setSelectedFileId}
+        onSelectFile={selectFile}
         onSwitchTab={setActiveTab}
         onToggleTheme={handleToggleThemeFromPalette}
         onChangeLayout={setLayoutMode}
@@ -605,6 +656,17 @@ export const App: React.FC = () => {
         onChangeDensity={setDensityMode}
         onToggleCyclesOnly={() => setCyclesOnly((prev) => !prev)}
         onResetFilters={handleResetFilters}
+        workstationMode={workstationMode}
+        onToggleMode={() => setWorkstationMode((v) => (v === 'simple' ? 'advanced' : 'simple'))}
+        onToggleLanguage={() => {
+          const next = i18n.language.startsWith('tr') ? 'en' : 'tr';
+          void i18n.changeLanguage(next);
+          if (typeof document !== 'undefined') {
+            document.documentElement.lang = next;
+          }
+          savePreference('locale', next);
+        }}
+        onOpenTour={() => setTourOpen(true)}
         onExportReport={
           result
             ? (fmt) => {
@@ -613,6 +675,20 @@ export const App: React.FC = () => {
             : undefined
         }
         onLoadDemo={() => {
+          setSourceType('demo');
+          setTargetInput('demo');
+          void handleTriggerScan('demo', 'demo');
+        }}
+      />
+
+      {/* Guided First-Run Tour */}
+      <OnboardingTour
+        isOpen={tourOpen}
+        onClose={() => {
+          setTourOpen(false);
+          savePreference('onboardingDismissed', true);
+        }}
+        onTryDemo={() => {
           setSourceType('demo');
           setTargetInput('demo');
           void handleTriggerScan('demo', 'demo');

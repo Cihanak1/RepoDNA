@@ -4,6 +4,30 @@ All notable changes to **RepoDNA** are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-11-08
+
+### Added
+- **Workstation Experience & Cognitive Simplicity**:
+  - Two operational modes: **Simple Mode** (default) with 4 essential summary cards and reduced cognitive clutter, and **Advanced Mode** with full 6-metric technical strip, Tarjan SCC cycle counts, Robert C. Martin Instability formula ($I = C_e / (C_a + C_e)$), and Git churn insights.
+  - 4-step accessible **Guided Onboarding Tour** with keyboard navigation (arrows, Escape), focus management, persistent completion state, and one-click "Try Demo Architecture" action.
+  - Contextual **InfoTooltip** component with WCAG-compliant ARIA attributes for plain-language explanations of `Fan-In`, `Fan-Out`, `Instability`, `SCC`, `Circular Dependency`, `AST Coverage`, and coverage-based `Confidence`.
+  - **Full Bilingual Localization (English & Türkçe)** via `react-i18next` with zero-reload dynamic toggling, browser language detection, persistent `localStorage` preference, live `document.documentElement.lang` synchronization, and Turkish case-folding search (`normalizeSearchText`).
+  - Two-tier **Explainable Health Report** featuring Executive Summary view and Deep Technical Audit view with localized rule titles and remediations (`ARCH-001` through `ARCH-006` and `SEC-001`).
+  - Precision Engineering Workstation with semantic dark/light tokens, resizable panels with keyboard accessibility, canvas focus (`Alt+F`), persistent layout preferences, and mobile Files / Canvas / Inspector navigation.
+  - Package coverage summaries, path/metrics clipboard actions, command grouping/history, and zoom to selection.
+  - Full automated Axe WCAG A/AA accessibility test suite across five viewport sizes, themes, command palette, and live NiceWP analysis.
+
+### Fixed
+- Empty minimap, compact graph overlaps, light-theme contrast and rapid command-palette reopen race.
+- Unsupported modules no longer receive a generic healthy label; unverified report categories no longer display zero-score bars.
+- Export feedback checks the response before reporting a download; partial-static coverage semantics remain unchanged.
+- Backend error codes and deterministic architectural health rule descriptions mapped to user-facing translations while preserving canonical rule IDs and API fields.
+
+### Performance
+- Lazy-loaded graph and report views; quieter edge labels and memoized graph nodes.
+- Vite production build under 4.1s; zero bundle bloat.
+
+
 ## [0.1.1] - 2026-11-08
 
 ### Fixed
