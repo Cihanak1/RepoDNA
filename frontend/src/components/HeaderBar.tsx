@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Activity,
   Command,
+  Compass,
   Download,
   FileCode2,
   FolderOpen,
@@ -18,6 +20,7 @@ import {
 } from 'lucide-react';
 import { getExportUrl } from '../api/client';
 import type { AnalysisResult, ScanLimits, ScanProgress, SourceType } from '../types/repodna';
+import { savePreference, type WorkstationMode } from '../utils/preferences';
 
 interface HeaderBarProps {
   sourceType: SourceType;
@@ -37,6 +40,9 @@ interface HeaderBarProps {
   onTabChange: (tab: 'studio' | 'report') => void;
   defaultWorkspacePath: string;
   onOpenCommandPalette: () => void;
+  workstationMode?: WorkstationMode;
+  onWorkstationModeChange?: (mode: WorkstationMode) => void;
+  onOpenTour?: () => void;
 }
 
 export const HeaderBar: React.FC<HeaderBarProps> = ({
@@ -57,12 +63,30 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   onTabChange,
   defaultWorkspacePath,
   onOpenCommandPalette,
+  workstationMode = 'simple',
+  onWorkstationModeChange,
+  onOpenTour,
 }) => {
+  const { t, i18n } = useTranslation();
   const limitsDialogRef = useRef<HTMLDialogElement | null>(null);
   const [sourceOpen, setSourceOpen] = useState(false);
   const [limitsOpen, setLimitsOpen] = useState(false);
   const [renderedScheme, setRenderedScheme] = useState<'light' | 'dark'>('dark');
   const [exportStatusMsg, setExportStatusMsg] = useState<string | null>(null);
+
+  const isTr = Boolean(i18n?.language?.startsWith('tr'));
+  const selectLanguage = (target: 'en' | 'tr') => {
+    void i18n.changeLanguage(target);
+    if (typeof document !== 'undefined') {
+      document.documentElement.lang = target;
+    }
+    savePreference('locale', target);
+  };
+
+  const toggleMode = (mode: WorkstationMode) => {
+    onWorkstationModeChange?.(mode);
+    savePreference('mode', mode);
+  };
 
   const handleExportClick = async (event: React.MouseEvent<HTMLAnchorElement>, fmt: 'json' | 'html') => {
     event.preventDefault();
@@ -102,47 +126,46 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 
     setRenderedScheme(computeCurrentRendered());
 
-    const mql =
-      typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-        ? window.matchMedia('(prefers-color-scheme: dark)')
-        : null;
-
-    const handleChange = () => {
-      setRenderedScheme(computeCurrentRendered());
-    };
-
-    const handleStorage = (e: StorageEvent) => {
-      if (e.key === 'color-scheme' || e.key === null) {
-        const meta = document.querySelector<HTMLMetaElement>('meta[name="color-scheme"]');
-        if (meta) {
-          meta.content = e.newValue ?? 'light dark';
+    if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      const onChange = () => {
+        const explicit = document.querySelector<HTMLMetaElement>('meta[name="color-scheme"]')?.content;
+        if (!explicit) {
+          setRenderedScheme(mq.matches ? 'dark' : 'light');
         }
-        setRenderedScheme(computeCurrentRendered());
-      }
-    };
-
-    mql?.addEventListener('change', handleChange);
-    window.addEventListener('storage', handleStorage);
-    return () => {
-      mql?.removeEventListener('change', handleChange);
-      window.removeEventListener('storage', handleStorage);
-    };
+      };
+      mq.addEventListener('change', onChange);
+      return () => mq.removeEventListener('change', onChange);
+    }
   }, []);
 
   const handleToggleTheme = () => {
-    const targetScheme: 'light' | 'dark' = renderedScheme === 'dark' ? 'light' : 'dark';
+    const nextScheme: 'light' | 'dark' = renderedScheme === 'dark' ? 'light' : 'dark';
+    setRenderedScheme(nextScheme);
 
-    const meta = document.querySelector<HTMLMetaElement>('meta[name="color-scheme"]');
-    try {
-      localStorage.setItem('color-scheme', targetScheme);
-      if (meta) meta.content = targetScheme;
-    } catch {
-      if (meta) meta.content = targetScheme;
+    let meta = document.querySelector<HTMLMetaElement>('meta[name="color-scheme"]');
+    if (!meta) {
+      meta = document.createElement('meta');
+      meta.name = 'color-scheme';
+      document.head.appendChild(meta);
     }
-    setRenderedScheme(targetScheme);
+    meta.content = nextScheme;
+
+    if (nextScheme === 'dark') {
+      document.documentElement.classList.add('dark');
+      document.documentElement.setAttribute('data-theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      document.documentElement.setAttribute('data-theme', 'light');
+    }
+
+    try {
+      localStorage.setItem('color-scheme', nextScheme);
+    } catch {
+      // ignore storage errors
+    }
   };
 
-  // Limits modal light-dismiss fallback
   useEffect(() => {
     const dialog = limitsDialogRef.current;
     if (!dialog) return;
@@ -192,16 +215,16 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   };
 
   return (
-    <header className="app-header border-b border-line bg-canvas  px-4 py-2.5 flex flex-col gap-2">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <header className="app-header border-b border-line bg-canvas px-4 py-2 flex flex-col gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2.5">
         {/* Brand Identity */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
           <div className="brand-symbol">
             <Activity className="w-5 h-5 text-white" aria-hidden="true" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-base font-bold tracking-tight m-0 text-ink">RepoDNA</h1>
+              <h1 className="text-base font-bold tracking-tight m-0 text-ink">{t('header.title')}</h1>
               <span className="text-[11px] font-mono tracking-wide px-2 py-0.5 rounded-full bg-accent/15 text-accent border border-accent/30">
                 v0.1.1
               </span>
@@ -210,19 +233,54 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                   data-testid="demo-mode-badge"
                   className="text-[11px] font-semibold tracking-wide px-2.5 py-0.5 rounded-full bg-warning/20 text-warning border border-warning/40"
                 >
-                  Demo Mode — Sample Dataset
+                  {t('header.demoBadge')}
                 </span>
               )}
             </div>
             <p className="header-description text-[11px] text-muted m-0">
-              Repository intelligence workstation
+              {t('header.subtitle')}
             </p>
           </div>
         </div>
 
-        {/* Navigation & Export Controls */}
+        {/* Navigation & Controls */}
         <div className="flex items-center gap-2 flex-wrap">
-          <nav aria-label="Workspace views" className="flex items-center bg-panel p-1 rounded-lg border border-line">
+          {/* Workstation Mode Switcher (Simple / Advanced) */}
+          <div
+            role="group"
+            aria-label={t('common.switchMode')}
+            className="flex items-center bg-panel p-0.5 rounded-lg border border-line"
+          >
+            <button
+              type="button"
+              data-testid="mode-simple-btn"
+              onClick={() => toggleMode('simple')}
+              aria-pressed={workstationMode === 'simple'}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium cursor-pointer transition ${
+                workstationMode === 'simple'
+                  ? 'bg-accent-solid text-white shadow-sm'
+                  : 'text-muted hover:text-ink'
+              }`}
+            >
+              {t('common.simpleMode')}
+            </button>
+            <button
+              type="button"
+              data-testid="mode-advanced-btn"
+              onClick={() => toggleMode('advanced')}
+              aria-pressed={workstationMode === 'advanced'}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium cursor-pointer transition ${
+                workstationMode === 'advanced'
+                  ? 'bg-accent-solid text-white shadow-sm'
+                  : 'text-muted hover:text-ink'
+              }`}
+            >
+              {t('common.advancedMode')}
+            </button>
+          </div>
+
+          {/* Primary View Navigation */}
+          <nav aria-label="Workspace views" className="flex items-center bg-panel p-0.5 rounded-lg border border-line">
             <button
               type="button"
               onClick={() => onTabChange('studio')}
@@ -234,7 +292,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
               }`}
             >
               <FileCode2 className="w-3.5 h-3.5" aria-hidden="true" />
-              Architecture Studio
+              {t('header.studioTab')}
             </button>
             <button
               type="button"
@@ -247,49 +305,54 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
               }`}
             >
               <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
-              Health &amp; Transparency Report
+              {t('header.reportTab')}
             </button>
           </nav>
 
+          {/* Command Palette */}
           <button
             type="button"
             data-testid="open-command-palette-btn"
             onClick={onOpenCommandPalette}
-            aria-label="Open Command Palette (Ctrl+K)"
+            aria-label={`${t('header.commandPalette')} (Ctrl+K)`}
             className="px-2.5 py-1.5 rounded-lg bg-panel hover:bg-raised border border-line text-xs font-medium text-ink flex items-center gap-1.5 cursor-pointer"
           >
             <Command className="w-3.5 h-3.5 text-accent" aria-hidden="true" />
-            <span>Command Palette</span>
+            <span className="hidden sm:inline">{t('header.commandPalette')}</span>
             <kbd className="px-1.5 py-0.5 rounded bg-raised text-[11px] font-mono text-muted border border-line">
               Ctrl+K
             </kbd>
           </button>
 
+          {/* Consolidated Export Control */}
           {result && (
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center bg-panel border border-line rounded-lg p-0.5 text-xs">
+              <span className="px-2 text-muted font-medium flex items-center gap-1">
+                <Download className="w-3.5 h-3.5 text-accent" aria-hidden="true" />
+                <span className="hidden md:inline">{t('common.export')}</span>
+              </span>
               <a
                 href={getExportUrl(result.analysis_id, 'json')}
                 download={`repodna-${result.repo_name}.json`}
-                onClick={event => void handleExportClick(event, 'json')}
-                className="px-2.5 py-1.5 rounded-lg bg-panel hover:bg-raised border border-line text-xs font-medium text-ink flex items-center gap-1.5 no-underline"
+                onClick={(event) => void handleExportClick(event, 'json')}
+                className="px-2 py-0.5 hover:bg-raised rounded text-ink font-medium no-underline"
               >
-                <Download className="w-3.5 h-3.5 text-accent" aria-hidden="true" />
                 Export JSON
               </a>
+              <span className="text-line mx-0.5" aria-hidden="true">|</span>
               <a
                 href={getExportUrl(result.analysis_id, 'html')}
                 download={`repodna-${result.repo_name}.html`}
-                onClick={event => void handleExportClick(event, 'html')}
-                className="px-2.5 py-1.5 rounded-lg bg-panel hover:bg-raised border border-line text-xs font-medium text-ink flex items-center gap-1.5 no-underline"
+                onClick={(event) => void handleExportClick(event, 'html')}
+                className="px-2 py-0.5 hover:bg-raised rounded text-ink font-medium no-underline"
               >
-                <Download className="w-3.5 h-3.5 text-success" aria-hidden="true" />
                 Export HTML
               </a>
               {exportStatusMsg && (
                 <span
                   role="status"
                   data-testid="export-status-badge"
-                  className="px-2 py-1 rounded-md bg-success/20 border border-success/40 text-success text-[11px] font-medium"
+                  className="ml-1 px-1.5 py-0.5 rounded bg-success/20 border border-success/40 text-success text-[11px] font-medium"
                 >
                   {exportStatusMsg}
                 </span>
@@ -297,202 +360,246 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             </div>
           )}
 
+          {/* Language Switcher */}
+          <div
+            role="group"
+            aria-label={t('common.language')}
+            data-testid="lang-toggle-btn"
+            className="flex items-center bg-panel p-0.5 rounded-lg border border-line text-xs font-mono font-bold"
+          >
+            <button
+              type="button"
+              data-testid="lang-tr-btn"
+              onClick={() => selectLanguage('tr')}
+              aria-pressed={isTr}
+              className={`px-2 py-0.5 rounded cursor-pointer transition ${
+                isTr ? 'bg-accent-solid text-white shadow-sm' : 'text-muted hover:text-ink'
+              }`}
+            >
+              TR
+            </button>
+            <button
+              type="button"
+              data-testid="lang-en-btn"
+              onClick={() => selectLanguage('en')}
+              aria-pressed={!isTr}
+              className={`px-2 py-0.5 rounded cursor-pointer transition ${
+                !isTr ? 'bg-accent-solid text-white shadow-sm' : 'text-muted hover:text-ink'
+              }`}
+            >
+              EN
+            </button>
+          </div>
+
+          {/* Guided Tour Replay */}
+          {onOpenTour && (
+            <button
+              type="button"
+              data-testid="open-tour-btn"
+              onClick={onOpenTour}
+              title={t('common.help')}
+              aria-label={t('common.help')}
+              className="p-1.5 rounded-lg bg-panel hover:bg-raised border border-line text-ink cursor-pointer flex items-center gap-1 text-xs"
+            >
+              <Compass className="w-4 h-4 text-accent" aria-hidden="true" />
+              <span className="hidden lg:inline">{t('common.help')}</span>
+            </button>
+          )}
+
+          {/* Theme Toggle */}
           <button
             type="button"
             data-testid="theme-toggle-btn"
             onClick={handleToggleTheme}
-            className="p-2 rounded-lg bg-panel hover:bg-raised border border-line text-ink cursor-pointer flex items-center gap-1.5 text-xs"
+            className="p-1.5 rounded-lg bg-panel hover:bg-raised border border-line text-ink cursor-pointer flex items-center gap-1.5 text-xs"
           >
             {renderedScheme === 'dark' ? (
               <>
                 <Sun className="w-4 h-4 text-warning" aria-hidden="true" />
-                <span className="visually-hidden">Switch to light theme</span>
+                <span className="visually-hidden">{t('common.themeLight')}</span>
               </>
             ) : (
               <>
                 <Moon className="w-4 h-4 text-accent" aria-hidden="true" />
-                <span className="visually-hidden">Switch to dark theme</span>
+                <span className="visually-hidden">{t('common.themeDark')}</span>
               </>
             )}
           </button>
         </div>
       </div>
 
-      {result && <div className="repository-identity">
-        <GitBranch size={15} aria-hidden="true" className="text-accent shrink-0" />
-        <strong title={result.repo_name}>{result.repo_name}</strong>
-        <span>{isScanning ? 'Analysis in progress' : result.is_demo ? 'Sample analysis' : 'Analysis complete'}</span>
-        <button type="button" className="ml-auto text-xs text-accent cursor-pointer" aria-expanded={sourceOpen} onClick={() => setSourceOpen(v => !v)}>{sourceOpen ? 'Hide source controls' : 'Change repository'}</button>
-      </div>}
-      {/* Repository Target Acquisition Bar */}
-      {(!result || sourceOpen || isScanning) && (
-      <form onSubmit={handleSubmit} className="flex flex-wrap items-center gap-2 pt-1">
-        <div role="group" aria-label="Source type" className="flex items-center bg-panel p-0.5 rounded-lg border border-line">
+      {result && (
+        <div className="repository-identity">
+          <GitBranch size={15} aria-hidden="true" className="text-accent shrink-0" />
+          <strong title={result.repo_name}>{result.repo_name}</strong>
+          <span>
+            {isScanning
+              ? t('common.loading')
+              : result.is_demo
+              ? t('header.sampleBadge')
+              : t('header.analyzeRepo')}
+          </span>
           <button
             type="button"
-            onClick={() => {
-              onSourceTypeChange('local');
-              if (targetInput === 'demo' || targetInput.startsWith('https://')) {
-                onTargetInputChange(defaultWorkspacePath);
-              }
-            }}
-            aria-pressed={sourceType === 'local'}
-            className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1 cursor-pointer ${
-              sourceType === 'local' ? 'bg-raised text-accent border border-line' : 'text-muted hover:text-ink'
-            }`}
+            className="ml-auto text-xs text-accent cursor-pointer"
+            aria-expanded={sourceOpen}
+            onClick={() => setSourceOpen((v) => !v)}
           >
-            <FolderOpen className="w-3.5 h-3.5" aria-hidden="true" />
-            Local Folder
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              onSourceTypeChange('github');
-              if (!targetInput.startsWith('https://github.com/')) {
-                onTargetInputChange('https://github.com/Cihanak1/AImage');
-              }
-            }}
-            aria-pressed={sourceType === 'github'}
-            className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1 cursor-pointer ${
-              sourceType === 'github' ? 'bg-raised text-accent border border-line' : 'text-muted hover:text-ink'
-            }`}
-          >
-            <Github className="w-3.5 h-3.5" aria-hidden="true" />
-            GitHub HTTPS
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              onSourceTypeChange('demo');
-              onTargetInputChange('demo');
-              onTriggerScan('demo', 'demo');
-            }}
-            aria-pressed={sourceType === 'demo'}
-            className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1 cursor-pointer ${
-              sourceType === 'demo' ? 'bg-warning/20 text-warning border border-warning/40' : 'text-muted hover:text-ink'
-            }`}
-          >
-            <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
-            Demo Dataset
+            {sourceOpen ? t('header.hideControls') : t('header.changeRepo')}
           </button>
         </div>
+      )}
 
-        <div className="flex-1 min-w-0 flex items-center gap-1.5">
-          <label htmlFor="repo-target-input" className="visually-hidden">
-            {sourceType === 'github' ? 'Public HTTPS GitHub Repository URL' : 'Local Repository Directory Path'}
-          </label>
-          <input
-            id="repo-target-input"
-            name="repository" autoComplete="off" spellCheck={false}
-            type="text"
-            value={targetInput}
-            onChange={(e) => onTargetInputChange(e.target.value)}
-            placeholder={
-              sourceType === 'github'
-                ? 'https://github.com/owner/repository'
-                : 'Enter local repository directory path...'
-            }
-            className="flex-1 bg-panel border border-line rounded-lg px-3 py-1.5 text-xs font-mono text-ink placeholder:text-muted"
-          />
-
-          {sourceType === 'local' && (
+      {/* Repository Target Acquisition Bar (Collapsible after scan) */}
+      {(!result || sourceOpen || isScanning) && (
+        <form onSubmit={handleSubmit} className="flex flex-wrap items-center gap-2 pt-1">
+          <div role="group" aria-label="Source type" className="flex items-center bg-panel p-0.5 rounded-lg border border-line">
             <button
               type="button"
-              onClick={onOpenFolderBrowser}
-              className="px-2.5 py-1.5 rounded-lg bg-panel hover:bg-raised border border-line text-xs font-medium text-ink flex items-center gap-1 shrink-0 cursor-pointer"
+              onClick={() => {
+                onSourceTypeChange('local');
+                if (targetInput === 'demo' || targetInput.startsWith('https://')) {
+                  onTargetInputChange(defaultWorkspacePath);
+                }
+              }}
+              aria-pressed={sourceType === 'local'}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1 cursor-pointer ${
+                sourceType === 'local' ? 'bg-raised text-accent border border-line' : 'text-muted hover:text-ink'
+              }`}
             >
-              <FolderOpen className="w-3.5 h-3.5 text-accent" aria-hidden="true" />
-              Browse...
+              <FolderOpen className="w-3.5 h-3.5" aria-hidden="true" />
+              {t('header.sourceLocal')}
             </button>
-          )}
+            <button
+              type="button"
+              onClick={() => {
+                onSourceTypeChange('github');
+                if (!targetInput.startsWith('https://github.com/')) {
+                  onTargetInputChange('https://github.com/Cihanak1/AImage');
+                }
+              }}
+              aria-pressed={sourceType === 'github'}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1 cursor-pointer ${
+                sourceType === 'github' ? 'bg-raised text-accent border border-line' : 'text-muted hover:text-ink'
+              }`}
+            >
+              <Github className="w-3.5 h-3.5" aria-hidden="true" />
+              {t('header.sourceGithub')}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onSourceTypeChange('demo');
+                onTargetInputChange('demo');
+                onTriggerScan('demo', 'demo');
+              }}
+              aria-pressed={sourceType === 'demo'}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1 cursor-pointer ${
+                sourceType === 'demo' ? 'bg-warning/20 text-warning border border-warning/40' : 'text-muted hover:text-ink'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
+              {t('header.sourceDemo')}
+            </button>
+          </div>
 
-          {sourceType === 'github' && (
-            <div className="flex items-center gap-1">
-              <label htmlFor="repo-branch-input" className="visually-hidden">
-                Git Branch (optional)
-              </label>
-              <GitBranch className="w-3.5 h-3.5 text-muted" aria-hidden="true" />
-              <input
-                id="repo-branch-input"
-                type="text"
-                value={branchInput}
-                onChange={(e) => onBranchInputChange(e.target.value)}
-                placeholder="branch (optional)"
-                className="w-28 bg-panel border border-line rounded-lg px-2 py-1.5 text-xs font-mono text-ink placeholder:text-muted"
-              />
-            </div>
-          )}
-        </div>
+          <div className="flex-1 min-w-0 flex items-center gap-1.5">
+            <label htmlFor="repo-target-input" className="visually-hidden">
+              {sourceType === 'github' ? 'Public HTTPS GitHub Repository URL' : 'Local Repository Directory Path'}
+            </label>
+            <input
+              id="repo-target-input"
+              name="repository"
+              autoComplete="off"
+              spellCheck={false}
+              type="text"
+              value={targetInput}
+              onChange={(e) => onTargetInputChange(e.target.value)}
+              placeholder={
+                sourceType === 'github'
+                  ? 'https://github.com/owner/repository'
+                  : 'Enter local repository directory path...'
+              }
+              className="flex-1 bg-panel border border-line rounded-lg px-3 py-1.5 text-xs font-mono text-ink placeholder:text-muted"
+            />
 
-        <button
-          type="button"
-          onClick={() => setLimitsOpen(true)}
-          className="px-2.5 py-1.5 rounded-lg bg-panel hover:bg-raised border border-line text-xs font-medium text-muted flex items-center gap-1.5 cursor-pointer"
-        >
-          <Settings2 className="w-3.5 h-3.5 text-muted" aria-hidden="true" />
-          Guardrails ({limits.max_files} files / {limits.timeout_seconds}s)
-        </button>
+            {sourceType === 'local' && (
+              <button
+                type="button"
+                onClick={onOpenFolderBrowser}
+                className="px-2.5 py-1.5 rounded-lg bg-panel hover:bg-raised border border-line text-xs font-medium text-ink flex items-center gap-1 shrink-0 cursor-pointer"
+              >
+                <FolderOpen className="w-3.5 h-3.5 text-accent" aria-hidden="true" />
+                {t('launchpad.browseFolder')}
+              </button>
+            )}
 
-        {isScanning ? (
+            {sourceType === 'github' && (
+              <div className="flex items-center gap-1">
+                <label htmlFor="repo-branch-input" className="visually-hidden">
+                  Git Branch (optional)
+                </label>
+                <GitBranch className="w-3.5 h-3.5 text-muted" aria-hidden="true" />
+                <input
+                  id="repo-branch-input"
+                  type="text"
+                  value={branchInput}
+                  onChange={(e) => onBranchInputChange(e.target.value)}
+                  placeholder={t('header.branchOptional')}
+                  className="w-28 bg-panel border border-line rounded-lg px-2 py-1.5 text-xs font-mono text-ink placeholder:text-muted"
+                />
+              </div>
+            )}
+          </div>
+
           <button
             type="button"
-            onClick={onCancelJob}
-            className="px-3.5 py-1.5 rounded-lg bg-danger-solid hover:bg-danger-solid text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+            onClick={() => setLimitsOpen(true)}
+            className="px-2.5 py-1.5 rounded-lg bg-panel hover:bg-raised border border-line text-xs font-medium text-muted flex items-center gap-1.5 cursor-pointer"
           >
-            <Square className="w-3.5 h-3.5" aria-hidden="true" />
-            Cancel Scan
+            <Settings2 className="w-3.5 h-3.5 text-muted" aria-hidden="true" />
+            {t('header.guardrails')} ({limits.max_files} files / {limits.timeout_seconds}s)
           </button>
-        ) : (
-          <button
-            type="submit"
-            data-testid="analyze-submit-btn"
-            className="px-4 py-1.5 rounded-lg bg-accent-solid hover:bg-accent-solid text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm shadow-sky-500/20 cursor-pointer"
-          >
-            <Play className="w-3.5 h-3.5" aria-hidden="true" />
-            Analyze Repository
-          </button>
-        )}
-      </form>
-      )}
 
-      {/* Active Scan Progress Bar */}
-      {isScanning && activeJob && (
-        <div className="flex items-center gap-3 bg-panel border border-accent/30 rounded-lg px-3 py-1.5 text-xs">
-          <progress
-            value={activeJob.progress_percent}
-            max={100}
-            aria-label="Repository scan progress"
-            className="w-40 h-2 rounded overflow-hidden accent-sky-500"
-          />
-          <span className="font-mono text-accent font-semibold">
-            {activeJob.progress_percent.toFixed(0)}%
-          </span>
-          <span className="text-muted truncate flex-1">{activeJob.phase_message}</span>
-          {activeJob.files_discovered > 0 && (
-            <span className="text-muted font-mono">
-              {activeJob.files_processed}/{activeJob.files_discovered} files
-            </span>
+          {isScanning ? (
+            <button
+              type="button"
+              onClick={onCancelJob}
+              className="px-3.5 py-1.5 rounded-lg bg-danger-solid hover:bg-danger-solid text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+            >
+              <Square className="w-3.5 h-3.5" aria-hidden="true" />
+              {t('common.cancel')}
+            </button>
+          ) : (
+            <button
+              type="submit"
+              data-testid="analyze-submit-btn"
+              className="px-4 py-1.5 rounded-lg bg-accent-solid hover:bg-accent-solid text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm shadow-sky-500/20 cursor-pointer"
+            >
+              <Play className="w-3.5 h-3.5" aria-hidden="true" />
+              {t('header.analyzeRepo')}
+            </button>
           )}
-        </div>
+        </form>
       )}
 
-      {/* Scan Limits & Safety Guardrails Modal */}
+      {/* Guardrails Dialog */}
       <dialog
         ref={limitsDialogRef}
-        {...({ closedby: 'any' } as React.DialogHTMLAttributes<HTMLDialogElement>)}
         aria-labelledby="limits-dialog-title"
+        className="backdrop:bg-black/60 rounded-xl bg-canvas border border-line p-0 text-ink max-w-md w-full shadow-2xl m-auto"
       >
-        <div className="p-5 flex flex-col gap-4">
-          <div className="flex items-center justify-between border-b border-line pb-3">
-            <h2 id="limits-dialog-title" className="text-base font-semibold m-0 flex items-center gap-2">
+        <div className="p-4 space-y-4">
+          <div className="flex items-center justify-between border-b border-line pb-2">
+            <h2 id="limits-dialog-title" className="text-sm font-bold flex items-center gap-2 m-0">
               <Settings2 className="w-4 h-4 text-accent" aria-hidden="true" />
-              Scan Safety Limits &amp; Timeout Guardrails
+              Scan Guardrails &amp; Safety Limits
             </h2>
             <button
               type="button"
               onClick={() => limitsDialogRef.current?.close()}
-              aria-label="Close limits dialog"
-              className="p-1 rounded-lg hover:bg-raised text-muted cursor-pointer"
+              aria-label="Close dialog"
+              className="p-1 rounded-md hover:bg-raised text-muted hover:text-ink cursor-pointer"
             >
               <X className="w-4 h-4" aria-hidden="true" />
             </button>
@@ -566,7 +673,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
               onClick={() => limitsDialogRef.current?.close()}
               className="px-4 py-1.5 rounded-lg bg-accent-solid hover:bg-accent-solid text-white text-xs font-semibold cursor-pointer"
             >
-              Done
+              {t('common.close')}
             </button>
           </div>
         </div>

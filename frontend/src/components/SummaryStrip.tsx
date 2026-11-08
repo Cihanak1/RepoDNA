@@ -1,15 +1,17 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import {
-  AlertTriangle,
+  ArrowRight,
   CheckCircle2,
   FileStack,
-  Flame,
   GitCommitHorizontal,
   Layers,
   Network,
   RefreshCcw,
+  Sparkles,
 } from 'lucide-react';
 import type { AnalysisResult } from '../types/repodna';
+import type { WorkstationMode } from '../utils/preferences';
 
 interface SummaryStripProps {
   result: AnalysisResult;
@@ -17,6 +19,7 @@ interface SummaryStripProps {
   onToggleCyclesOnly: () => void;
   onOpenReportTab: () => void;
   isPreviousAnalysis?: boolean;
+  workstationMode?: WorkstationMode;
 }
 
 export const SummaryStrip: React.FC<SummaryStripProps> = ({
@@ -25,7 +28,9 @@ export const SummaryStrip: React.FC<SummaryStripProps> = ({
   onToggleCyclesOnly,
   onOpenReportTab,
   isPreviousAnalysis = false,
+  workstationMode = 'simple',
 }) => {
+  const { t } = useTranslation();
   const hr = result.health_report;
   const gm = result.graph_metrics;
   const tr = result.transparency;
@@ -39,12 +44,25 @@ export const SummaryStrip: React.FC<SummaryStripProps> = ({
     'N/A': 'text-muted bg-raised border-line',
   };
 
+  const isLowCoverage = hr.status === 'insufficient_dependency_coverage';
+  const hasCycles = result.cycles.length > 0;
+  const topFinding = hr.findings[0];
+
+  const recommendationText = isLowCoverage
+    ? t('summary.actionLowCoverage')
+    : hasCycles
+    ? t('summary.actionCycle')
+    : topFinding
+    ? topFinding.remediation
+    : t('summary.actionClean');
+
   return (
     <section
       aria-label="Repository analysis summary metrics"
       className="summary-strip text-xs"
+      data-mode={workstationMode}
     >
-      {/* Architecture Health Score */}
+      {/* 1. Architecture Health Score */}
       <button
         type="button"
         onClick={onOpenReportTab}
@@ -52,13 +70,13 @@ export const SummaryStrip: React.FC<SummaryStripProps> = ({
       >
         <div>
           <div className="text-[11px] tracking-wide text-muted font-semibold flex items-center gap-1.5">
-            <span>Architecture Health</span>
+            <span>{t('summary.architectureHealth')}</span>
             {isPreviousAnalysis && (
               <span
                 data-testid="previous-analysis-badge"
                 className="px-1.5 py-0.5 rounded bg-warning/20 border border-warning/40 text-warning text-[11px] font-bold uppercase"
               >
-                Previous analysis
+                {t('summary.previousAnalysis')}
               </span>
             )}
           </div>
@@ -68,13 +86,13 @@ export const SummaryStrip: React.FC<SummaryStripProps> = ({
                 <span data-testid="summary-health-score">{hr.overall_score.toFixed(1)}</span>
                 <span className="text-[11px] font-normal text-muted">/ 100</span>
               </>
-            ) : hr.status === 'insufficient_dependency_coverage' ? (
+            ) : isLowCoverage ? (
               <span data-testid="summary-health-score" className="text-xs text-warning font-semibold">
-                Insufficient Dependency Coverage
+                {t('common.insufficientCoverage')}
               </span>
             ) : (
               <span data-testid="summary-health-score" className="text-sm text-muted">
-                N/A (Insufficient Data)
+                N/A ({t('common.notEvaluated')})
               </span>
             )}
           </div>
@@ -105,137 +123,176 @@ export const SummaryStrip: React.FC<SummaryStripProps> = ({
         </span>
       </button>
 
-      {/* Files & LOC */}
+      {/* 2. Files & Code Volume */}
       <div className="flex items-center justify-between p-2 rounded-lg bg-panel border border-line">
         <div>
           <div className="text-[11px] tracking-wide text-muted font-semibold">
-            Files &amp; Code Volume
+            {t('summary.codeVolume')}
           </div>
           <div className="text-sm font-bold text-ink mt-0.5">
-            <span data-testid="summary-total-files">{result.total_files.toLocaleString()}</span> files &bull;{' '}
+            <span data-testid="summary-total-files">{result.total_files.toLocaleString()}</span> {t('summary.files')} &bull;{' '}
             <span className="text-accent">{result.total_lines_code.toLocaleString()}</span> LOC
           </div>
         </div>
         <FileStack className="w-4 h-4 text-accent shrink-0" aria-hidden="true" />
       </div>
 
-      {/* Internal Dependency Graph */}
-      <div className="flex items-center justify-between p-2 rounded-lg bg-panel border border-line">
-        <div>
-          <div className="text-[11px] tracking-wide text-muted font-semibold">
-            Module Topology
-          </div>
-          <div className="text-sm font-bold text-ink mt-0.5">
-            <span data-testid="summary-total-edges">{gm.total_edges.toLocaleString()}</span> edges &bull;{' '}
-            <span className="text-muted font-mono text-xs">I={gm.average_instability.toFixed(2)}</span>
-          </div>
-        </div>
-        <Network className="w-4 h-4 text-accent shrink-0" aria-hidden="true" />
-      </div>
-
-      {/* Circular Dependencies */}
-      <button
-        type="button"
-        onClick={onToggleCyclesOnly}
-        aria-pressed={cyclesOnly}
-        className={`flex items-center justify-between p-2 rounded-lg border text-left cursor-pointer transition ${
-          cyclesOnly
-            ? 'bg-danger/10 border-danger/60'
-            : gm.cycle_count > 0
-            ? 'bg-danger/10 hover:bg-danger/10 border-danger/50'
-            : 'bg-panel border-line'
-        }`}
-      >
-        <div>
-          <div className="text-[11px] tracking-wide text-muted font-semibold">
-            Circular Dependencies
-          </div>
-          <div className="text-sm font-bold mt-0.5 flex items-center gap-1.5">
-            {gm.cycle_count > 0 || gm.scc_count > 0 ? (
-              <>
-                <span data-testid="summary-cycle-count" className="text-danger">
-                  {gm.cycle_count} cycles
+      {/* In Simple Mode: Key Finding & Cycles */}
+      {workstationMode === 'simple' && (
+        <button
+          type="button"
+          onClick={onToggleCyclesOnly}
+          className={`flex items-center justify-between p-2 rounded-lg border text-left cursor-pointer transition ${
+            cyclesOnly
+              ? 'bg-accent/15 border-accent text-accent'
+              : 'bg-panel hover:bg-raised border-line text-ink'
+          }`}
+        >
+          <div className="min-w-0 pr-1">
+            <div className="text-[11px] tracking-wide text-muted font-semibold flex items-center gap-1">
+              <span>{t('summary.circularDeps')}</span>
+              {cyclesOnly && <span className="text-[10px] text-accent font-bold uppercase">(Active)</span>}
+            </div>
+            <div className="text-sm font-bold mt-0.5 truncate">
+              {isLowCoverage ? (
+                <span data-testid="summary-cycle-count" className="text-warning text-xs font-semibold">
+                  Not evaluated (Low AST coverage)
                 </span>
-                <span className="text-[11px] font-normal text-muted">
-                  ({gm.scc_count} SCCs, {gm.nodes_in_cycles} modules)
+              ) : hasCycles ? (
+                <span data-testid="summary-cycle-count" className="text-danger font-mono">
+                  {result.cycles.length} cycles ({gm.scc_count} SCCs, {gm.nodes_in_cycles} modules)
                 </span>
-              </>
-            ) : hr.dependency_graph_evaluated === false ? (
-              <span data-testid="summary-cycle-count" className="text-xs text-warning font-semibold">
-                Not evaluated (Low AST coverage)
-              </span>
-            ) : (
-              <span data-testid="summary-cycle-count" className="text-success">
-                0 cycles (in analyzed graph)
-              </span>
-            )}
-          </div>
-        </div>
-        {gm.cycle_count > 0 ? (
-          <RefreshCcw className="w-4 h-4 text-danger shrink-0" aria-hidden="true" />
-        ) : hr.dependency_graph_evaluated === false ? (
-          <AlertTriangle className="w-4 h-4 text-warning shrink-0" aria-hidden="true" />
-        ) : (
-          <CheckCircle2 className="w-4 h-4 text-success shrink-0" aria-hidden="true" />
-        )}
-      </button>
-
-      {/* Language Coverage & Unsupported Transparency */}
-      <button
-        type="button"
-        onClick={onOpenReportTab}
-        className="flex items-center justify-between p-2 rounded-lg bg-panel hover:bg-raised border border-line text-left cursor-pointer"
-      >
-        <div className="truncate pr-1">
-          <div className="text-[11px] tracking-wide text-muted font-semibold">
-            AST Language Coverage
-          </div>
-          <div className="text-xs font-semibold text-ink mt-0.5 truncate" data-testid="summary-ast-coverage">
-            {tr.ast_loc_coverage_pct !== undefined
-              ? `${tr.ast_loc_coverage_pct.toFixed(1)}% LOC (${(tr.ast_file_coverage_pct ?? 0).toFixed(1)}% files) AST`
-              : `${tr.supported_languages_detected.length} AST supported`}
-            {(tr.partial_static_files_count ?? 0) > 0 && (
-              <>
-                {' '}&bull;{' '}
-                <span className="text-warning">
-                  {tr.partial_static_files_count} partial_static
+              ) : (
+                <span data-testid="summary-cycle-count" className="text-success text-xs font-semibold flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-success" />
+                  0 cycles (Acyclic)
                 </span>
-              </>
-            )}
-            {' '}&bull;{' '}
-            <span className={tr.unsupported_files_count > 0 ? 'text-warning' : 'text-muted'}>
-              {tr.unsupported_files_count} unsupported
-            </span>
+              )}
+            </div>
           </div>
-        </div>
-        {tr.unsupported_files_count > 0 || (tr.partial_static_files_count ?? 0) > 0 ? (
-          <AlertTriangle className="w-4 h-4 text-warning shrink-0" aria-hidden="true" />
-        ) : (
-          <Layers className="w-4 h-4 text-success shrink-0" aria-hidden="true" />
-        )}
-      </button>
+          <RefreshCcw
+            className={`w-4 h-4 shrink-0 ${
+              hasCycles ? 'text-danger' : 'text-success'
+            } ${cyclesOnly ? 'rotate-180 transition-transform' : ''}`}
+            aria-hidden="true"
+          />
+        </button>
+      )}
 
-      {/* Git Insights & Churn */}
-      <div className="flex items-center justify-between p-2 rounded-lg bg-panel border border-line">
-        <div>
-          <div className="text-[11px] tracking-wide text-muted font-semibold">
-            Git History &amp; Hotspots
+      {/* In Simple Mode: Recommended Next Action */}
+      {workstationMode === 'simple' && (
+        <div className="hidden lg:flex items-center justify-between p-2 rounded-lg bg-panel border border-line">
+          <div className="min-w-0 pr-2">
+            <div className="text-[11px] tracking-wide text-accent font-semibold flex items-center gap-1">
+              <Sparkles className="w-3 h-3 text-accent" />
+              <span>{t('summary.recommendedAction')}</span>
+            </div>
+            <p className="text-xs text-muted mt-0.5 truncate leading-snug" title={recommendationText}>
+              {recommendationText}
+            </p>
           </div>
-          <div className="text-xs font-semibold text-ink mt-0.5 flex items-center gap-1.5">
-            {result.git_insights.is_git_repo ? (
-              <>
-                <GitCommitHorizontal className="w-3.5 h-3.5 text-accent" aria-hidden="true" />
-                <span>{result.git_insights.total_commits_scanned} commits</span>
-                <span>&bull;</span>
-                <span className="text-warning">{result.git_insights.hotspots.length} hotspots</span>
-              </>
-            ) : (
-              <span className="text-muted">Non-Git Folder</span>
-            )}
-          </div>
+          <ArrowRight className="w-3.5 h-3.5 text-muted shrink-0" aria-hidden="true" />
         </div>
-        <Flame className="w-4 h-4 text-warning shrink-0" aria-hidden="true" />
-      </div>
+      )}
+
+      {/* In Advanced Mode: Full 4 Additional Technical Metrics */}
+      {workstationMode === 'advanced' && (
+        <>
+          {/* Module Topology */}
+          <div className="flex items-center justify-between p-2 rounded-lg bg-panel border border-line">
+            <div>
+              <div className="text-[11px] tracking-wide text-muted font-semibold">
+                {t('summary.moduleTopology')}
+              </div>
+              <div className="text-sm font-bold text-ink mt-0.5 font-mono">
+                {gm.total_edges} <span className="font-sans font-normal text-xs text-muted">{t('summary.edges')}</span> &bull;{' '}
+                <span className="text-accent">I={gm.average_instability.toFixed(2)}</span>
+              </div>
+            </div>
+            <Network className="w-4 h-4 text-muted shrink-0" aria-hidden="true" />
+          </div>
+
+          {/* Circular Dependencies */}
+          <button
+            type="button"
+            onClick={onToggleCyclesOnly}
+            className={`flex items-center justify-between p-2 rounded-lg border text-left cursor-pointer transition ${
+              cyclesOnly
+                ? 'bg-accent/15 border-accent text-accent'
+                : 'bg-panel hover:bg-raised border-line text-ink'
+            }`}
+          >
+            <div>
+              <div className="text-[11px] tracking-wide text-muted font-semibold flex items-center gap-1">
+                <span>{t('summary.circularDeps')}</span>
+                {cyclesOnly && <span className="text-[10px] text-accent font-bold uppercase">(Active)</span>}
+              </div>
+              <div className="text-sm font-bold mt-0.5 font-mono">
+                {isLowCoverage ? (
+                  <span data-testid="summary-cycle-count" className="text-warning text-xs font-sans font-semibold">
+                    Not evaluated (Low AST coverage)
+                  </span>
+                ) : result.cycles.length > 0 ? (
+                  <span data-testid="summary-cycle-count" className="text-danger">
+                    {result.cycles.length} cycles ({gm.scc_count} SCCs, {gm.nodes_in_cycles} modules)
+                  </span>
+                ) : (
+                  <span data-testid="summary-cycle-count" className="text-success text-xs font-sans font-semibold">
+                    0 cycles (Acyclic)
+                  </span>
+                )}
+              </div>
+            </div>
+            <RefreshCcw
+              className={`w-4 h-4 shrink-0 ${
+                result.cycles.length > 0 ? 'text-danger' : 'text-success'
+              } ${cyclesOnly ? 'rotate-180 transition-transform' : ''}`}
+              aria-hidden="true"
+            />
+          </button>
+
+          {/* AST Language Coverage */}
+          <div data-testid="summary-ast-coverage" className="flex items-center justify-between p-2 rounded-lg bg-panel border border-line">
+            <div>
+              <div className="text-[11px] tracking-wide text-muted font-semibold">
+                {t('summary.astCoverage')}
+              </div>
+              <div className="text-xs font-bold text-ink mt-0.5">
+                <span className="text-accent">{(tr.ast_loc_coverage_pct ?? 0).toFixed(1)}% LOC</span>{' '}
+                <span className="text-muted font-normal">
+                  ({(tr.ast_file_coverage_pct ?? 0).toFixed(1)}% {t('summary.files')}) AST
+                </span>
+                {tr.unsupported_files_count > 0 && (
+                  <span className="text-warning ml-1">
+                    &bull; {tr.unsupported_files_count} {t('summary.unsupported')}
+                  </span>
+                )}
+              </div>
+            </div>
+            <Layers className="w-4 h-4 text-muted shrink-0" aria-hidden="true" />
+          </div>
+
+          {/* Git History & Hotspots */}
+          <div data-testid="summary-git-hotspots" className="flex items-center justify-between p-2 rounded-lg bg-panel border border-line">
+            <div>
+              <div className="text-[11px] tracking-wide text-muted font-semibold">
+                {t('summary.gitHotspots')}
+              </div>
+              <div className="text-xs font-bold text-ink mt-0.5 font-mono">
+                {result.git_insights.is_git_repo ? (
+                  <>
+                    <span>{result.git_insights.total_commits_scanned} {t('summary.commits')}</span> &bull;{' '}
+                    <span className="text-warning">{result.git_insights.hotspots.length} {t('summary.hotspots')}</span>
+                  </>
+                ) : (
+                  <span className="text-muted font-sans font-normal">N/A (Git not available)</span>
+                )}
+              </div>
+            </div>
+            <GitCommitHorizontal className="w-4 h-4 text-muted shrink-0" aria-hidden="true" />
+          </div>
+        </>
+      )}
     </section>
   );
 };

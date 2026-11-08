@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   ChevronDown,
   ChevronRight,
@@ -51,6 +52,7 @@ export const ExplorerSidebar: React.FC<ExplorerSidebarProps> = ({
   onOrphansOnlyChange,
   onResetFilters,
 }) => {
+  const { t } = useTranslation();
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
 
   const uniqueLanguages = useMemo(() => {
@@ -97,15 +99,15 @@ export const ExplorerSidebar: React.FC<ExplorerSidebarProps> = ({
         <div className="flex items-center justify-between">
           <h2 className="text-xs font-bold tracking-wide text-muted m-0 flex items-center gap-1.5">
             <Filter className="w-3.5 h-3.5 text-accent" aria-hidden="true" />
-            Explorer ({filteredFiles.length}/{allFiles.length})
+            {t('explorer.title')} ({filteredFiles.length}/{allFiles.length})
           </h2>
           {hasActiveFilters && (
             <button
               type="button"
               onClick={onResetFilters}
-              className="text-[11px] text-accent hover:text-accent font-medium cursor-pointer"
+              className="text-[11px] text-accent hover:underline font-medium cursor-pointer"
             >
-              Reset filters
+              {t('explorer.clearFilters')}
             </button>
           )}
         </div>
@@ -124,7 +126,7 @@ export const ExplorerSidebar: React.FC<ExplorerSidebarProps> = ({
             type="search"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Search file path or symbol..."
+            placeholder={t('explorer.searchPlaceholder')}
             className="w-full bg-panel border border-line rounded-lg pl-8 pr-2.5 py-1.5 text-xs text-ink placeholder:text-muted"
           />
         </div>
@@ -141,7 +143,7 @@ export const ExplorerSidebar: React.FC<ExplorerSidebarProps> = ({
               onChange={(e) => onLanguageFilterChange(e.target.value)}
               className="w-full bg-panel border border-line rounded-lg px-2 py-1 text-xs text-ink"
             >
-              <option value="ALL">All Languages</option>
+              <option value="ALL">{t('explorer.allLanguages')}</option>
               {uniqueLanguages.map((lang) => (
                 <option key={lang} value={lang}>
                   {lang}
@@ -160,7 +162,7 @@ export const ExplorerSidebar: React.FC<ExplorerSidebarProps> = ({
               onChange={(e) => onSupportFilterChange(e.target.value)}
               className="w-full bg-panel border border-line rounded-lg px-2 py-1 text-xs text-ink"
             >
-              <option value="ALL">All Support Levels</option>
+              <option value="ALL">{t('explorer.allSupport')}</option>
               <option value="full_ast">Full AST Only</option>
               <option value="partial_static">Partial Static</option>
               <option value="unsupported">Unsupported Only</option>
@@ -181,7 +183,7 @@ export const ExplorerSidebar: React.FC<ExplorerSidebarProps> = ({
             }`}
           >
             <RefreshCcw className="w-3 h-3" aria-hidden="true" />
-            In Cycle
+            {t('explorer.inCycleFilter')}
           </button>
 
           <button
@@ -195,7 +197,7 @@ export const ExplorerSidebar: React.FC<ExplorerSidebarProps> = ({
             }`}
           >
             <Sparkles className="w-3 h-3" aria-hidden="true" />
-            Hubs
+            {t('explorer.hubsFilter')}
           </button>
 
           <button
@@ -209,100 +211,110 @@ export const ExplorerSidebar: React.FC<ExplorerSidebarProps> = ({
             }`}
           >
             <Unlink className="w-3 h-3" aria-hidden="true" />
-            Orphans
+            {t('explorer.orphansFilter')}
           </button>
         </div>
       </div>
 
-      {/* Hierarchical Directory & File Tree */}
-      <div className="flex-1 overflow-y-auto p-2 space-y-1" onKeyDown={event => {
-        if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
-        const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button'));
-        const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
-        if (index < 0) return;
-        event.preventDefault();
-        const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : Math.max(0, Math.min(buttons.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)));
-        buttons[next]?.focus();
-      }}>
+      {/* Directory & File Tree */}
+      <div
+        tabIndex={0}
+        role="region"
+        aria-label="Files list"
+        className="flex-1 overflow-y-auto p-2 space-y-1 text-xs"
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            const buttons = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[data-testid^="explorer-file-"]'));
+            if (!buttons.length) return;
+            const idx = buttons.indexOf(document.activeElement as HTMLButtonElement);
+            e.preventDefault();
+            if (e.key === 'ArrowDown') {
+              const next = idx < buttons.length - 1 ? buttons[idx + 1] : buttons[0];
+              next?.focus();
+            } else {
+              const prev = idx > 0 ? buttons[idx - 1] : buttons[buttons.length - 1];
+              prev?.focus();
+            }
+          }
+        }}
+      >
         {groupedByDirectory.length === 0 ? (
-          <div className="p-6 text-center text-xs text-muted">
-            No modules match the active filters.
+          <div className="p-4 text-center text-muted text-xs">
+            {t('explorer.noResults')}
           </div>
         ) : (
-          groupedByDirectory.map(([dirName, files]) => {
-            const isCollapsed = collapsedDirs.has(dirName);
+          groupedByDirectory.map(([dir, files]) => {
+            const isCollapsed = collapsedDirs.has(dir);
             return (
-              <div key={dirName} className="virtual-panel-section explorer-directory">
+              <div key={dir} className="explorer-directory">
                 <button
                   type="button"
-                  onClick={() => toggleDir(dirName)}
+                  onClick={() => toggleDir(dir)}
+                  className="w-full flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-raised text-muted text-xs font-medium cursor-pointer"
                   aria-expanded={!isCollapsed}
-                  className="w-full px-2.5 py-1.5 flex items-center justify-between text-xs font-semibold text-muted hover:bg-raised rounded-t-lg cursor-pointer"
                 >
-                  <span className="flex items-center gap-1.5 truncate">
+                  <div className="flex items-center gap-1.5 truncate">
                     {isCollapsed ? (
-                      <ChevronRight className="w-3.5 h-3.5 text-muted shrink-0" aria-hidden="true" />
+                      <ChevronRight className="w-3.5 h-3.5 text-muted shrink-0" />
                     ) : (
-                      <ChevronDown className="w-3.5 h-3.5 text-muted shrink-0" aria-hidden="true" />
+                      <ChevronDown className="w-3.5 h-3.5 text-muted shrink-0" />
                     )}
-                    <Folder className="w-3.5 h-3.5 text-accent shrink-0" aria-hidden="true" />
-                    <span className="truncate font-mono text-[11px]">{dirName}</span>
-                  </span>
-                  <span className="text-[11px] font-mono text-muted px-1.5 py-0.5 rounded bg-panel">
+                    <Folder className="w-3.5 h-3.5 text-accent shrink-0" />
+                    <span className="font-mono text-ink truncate">{dir}</span>
+                  </div>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-canvas border border-line text-muted">
                     {files.length}
                   </span>
                 </button>
 
                 {!isCollapsed && (
-                  <ul role="list" className="m-0 p-1 space-y-0.5 list-none">
+                  <div className="pl-4 space-y-0.5 mt-0.5">
                     {files.map((file) => {
-                      const isSelected = file.id === selectedFileId;
+                      const isSelected = selectedFileId === file.id;
+                      const hasCycle = file.in_cycle;
                       return (
-                        <li key={file.id}>
-                          <button
-                            type="button"
-                            data-testid={`explorer-file-${file.id}`}
-                            title={file.id}
-                            onClick={() => onSelectFile(file.id)}
-                            aria-current={isSelected ? 'true' : undefined}
-                            className={`w-full px-2.5 py-1.5 rounded-md text-left text-xs flex items-center justify-between gap-2 transition cursor-pointer ${
-                              isSelected
-                                ? 'bg-accent/20 text-accent border border-accent/40 font-semibold'
-                                : 'text-muted hover:bg-raised border border-transparent'
-                            }`}
-                          >
-                            <span className="flex items-center gap-1.5 truncate">
-                              <FileCode
-                                className={`w-3.5 h-3.5 shrink-0 ${
-                                  file.in_cycle
-                                    ? 'text-danger'
-                                    : file.support_level === 'unsupported'
-                                    ? 'text-warning'
-                                    : 'text-accent'
-                                }`}
-                                aria-hidden="true"
-                              />
-                              <span className="truncate font-mono text-[11px]">{searchQuery && file.name.toLowerCase().includes(searchQuery.toLowerCase()) ? <>{file.name.slice(0, file.name.toLowerCase().indexOf(searchQuery.toLowerCase()))}<mark>{file.name.slice(file.name.toLowerCase().indexOf(searchQuery.toLowerCase()), file.name.toLowerCase().indexOf(searchQuery.toLowerCase()) + searchQuery.length)}</mark>{file.name.slice(file.name.toLowerCase().indexOf(searchQuery.toLowerCase()) + searchQuery.length)}</> : file.name}</span>
-                            </span>
-
-                            <span className="flex items-center gap-1 shrink-0">
-                              {file.in_cycle && (
-                                <span
-                                  title="Participates in circular dependency"
-                                  className="px-1.5 py-0.2 rounded text-[11px] font-bold uppercase bg-danger/10 text-danger border border-danger/40"
-                                >
-                                  Cycle
-                                </span>
+                        <button
+                          key={file.id}
+                          type="button"
+                          data-testid={`explorer-file-${file.id}`}
+                          onClick={() => onSelectFile(file.id)}
+                          className={`w-full flex items-center justify-between px-2 py-1 rounded-md text-left font-mono text-[11px] cursor-pointer transition ${
+                            isSelected
+                              ? 'bg-accent/20 text-accent font-semibold border border-accent/40'
+                              : 'text-ink hover:bg-raised border border-transparent'
+                          }`}
+                          title={`${file.id} (${file.lines_code} LOC, ${file.language})`}
+                        >
+                          <div className="flex items-center gap-1.5 truncate min-w-0">
+                            <FileCode
+                              className={`w-3 h-3 shrink-0 ${
+                                hasCycle ? 'text-danger' : isSelected ? 'text-accent' : 'text-muted'
+                              }`}
+                            />
+                            <span className="truncate">
+                              {searchQuery && file.name.toLowerCase().includes(searchQuery.toLowerCase()) ? (
+                                <>
+                                  {file.name.slice(0, file.name.toLowerCase().indexOf(searchQuery.toLowerCase()))}
+                                  <mark>{file.name.slice(file.name.toLowerCase().indexOf(searchQuery.toLowerCase()), file.name.toLowerCase().indexOf(searchQuery.toLowerCase()) + searchQuery.length)}</mark>
+                                  {file.name.slice(file.name.toLowerCase().indexOf(searchQuery.toLowerCase()) + searchQuery.length)}
+                                </>
+                              ) : (
+                                file.name
                               )}
-                              <span className="text-[11px] font-mono text-muted">
-                                {file.lines_code}L
-                              </span>
                             </span>
-                          </button>
-                        </li>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0 ml-1">
+                            {hasCycle && (
+                              <span className="text-[9px] px-1 py-0.2 rounded bg-danger/20 text-danger border border-danger/40 font-sans font-bold">
+                                CYCLE
+                              </span>
+                            )}
+                            <span className="text-[10px] text-muted">{file.lines_code}L</span>
+                          </div>
+                        </button>
                       );
                     })}
-                  </ul>
+                  </div>
                 )}
               </div>
             );
