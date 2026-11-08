@@ -38,6 +38,17 @@ for readable detail; **Fit & Reset** restores the deterministic overview.
 [Design audit, before/after captures, validation and performance evidence](docs/design/DELIVERY.md).
 RepoDNA Workstation version: **v0.2.0**.
 
+---
+
+## AI-Native Repository Intelligence (Upcoming v0.3.0 Feature Suite)
+
+RepoDNA transforms from a human workstation dashboard into an evidence-based repository intelligence infrastructure for AI coding agents:
+- **Model Context Protocol (MCP SDK v2):** Exposes 8 read-only architectural tools over stdio (`python -m repodna.mcp`).
+- **One-Command Agent Setup:** Connects seamlessly with Google Antigravity (`repodna setup --agent antigravity`) and OpenAI Codex (`repodna setup --agent codex`).
+- **Environment Doctor:** Two-tier diagnostic motor (`repodna doctor`) testing core parsers and validating live MCP connection handshakes.
+- **Git Architecture Diff:** Compare commits for architectural drift, cycle regressions, and score deltas (`repodna diff HEAD~1 HEAD`).
+- **Token-Budgeted Context:** Calibrated context builder (`repodna context --mode compact|focused|deep`) providing a -99.6% synthetic architectural context reduction.
+
 ## System Architecture
 
 ```mermaid
