@@ -28,12 +28,23 @@ export interface ModuleNodeData extends Record<string, unknown> {
   representativeFileId?: string;
 }
 
+export function normalizeSearchText(text: string): string {
+  return text
+    .replace(/[İIı]/g, 'i')
+    .replace(/[Şş]/g, 's')
+    .replace(/[Ğğ]/g, 'g')
+    .replace(/[Üü]/g, 'u')
+    .replace(/[Öö]/g, 'o')
+    .replace(/[Çç]/g, 'c')
+    .toLowerCase();
+}
+
 export function filterFiles(
   files: FileNode[],
   edges: DependencyEdge[],
   options: GraphFilterOptions
 ): { filteredFiles: FileNode[]; filteredEdges: DependencyEdge[]; neighborIds: Set<string> } {
-  const q = options.searchQuery.trim().toLowerCase();
+  const q = normalizeSearchText(options.searchQuery.trim());
 
   let baseFiles = files.filter((f) => {
     if (options.languageFilter !== 'ALL' && f.language !== options.languageFilter) {
@@ -52,8 +63,8 @@ export function filterFiles(
       return false;
     }
     if (q) {
-      const pathMatch = f.id.toLowerCase().includes(q);
-      const symMatch = f.symbols.some((s) => s.name.toLowerCase().includes(q));
+      const pathMatch = normalizeSearchText(f.id).includes(q);
+      const symMatch = f.symbols.some((s) => normalizeSearchText(s.name).includes(q));
       if (!pathMatch && !symMatch) {
         return false;
       }
