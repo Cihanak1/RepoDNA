@@ -26,6 +26,12 @@ except ImportError:
     HAS_OFFICIAL_MCP = False
     MCPServer = None  # type: ignore
 
+try:
+    import importlib.metadata
+    MCP_SDK_VERSION = importlib.metadata.version("mcp")
+except Exception:
+    MCP_SDK_VERSION = "unknown"
+
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "repodna-mcp"
 SERVER_VERSION = "0.3.0"
@@ -366,14 +372,15 @@ class RepoDNAMCPServer:
                     query=arguments.get("query", ""),
                     limit=int(arguments.get("limit", 10)),
                 )
-            elif name == "repodna_module_dependencies":
+            elif name in ("repodna_module_dependencies", "repodna_dependencies"):
+                dep_path = arguments.get("file_path") or arguments.get("module_path", "")
                 content = self.tool_module_dependencies(
                     target=target,
-                    file_path=arguments.get("file_path", ""),
+                    file_path=dep_path,
                     direction=arguments.get("direction", "outgoing"),
                     depth=int(arguments.get("depth", 1)),
                 )
-            elif name == "repodna_module_findings":
+            elif name in ("repodna_module_findings", "repodna_architecture_findings"):
                 content = self.tool_module_findings(
                     target=target,
                     file_path=arguments.get("file_path"),
@@ -392,7 +399,7 @@ class RepoDNAMCPServer:
                     changed_files=arguments.get("changed_files", []),
                     max_depth=int(arguments.get("max_depth", 2)),
                 )
-            elif name == "repodna_analysis_coverage":
+            elif name in ("repodna_analysis_coverage", "repodna_explain_health"):
                 content = self.tool_analysis_coverage(target=target)
             else:
                 return {
@@ -485,12 +492,20 @@ class RepoDNAMCPServer:
         }
 
     def run(self, transport: str = "stdio") -> None:
-        """Runs the MCP server using official Python SDK if available, or direct stdio fallback."""
-        if HAS_OFFICIAL_MCP and self._official_server is not None:
-            _log(f"Starting official MCP SDK v2 server ({SERVER_NAME} v{SERVER_VERSION}) on {transport} (PID: {os.getpid()})")
-            self._official_server.run(transport=transport)
-        else:
-            self.run_legacy_stdio()
+        """Runs the MCP server using official Python SDK v2."""
+        if not HAS_OFFICIAL_MCP or self._official_server is None:
+            err_msg = (
+                "RepoDNA MCP Server requires the official Python Model Context Protocol SDK "
+                '(mcp>=2.0.0). Please install it via \'pip install "mcp>=2.0.0"\' or run \'repodna setup --repair\'.'
+            )
+            _log(f"FATAL: {err_msg}")
+            raise RuntimeError(err_msg)
+
+        _log(
+            f"Starting official MCP SDK v2 server ({SERVER_NAME} v{SERVER_VERSION}, "
+            f"SDK: {MCP_SDK_VERSION}) on {transport} (PID: {os.getpid()})"
+        )
+        self._official_server.run(transport=transport)
 
     def run_stdio(self) -> None:
         """Runs the server on stdio transport (convenience alias)."""
