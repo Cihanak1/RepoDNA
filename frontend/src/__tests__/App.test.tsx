@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import '../i18n';
 import { App } from '../App';
 import { fetchJobResultWithRetry } from '../api/client';
 import { buildFlowElements, filterFiles } from '../utils/graphLayout';
