@@ -38,6 +38,17 @@ for readable detail; **Fit & Reset** restores the deterministic overview.
 [Design audit, before/after captures, validation and performance evidence](docs/design/DELIVERY.md).
 RepoDNA Workstation version: **v0.2.0**.
 
+---
+
+## AI-Native Repository Intelligence (Upcoming v0.3.0 Feature Suite)
+
+RepoDNA transforms from a human workstation dashboard into an evidence-based repository intelligence infrastructure for AI coding agents:
+- **Model Context Protocol (MCP SDK v2):** Exposes 8 read-only architectural tools over stdio (`python -m repodna.mcp`).
+- **One-Command Agent Setup:** Connects seamlessly with Google Antigravity (`repodna setup --agent antigravity`) and OpenAI Codex (`repodna setup --agent codex`).
+- **Environment Doctor:** Two-tier diagnostic motor (`repodna doctor`) testing core parsers and validating live MCP connection handshakes.
+- **Git Architecture Diff:** Compare commits for architectural drift, cycle regressions, and score deltas (`repodna diff HEAD~1 HEAD`).
+- **Token-Budgeted Context:** Calibrated context builder (`repodna context --mode compact|focused|deep`) providing a -99.6% synthetic architectural context reduction.
+
 ## System Architecture
 
 ```mermaid
@@ -195,20 +206,133 @@ RepoDNA's core analysis engine runs independently of the web UI via `python -m r
 
 ```bash
 # Analyze a local directory and print an executive summary table
-python -m repodna.cli.main analyze .
+repodna analyze .
 
 # Export a deterministic JSON report
-python -m repodna.cli.main analyze . --format json --output repodna-report.json
+repodna analyze . --format json --output repodna-report.json
 
 # Export a standalone, self-contained HTML report
-python -m repodna.cli.main analyze . --format html --output repodna-report.html
+repodna analyze . --format html --output repodna-report.html
 
-# Analyze a public HTTPS GitHub repository with custom file/timeout guardrails
-python -m repodna.cli.main analyze https://github.com/Cihanak1/AImage --max-files 1500 --timeout 45
+# Architectural diff between two Git revisions
+repodna diff HEAD~1 HEAD
 
-# Run against the explicitly labeled Demo showcase dataset
-python -m repodna.cli.main analyze demo --format table
+# Generate token-budgeted architectural context for AI agents
+repodna context --mode compact
+
+# Run local Model Context Protocol (MCP) stdio server
+repodna mcp
+
+# Diagnose environment, parsers, and agent integrations
+repodna doctor
 ```
+
+---
+
+## AI Agent Integration (Agent Skill & MCP Server)
+
+RepoDNA transforms from a human-facing workstation into an **AI-Native Repository Intelligence Platform**. AI coding agents (such as Google Antigravity, Claude Code, and OpenAI Codex) can query architectural boundaries, trace coupling, evaluate change impact, and check for architectural regressions with minimal token consumption.
+
+### 1. One-Command Setup
+
+Install the RepoDNA Skill and configure MCP for your agent automatically:
+
+```bash
+# Automatically detect installed agents and configure them
+repodna setup --agent auto
+
+# Or configure a specific agent
+repodna setup --agent antigravity
+repodna setup --agent claude
+repodna setup --agent codex
+
+# Preview planned changes without modifying any files
+repodna setup --dry-run
+
+# Verify integration status
+repodna setup --verify
+
+# Safely uninstall RepoDNA from agent configurations
+repodna setup --uninstall
+```
+
+### 2. Manual Agent Skill Installation
+
+RepoDNA adheres strictly to the open [Agent Skills Specification](https://agentskills.io/specification).
+To install manually, copy the `integrations/agent-skills/repodna` directory into your agent's skill path:
+
+- **Google Antigravity / Universal Skills:**
+  ```bash
+  mkdir -p .agents/skills/
+  cp -r integrations/agent-skills/repodna .agents/skills/repodna
+  ```
+- **Claude Code:**
+  ```bash
+  mkdir -p .claude/skills/
+  cp -r integrations/agent-skills/repodna .claude/skills/repodna
+  ```
+- **OpenAI Codex:**
+  ```bash
+  mkdir -p .codex/skills/
+  cp -r integrations/agent-skills/repodna .codex/skills/repodna
+  ```
+
+### 3. Model Context Protocol (MCP) Setup
+
+Add RepoDNA's local stdio server to your agent's MCP configuration (with optional `--allowed-root` to constrain workspace access boundaries):
+
+- **Google Antigravity (`.agents/mcp_config.json` or `~/.gemini/config/mcp_config.json`):**
+  ```json
+  {
+    "mcpServers": {
+      "repodna": {
+        "command": "python",
+        "args": ["-m", "repodna.mcp", "--allowed-root", "."]
+      }
+    }
+  }
+  ```
+- **OpenAI Codex (`.codex/config.toml` or `~/.codex/config.toml`):**
+  ```toml
+  [mcp_servers.repodna]
+  command = "python"
+  args = ["-m", "repodna.mcp", "--allowed-root", "."]
+  cwd = "."
+  ```
+- **Claude Desktop / Claude Code (`claude_desktop_config.json` / `.mcp.json`):**
+  ```json
+  {
+    "mcpServers": {
+      "repodna": {
+        "command": "python",
+        "args": ["-m", "repodna.mcp", "--allowed-root", "."]
+      }
+    }
+  }
+  ```
+
+### 4. Available MCP Tools
+
+| Tool Name | Parameters | Purpose |
+| :--- | :--- | :--- |
+| `repodna_repository_overview` | `target` | Returns executive health grade, AST coverage, and key architectural hubs. |
+| `repodna_architecture_map` | `target`, `level`, `limit` | Provides package clusters and inter-cluster dependency relationships. |
+| `repodna_find_modules` | `target`, `query`, `limit` | Discovers files matching keywords, symbol names, or hub status. |
+| `repodna_module_dependencies` | `target`, `file_path`, `depth` | Traces incoming and outgoing internal dependency links. |
+| `repodna_module_findings` | `target`, `file_path`, `rule_id` | Details architectural violations (cycles, high fan-out) and remediation. |
+| `repodna_architecture_diff` | `target`, `base_ref`, `head_ref` | Compares two Git revisions for new cycles, removed edges, and score delta. |
+| `repodna_change_impact` | `target`, `changed_files` | Evaluates blast radius (direct & transitive dependents) before code edits. |
+| `repodna_analysis_coverage` | `target` | Reports AST coverage honesty, unverified rules, and language support. |
+
+### 5. Troubleshooting & Diagnostics
+
+Run the built-in diagnostic tool to check Python runtime, Tree-sitter grammars, Git binary, and agent integration:
+
+```bash
+repodna doctor
+```
+
+> **Verification Notice:** Local MCP stdio transport, Antigravity `.agents/skills` integration, and Claude/Codex JSON configuration structures were verified in automated tests. Third-party GUI-specific auto-discovery depends on the host agent's version.
 
 ---
 
@@ -221,6 +345,8 @@ python -m repodna.cli.main analyze demo --format table
   - **Bus-Factor Heuristic**: Counts the minimum number of top contributors required to account for $\ge 60\%$ of scanned commits. Note that this is a commit-count heuristic over the recent commit window (`--depth 50` on remote shallow clones) and does not weight line-level blame ownership or historical author email aliases unless `.mailmap` is configured.
 - **GitHub Host Scope**: By design, remote cloning initially supports only canonical `https://github.com/<owner>/<repo>` URLs over port 443 to prevent SSRF against internal networks or unverified Git servers.
 - **Large Monorepo Guardrails**: Default scan limits (`max_files=2500`, `max_file_size_bytes=1MB`, `max_total_size_bytes=100MB`, `timeout_seconds=60s`) protect workstation memory and CPU. These limits are user-configurable in both the UI (**Guardrails** dialog) and CLI (`--max-files`, `--max-file-size`, `--timeout`), and any truncation is prominently reported in `transparency.truncated_by_limits`.
+- **Incremental Cache & Hash Verification**: Analyses are cached in-memory keyed by git revision and repository fingerprint. For repositories containing up to 300 files, direct Blake2b content hashing is enforced across all files, preventing cache desynchronization even if file timestamps (`mtime_ns`) and sizes remain identical. For larger repositories, fast incremental stat caching `(size, mtime_ns)` is utilized; callers can supply `force=True` on any MCP tool to bypass cache unconditionally.
+- **Local-First Access Boundary Guard**: The MCP server operates under a strict read-only boundary. Only directories within explicitly authorized `--allowed-root` paths (or validated non-root project working directories) may be accessed. Queries targeting paths outside authorized boundaries or invocations from system root / user home without explicit flags trigger a `ROOT_VIOLATION` security error.
 
 ---
 
@@ -255,7 +381,7 @@ Measured on **Windows 11 (Python 3.12.10, Tree-sitter 0.25.2, Microsoft Edge Hea
 ### Backend Verification
 
 ```bash
-# Run pytest unit & integration suite (46 tests)
+# Run pytest unit & integration suite (53 tests)
 python -m pytest -v
 
 # Run Ruff linter

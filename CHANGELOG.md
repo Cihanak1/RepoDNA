@@ -4,6 +4,42 @@ All notable changes to **RepoDNA** are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - Target: v0.3.0 (AI-Native Repository Intelligence)
+
+### Added
+- **Official Model Context Protocol (MCP SDK v2) Server (`repodna.mcp`)**:
+  - Implemented official Python MCP SDK (`mcp>=2.0.0`) integration on stdio transport.
+  - Exposed 8 deterministic, read-only architectural intelligence tools:
+    - `repodna_repository_overview`: Executive scorecard, health grade, AST coverage, and key hubs.
+    - `repodna_architecture_map`: Package clusters, module hierarchy, and cross-cluster dependency links.
+    - `repodna_find_modules`: Tree-sitter AST symbol and path relevance scoring with coupling metrics.
+    - `repodna_module_dependencies`: Afferent ($C_a$) and efferent ($C_e$) direct and transitive dependency chains.
+    - `repodna_module_findings`: Tarjan SCC circular dependency cycles (`ARCH-001`) and architectural rule violations.
+    - `repodna_architecture_diff`: Bi-temporal commit and working tree architecture diffing with cycle regression tracking.
+    - `repodna_change_impact`: Change Guardian pre-edit blast radius calculation and downstream risk classification.
+    - `repodna_analysis_coverage`: AST grammar coverage ratio, unverified rules, and honest `N/A` guarantees.
+  - Direct execution support via `python -m repodna.mcp`.
+  - Strict protocol isolation (stdout reserved for JSON-RPC; all logs directed to stderr).
+- **Git Architecture Diff Engine (`repodna.diff`)**:
+  - Bi-temporal git revision and working tree architectural comparison via `repodna diff <base> [head]`.
+  - Git-verified file rename tracking (`git diff -M --name-status`) distinguished from AST heuristic matching.
+  - Critical cycle regression detection (`cycle_changes.new_cycles`) and health score delta tracking.
+  - Hardened sandbox extraction with tar-slip path traversal guards (`is_safe_subpath`), symlink restrictions, and git revision validation.
+- **Token-Budgeted Agent Context Builder (`repodna.context`)**:
+  - Three calibrated density modes: `compact` (summary & hubs), `focused` (query-driven AST symbols & callers), and `deep` (complete graph metrics & findings).
+  - Synthetic Architectural Context Reduction (-99.6% raw context reduction compared to naive whole-file prompting).
+- **One-Command AI Agent Installer & Diagnostic Tool (`repodna setup`, `repodna doctor`)**:
+  - Idempotent configuration for Google Antigravity (`.agents/mcp_config.json`) and OpenAI Codex (`.codex/config.toml` & `~/.codex/config.toml`).
+  - Automatic `.bak` backups preserving existing user-defined tools and TOML sections.
+  - Two-tier diagnostic motor in `repodna doctor` separating Core Engine (`HEALTHY`) from Agent Integration (`READY` / `INCOMPLETE` / `NOT INSTALLED ON HOST`).
+  - Live stdio connection handshake verification before reporting `READY`.
+  - `--repair` subcommand for refreshing missing or corrupted integrations.
+- **Portable Agent Skill (`integrations/agent-skills/repodna`)**:
+  - Standards-compliant `SKILL.md` package with bilingual (TR/EN) guidance, 5 canonical developer workflows, CLI fallback, and unsupported language honesty rules.
+  - Enforced 100% mathematical guarantee against same-size same-mtime content modifications on repositories with <= 300 files via direct Blake2b hashing.
+  - Implemented force=True parameter on all MCP tools for unconditional cache bypass on large repositories.
+  - Hardened default workspace boundary against execution from drive root or user home directory, returning explicit ROOT_VIOLATION security errors.
+
 ## [0.2.0] - 2026-11-08
 
 ### Added

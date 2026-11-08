@@ -39,6 +39,7 @@ dependencies = [
     "tree-sitter-typescript>=0.23.0",
     "tree-sitter-go>=0.23.0",
     "tree-sitter-rust>=0.23.0",
+    "mcp>=2.0.0",
 ]
 
 [project.optional-dependencies]
@@ -62,6 +63,9 @@ repodna = "repodna.cli.main:main"
 
 [tool.setuptools.packages.find]
 where = ["backend"]
+
+[tool.setuptools.package-data]
+"repodna.skills.repodna" = ["*.md", "**/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]

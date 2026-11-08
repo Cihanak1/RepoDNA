@@ -30,3 +30,7 @@ Thumbs.db
 
 # RepoDNA temporary scan artifacts
 .repodna_tmp/
+
+# Local agent workspace directories
+.codex/
+.claude/
