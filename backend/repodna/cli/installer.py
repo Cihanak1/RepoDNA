@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
+import subprocess
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +25,54 @@ def _get_skill_source() -> Path:
     if cwd_src.exists() and (cwd_src / "SKILL.md").exists():
         return cwd_src
     raise FileNotFoundError("RepoDNA Skill source files (SKILL.md) not found.")
+
+
+def _test_mcp_connection(command: str, args: list[str], cwd: Path | str | None) -> tuple[bool, str]:
+    """Tests executing the MCP server via stdio and performing an initialization handshake."""
+    clean_cmd = command.strip().strip('"').strip("'")
+    target_cwd = str(cwd) if cwd else None
+    try:
+        proc = subprocess.Popen(
+            [clean_cmd, *args],
+            cwd=target_cwd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        init_req = json.dumps({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "repodna-doctor", "version": "0.3.0"},
+            },
+        }) + "\n"
+        stdout, stderr = proc.communicate(input=init_req, timeout=4.0)
+        if proc.returncode != 0 and proc.returncode is not None:
+            return False, f"Process exited with code {proc.returncode}: {stderr.strip()}"
+
+        for line in stdout.splitlines():
+            line_str = line.strip()
+            if not line_str:
+                continue
+            try:
+                res = json.loads(line_str)
+                if "result" in res and res.get("id") == 1:
+                    return True, "Handshake successful (8 tools registered)"
+            except Exception:
+                continue
+        return False, f"Invalid stdout response: {stdout[:100]}"
+    except subprocess.TimeoutExpired:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        return False, "Connection timed out after 4.0s"
+    except Exception as exc:
+        return False, str(exc)
 
 
 class AgentInstaller:
@@ -52,9 +103,12 @@ class AgentInstaller:
                 or any("ANTIGRAVITY" in k or "GEMINI" in k for k in os.environ)
             )
         elif agent_name == "codex":
+            local_appdata = Path(os.environ.get("LOCALAPPDATA", "")) if os.environ.get("LOCALAPPDATA") else None
+            codex_appdata = (local_appdata / "OpenAI" / "Codex") if local_appdata else None
             return (
                 (self.user_home / ".codex").exists()
                 or shutil.which("codex") is not None
+                or (codex_appdata is not None and codex_appdata.exists())
             )
         elif agent_name == "claude":
             claude_desktop_win = Path(os.environ.get("APPDATA", "")) / "Claude" if os.environ.get("APPDATA") else None
@@ -95,20 +149,22 @@ class AgentInstaller:
                 mcp_path = self.repo_root / ".mcp.json"
 
         elif target_agent == "codex":
+            # Codex official format: config.toml
             if self.scope == "user":
                 skill_dir = self.user_home / ".codex" / "skills" / "repodna"
-                mcp_path = self.user_home / ".codex" / "mcp.json"
+                mcp_path = self.user_home / ".codex" / "config.toml"
             else:
                 skill_dir = self.repo_root / ".codex" / "skills" / "repodna"
-                mcp_path = self.repo_root / ".codex" / "mcp.json"
+                mcp_path = self.repo_root / ".codex" / "config.toml"
 
         elif target_agent == "antigravity":
+            # Antigravity official format: mcp_config.json
             if self.scope == "user":
                 skill_dir = self.user_home / ".gemini" / "antigravity" / "skills" / "repodna"
-                mcp_path = self.user_home / ".gemini" / "antigravity" / "mcp_servers.json"
+                mcp_path = self.user_home / ".gemini" / "config" / "mcp_config.json"
             else:
                 skill_dir = self.repo_root / ".agents" / "skills" / "repodna"
-                mcp_path = self.repo_root / ".agents" / "mcp.json"
+                mcp_path = self.repo_root / ".agents" / "mcp_config.json"
 
         else:
             skill_dir = self.repo_root / ".agents" / "skills" / "repodna"
@@ -116,18 +172,26 @@ class AgentInstaller:
 
         return skill_dir, mcp_path
 
+    def _cleanup_legacy_configs(self) -> None:
+        """Removes obsolete legacy .agents/mcp.json and .codex/mcp.json if present."""
+        for legacy in [
+            self.repo_root / ".agents" / "mcp.json",
+            self.repo_root / ".codex" / "mcp.json",
+        ]:
+            if legacy.exists():
+                try:
+                    legacy.unlink()
+                except Exception:
+                    pass
+
     def install(self) -> dict[str, Any]:
         targets = self.detect_agents() if self.agent == "auto" else [self.agent]
         actions_taken = []
         warnings = []
         source_dir = _get_skill_source()
+        self._cleanup_legacy_configs()
 
-        # Format Python path safely with quotes if spaces exist
         python_exec = sys.executable or "python"
-        if " " in python_exec and not python_exec.startswith('"'):
-            python_cmd = f'"{python_exec}"'
-        else:
-            python_cmd = python_exec
 
         for tgt in targets:
             if not self.is_agent_installed_on_host(tgt):
@@ -150,29 +214,13 @@ class AgentInstaller:
 
             # 2. Configure MCP Server
             if mcp_path:
-                repodna_mcp_entry = {
-                    "command": python_cmd,
-                    "args": ["-m", "repodna.mcp"],
-                }
-
                 if self.dry_run:
-                    actions_taken.append(f"[DRY-RUN] Would register MCP tool in '{mcp_path}'")
+                    actions_taken.append(f"[DRY-RUN] Would configure MCP server in '{mcp_path}'")
+                elif tgt == "codex":
+                    self._install_codex_toml(mcp_path, python_exec)
+                    actions_taken.append(f"Configured MCP Server in '{mcp_path}' ([mcp_servers.repodna])")
                 else:
-                    mcp_path.parent.mkdir(parents=True, exist_ok=True)
-                    data: dict[str, Any] = {}
-                    if mcp_path.exists():
-                        try:
-                            # Safe backup
-                            shutil.copy2(mcp_path, str(mcp_path) + ".bak")
-                            data = json.loads(mcp_path.read_text(encoding="utf-8"))
-                        except Exception:
-                            data = {}
-
-                    servers_key = "mcpServers" if "mcpServers" in data or tgt in ("claude", "codex") else "servers"
-                    if servers_key not in data or not isinstance(data[servers_key], dict):
-                        data[servers_key] = {}
-                    data[servers_key]["repodna"] = repodna_mcp_entry
-                    mcp_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+                    self._install_json_mcp(mcp_path, python_exec)
                     actions_taken.append(f"Configured MCP Server in '{mcp_path}'")
 
         return {
@@ -184,13 +232,67 @@ class AgentInstaller:
             "actions": actions_taken,
         }
 
+    def _install_codex_toml(self, path: Path, python_exec: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        existing_text = path.read_text(encoding="utf-8") if path.exists() else ""
+        if path.exists():
+            shutil.copy2(path, str(path) + ".bak")
+
+        # In TOML, single-quoted strings are literal strings (no backslash escape parsing),
+        # perfectly suited for Windows file paths.
+        clean_python = python_exec.strip('"').strip("'")
+        new_block = (
+            "[mcp_servers.repodna]\n"
+            f"command = '{clean_python}'\n"
+            'args = ["-m", "repodna.mcp"]\n'
+            f"cwd = '{self.repo_root}'"
+        )
+
+        if "[mcp_servers.repodna]" in existing_text:
+            updated_text = re.sub(
+                r"\[mcp_servers\.repodna\](?:\r?\n(?:[^\[\r\n].*)?)*",
+                lambda _: new_block,
+                existing_text,
+            )
+        else:
+            if existing_text.strip():
+                updated_text = existing_text.rstrip() + "\n\n" + new_block + "\n"
+            else:
+                updated_text = new_block + "\n"
+
+        tomllib.loads(updated_text)
+        path.write_text(updated_text, encoding="utf-8")
+
+    def _install_json_mcp(self, path: Path, python_exec: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data: dict[str, Any] = {}
+        if path.exists():
+            shutil.copy2(path, str(path) + ".bak")
+            try:
+                raw = path.read_text(encoding="utf-8").strip()
+                if raw:
+                    data = json.loads(raw)
+            except Exception:
+                data = {}
+
+        servers_key = "mcpServers" if "mcpServers" in data or path.name == "mcp_config.json" else "servers"
+        if servers_key not in data or not isinstance(data[servers_key], dict):
+            data[servers_key] = {}
+
+        data[servers_key]["repodna"] = {
+            "command": python_exec,
+            "args": ["-m", "repodna.mcp"],
+            "cwd": str(self.repo_root),
+        }
+        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
     def repair(self) -> dict[str, Any]:
         """Detects missing components and repairs them idempotently."""
         verification = self.verify()
         repaired = []
         for ag, status in verification.items():
             if status["host_installed"]:
-                if not status["skill_installed"] or not status["mcp_configured"]:
+                if not status["skill_installed"] or not status["mcp_configured"] or not status["mcp_connected"]:
                     inst = AgentInstaller(agent=ag, scope=self.scope, dry_run=self.dry_run, repo_root=self.repo_root)
                     res = inst.install()
                     repaired.extend(res["actions"])
@@ -217,21 +319,12 @@ class AgentInstaller:
             if mcp_path and mcp_path.exists():
                 if self.dry_run:
                     actions_taken.append(f"[DRY-RUN] Would remove 'repodna' entry from '{mcp_path}'")
+                elif tgt == "codex":
+                    if self._uninstall_codex_toml(mcp_path):
+                        actions_taken.append(f"Removed [mcp_servers.repodna] from '{mcp_path}'")
                 else:
-                    try:
-                        # Backup before uninstallation
-                        shutil.copy2(mcp_path, str(mcp_path) + ".bak")
-                        data = json.loads(mcp_path.read_text(encoding="utf-8"))
-                        modified = False
-                        for key in ("mcpServers", "servers"):
-                            if key in data and isinstance(data[key], dict) and "repodna" in data[key]:
-                                del data[key]["repodna"]
-                                modified = True
-                        if modified:
-                            mcp_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-                            actions_taken.append(f"Unregistered 'repodna' from '{mcp_path}'")
-                    except Exception as exc:
-                        actions_taken.append(f"Warning: Could not edit '{mcp_path}': {exc}")
+                    if self._uninstall_json_mcp(mcp_path):
+                        actions_taken.append(f"Unregistered 'repodna' from '{mcp_path}'")
 
         return {
             "status": "uninstalled",
@@ -239,6 +332,35 @@ class AgentInstaller:
             "agents": targets,
             "actions": actions_taken,
         }
+
+    def _uninstall_codex_toml(self, path: Path) -> bool:
+        existing_text = path.read_text(encoding="utf-8")
+        if "[mcp_servers.repodna]" not in existing_text:
+            return False
+        shutil.copy2(path, str(path) + ".bak")
+        updated_text = re.sub(
+            r"\r?\n?\[mcp_servers\.repodna\](?:\r?\n(?:[^\[\r\n].*)?)*",
+            "",
+            existing_text,
+        )
+        tomllib.loads(updated_text)
+        path.write_text(updated_text, encoding="utf-8")
+        return True
+
+    def _uninstall_json_mcp(self, path: Path) -> bool:
+        shutil.copy2(path, str(path) + ".bak")
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            modified = False
+            for key in ("mcpServers", "servers"):
+                if key in data and isinstance(data[key], dict) and "repodna" in data[key]:
+                    del data[key]["repodna"]
+                    modified = True
+            if modified:
+                path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            return modified
+        except Exception:
+            return False
 
     def verify(self) -> dict[str, Any]:
         targets = ["antigravity", "codex", "claude"] if self.agent == "auto" else [self.agent]
@@ -249,20 +371,49 @@ class AgentInstaller:
             skill_dir, mcp_path = self._resolve_paths(tgt)
             skill_ok = skill_dir.exists() and (skill_dir / "SKILL.md").exists()
             mcp_ok = False
+            mcp_connected = False
+            connection_detail = ""
+            command_str = sys.executable or "python"
+            args_list = ["-m", "repodna.mcp"]
+            cwd_path: Path | str = self.repo_root
+
             if mcp_path and mcp_path.exists():
                 try:
-                    data = json.loads(mcp_path.read_text(encoding="utf-8"))
-                    for key in ("mcpServers", "servers"):
-                        if key in data and "repodna" in data[key]:
+                    if tgt == "codex":
+                        toml_data = tomllib.loads(mcp_path.read_text(encoding="utf-8"))
+                        servers = toml_data.get("mcp_servers", {})
+                        if "repodna" in servers:
                             mcp_ok = True
-                            break
+                            entry = servers["repodna"]
+                            command_str = entry.get("command", command_str)
+                            args_list = entry.get("args", args_list)
+                            cwd_path = entry.get("cwd", cwd_path)
+                    else:
+                        json_data = json.loads(mcp_path.read_text(encoding="utf-8"))
+                        for key in ("mcpServers", "servers"):
+                            if key in json_data and "repodna" in json_data[key]:
+                                mcp_ok = True
+                                entry = json_data[key]["repodna"]
+                                command_str = entry.get("command", command_str)
+                                args_list = entry.get("args", args_list)
+                                cwd_path = entry.get("cwd", cwd_path)
+                                break
                 except Exception:
                     mcp_ok = False
 
+            if mcp_ok:
+                conn_ok, conn_msg = _test_mcp_connection(command_str, args_list, cwd_path)
+                mcp_connected = conn_ok
+                connection_detail = conn_msg
+            else:
+                connection_detail = "MCP config file missing or 'repodna' not declared"
+
             if not host_installed:
                 integration_status = "NOT INSTALLED ON HOST"
-            elif skill_ok and mcp_ok:
+            elif skill_ok and mcp_ok and mcp_connected:
                 integration_status = "READY"
+            elif skill_ok and mcp_ok and not mcp_connected:
+                integration_status = f"ERROR (MCP Connection Failed: {connection_detail})"
             elif skill_ok and not mcp_ok:
                 integration_status = "INCOMPLETE (Skill Installed, MCP Missing)"
             elif not skill_ok and mcp_ok:
@@ -275,6 +426,8 @@ class AgentInstaller:
                 "skill_installed": skill_ok,
                 "skill_path": str(skill_dir),
                 "mcp_configured": mcp_ok,
+                "mcp_connected": mcp_connected,
+                "mcp_connection_detail": connection_detail,
                 "mcp_path": str(mcp_path) if mcp_path else None,
                 "integration_status": integration_status,
             }
@@ -330,7 +483,6 @@ def run_doctor() -> int:
 
     # 4. Git availability
     try:
-        import subprocess
         git_ver = subprocess.check_output(["git", "--version"], text=True, timeout=5.0).strip()
         git_ok = True
     except Exception:
@@ -373,6 +525,7 @@ def run_doctor() -> int:
         host_str = "DETECTED" if v["host_installed"] else "NOT DETECTED"
         s_status = "INSTALLED" if v["skill_installed"] else "NOT FOUND"
         m_status = "CONFIGURED" if v["mcp_configured"] else "NOT CONFIGURED"
+        live_status = "CONNECTED" if v["mcp_connected"] else "OFFLINE"
         integ_status = v["integration_status"]
 
         if integ_status == "READY":
@@ -380,7 +533,10 @@ def run_doctor() -> int:
         elif "INCOMPLETE" in integ_status:
             any_incomplete = True
 
-        print(f"  * {ag.upper():<14} | Host: {host_str:<12} | Skill: {s_status:<10} | MCP: {m_status:<14} | Status: {integ_status}")
+        print(
+            f"  * {ag.upper():<13} | Host: {host_str:<12} | Skill: {s_status:<9} | "
+            f"Config: {m_status:<14} | Live: {live_status:<9} | Status: {integ_status}"
+        )
 
     print("=" * 76)
     if any_ready:
