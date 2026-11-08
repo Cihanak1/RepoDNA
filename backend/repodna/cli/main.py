@@ -1,12 +1,18 @@
-"""Standalone CLI scanner for RepoDNA."""
+"""Standalone CLI scanner, diff engine, context builder, and agent installer for RepoDNA."""
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
+from repodna.cli.installer import AgentInstaller, run_doctor
+from repodna.context.builder import AgentContextBuilder
 from repodna.core.analyzer import run_repository_analysis
+from repodna.diff.engine import ArchitectureDiffEngine
+from repodna.diff.snapshot import SnapshotManager
+from repodna.mcp.server import RepoDNAMCPServer
 from repodna.reports.exporter import export_analysis_to_html, export_analysis_to_json
 from repodna.schemas.models import AnalysisResult, ScanLimits, ScanRequest, SourceType
 from repodna.security.validators import SecurityValidationError
@@ -89,10 +95,11 @@ def _format_summary_table(result: AnalysisResult) -> str:
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="repodna",
-        description="RepoDNA — Developer Repository Intelligence Platform CLI",
+        description="RepoDNA — AI-Native Repository Intelligence Platform CLI",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
+    # 1. analyze
     analyze_p = sub.add_parser("analyze", help="Analyze a local directory, public HTTPS GitHub URL, or 'demo'.")
     analyze_p.add_argument("target", help="Local directory path, https://github.com/<owner>/<repo>, or 'demo'.")
     analyze_p.add_argument(
@@ -117,10 +124,77 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Maximum single file size in bytes (default: 1048576).",
     )
     analyze_p.add_argument("--timeout", type=float, default=60.0, help="Scan timeout in seconds (default: 60).")
+
+    # 2. diff
+    diff_p = sub.add_parser("diff", help="Compare architecture between two Git revisions or working tree.")
+    diff_p.add_argument("base_ref", help="Base Git revision (e.g. HEAD~1, main, commit SHA).")
+    diff_p.add_argument(
+        "head_ref",
+        nargs="?",
+        default="HEAD",
+        help="Head Git revision or 'working_tree' (default: HEAD).",
+    )
+    diff_p.add_argument("--target", default=".", help="Local Git repository path (default: .).")
+    diff_p.add_argument(
+        "--format",
+        choices=["table", "json"],
+        default="table",
+        help="Output diff format (default: table).",
+    )
+    diff_p.add_argument("--output", "-o", type=str, default=None, help="Optional file path to write diff.")
+
+    # 3. context
+    ctx_p = sub.add_parser("context", help="Generate token-budgeted context for AI coding agents.")
+    ctx_p.add_argument("--target", default=".", help="Local directory path or 'demo' (default: .).")
+    ctx_p.add_argument(
+        "--mode",
+        choices=["compact", "focused", "deep"],
+        default="compact",
+        help="Context density mode (default: compact).",
+    )
+    ctx_p.add_argument("--query", type=str, default=None, help="Search query for focused context mode.")
+    ctx_p.add_argument(
+        "--format",
+        choices=["markdown", "json"],
+        default="markdown",
+        help="Context format (default: markdown).",
+    )
+    ctx_p.add_argument("--max-tokens", type=int, default=None, help="Approximate token budget cap.")
+    ctx_p.add_argument("--output", "-o", type=str, default=None, help="Optional file path to write context.")
+
+    # 4. mcp
+    sub.add_parser("mcp", help="Run the local Model Context Protocol (MCP) stdio server.")
+
+    # 5. setup
+    setup_p = sub.add_parser("setup", help="Configure RepoDNA Skill and MCP server in AI agents.")
+    setup_p.add_argument(
+        "--agent",
+        choices=["codex", "claude", "antigravity", "auto"],
+        default="auto",
+        help="Target AI coding agent (default: auto).",
+    )
+    setup_p.add_argument(
+        "--scope",
+        choices=["project", "user"],
+        default="project",
+        help="Installation scope (default: project).",
+    )
+    setup_p.add_argument("--dry-run", action="store_true", help="Preview planned changes without writing.")
+    setup_p.add_argument("--verify", action="store_true", help="Check current agent integration status.")
+    setup_p.add_argument("--uninstall", action="store_true", help="Remove RepoDNA integration from agent.")
+
+    # 6. doctor
+    sub.add_parser("doctor", help="Run comprehensive diagnostic of environment, parsers, and agent tools.")
+
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
     parser = build_arg_parser()
     args = parser.parse_args(argv)
 
@@ -161,6 +235,86 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(output_text)
         return 0
+
+    if args.command == "diff":
+        try:
+            mgr = SnapshotManager(args.target)
+            base_analysis, base_sha, base_is_wt = mgr.create_snapshot(args.base_ref)
+            head_analysis, head_sha, head_is_wt = mgr.create_snapshot(args.head_ref)
+            diff_res = ArchitectureDiffEngine.compare_analyses(
+                base=base_analysis,
+                head=head_analysis,
+                base_ref=args.base_ref,
+                head_ref=args.head_ref,
+                base_commit_sha=base_sha,
+                head_commit_sha=head_sha,
+                base_is_working_tree=base_is_wt,
+                head_is_working_tree=head_is_wt,
+            )
+        except Exception as exc:
+            print(f"[ERROR] Architecture diff failed: {exc}", file=sys.stderr)
+            return 1
+
+        output_text = diff_res.model_dump_json(indent=2) if args.format == "json" else diff_res.summary_text
+        if args.output:
+            out_path = Path(args.output)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(output_text, encoding="utf-8")
+            print(f"Diff written to {out_path}")
+        else:
+            print(output_text)
+        return 0
+
+    if args.command == "context":
+        try:
+            source_type = _detect_source_type(args.target)
+            req = ScanRequest(source_type=source_type, target=args.target)
+            analysis = run_repository_analysis(req)
+            ctx = AgentContextBuilder.build_context(
+                analysis=analysis,
+                mode=args.mode,
+                query=args.query,
+                max_tokens=args.max_tokens,
+            )
+        except Exception as exc:
+            print(f"[ERROR] Context generation failed: {exc}", file=sys.stderr)
+            return 1
+
+        output_text = ctx.as_json(indent=2) if args.format == "json" else ctx.as_markdown()
+        if args.output:
+            out_path = Path(args.output)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(output_text, encoding="utf-8")
+            print(f"Context written to {out_path}")
+        else:
+            print(output_text)
+        return 0
+
+    if args.command == "mcp":
+        server = RepoDNAMCPServer()
+        server.run_stdio()
+        return 0
+
+    if args.command == "setup":
+        installer = AgentInstaller(
+            agent=args.agent,
+            scope=args.scope,
+            dry_run=args.dry_run,
+        )
+        if args.verify:
+            res = installer.verify()
+            print(json.dumps(res, indent=2))
+            return 0
+        if args.uninstall:
+            res = installer.uninstall()
+            print(json.dumps(res, indent=2))
+            return 0
+        res = installer.install()
+        print(json.dumps(res, indent=2))
+        return 0
+
+    if args.command == "doctor":
+        return run_doctor()
 
     return 1
 
