@@ -26,67 +26,67 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
   return (
     <div
       data-testid="health-report-view"
-      className="flex-1 overflow-y-auto p-4 lg:p-6 space-y-6 max-w-7xl mx-auto w-full"
+      className="report-document flex-1 overflow-y-auto p-4 lg:p-6 space-y-6 mx-auto w-full"
     >
       {/* Top Architecture Health Rubric Banner */}
       <section
         aria-labelledby="rubric-heading"
-        className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6"
+        className="bg-panel border border-line rounded-lg p-5 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6"
       >
         <div className="space-y-2 max-w-3xl">
           <div className="flex items-center gap-2">
-            <ShieldCheck className="w-5 h-5 text-sky-400" aria-hidden="true" />
-            <h2 id="rubric-heading" className="text-lg font-bold m-0 text-slate-100">
+            <ShieldCheck className="w-5 h-5 text-accent" aria-hidden="true" />
+            <h2 id="rubric-heading" className="text-lg font-bold m-0 text-ink">
               Explainable Rule-Based Architecture Health Report
             </h2>
           </div>
-          <p className="text-xs text-slate-300 m-0 leading-relaxed">{hr.methodology}</p>
+          <p className="text-xs text-muted m-0 leading-relaxed">{hr.methodology}</p>
           {hr.confidence && (
             <div className="flex flex-wrap items-center gap-2 text-xs pt-1" data-testid="health-confidence-banner">
               <span
-                className={`px-2 py-0.5 rounded font-bold uppercase border text-[10px] ${
+                className={`px-2 py-0.5 rounded font-bold uppercase border text-[11px] ${
                   hr.confidence === 'high'
-                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                    ? 'bg-success/20 text-success border-success/40'
                     : hr.confidence === 'medium'
-                    ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
-                    : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                    ? 'bg-accent/20 text-accent border-accent/40'
+                    : 'bg-warning/20 text-warning border-warning/40'
                 }`}
               >
                 Confidence: {hr.confidence}
               </span>
-              <span className="text-slate-300">
+              <span className="text-muted">
                 Full AST Coverage: <strong>{(hr.ast_loc_coverage_pct ?? tr.ast_loc_coverage_pct ?? 0).toFixed(1)}% of LOC</strong> ({(hr.ast_file_coverage_pct ?? tr.ast_file_coverage_pct ?? 0).toFixed(1)}% of files)
               </span>
               {hr.confidence_reason && (
-                <span className="text-slate-400">&bull; {hr.confidence_reason}</span>
+                <span className="text-muted">&bull; {hr.confidence_reason}</span>
               )}
             </div>
           )}
         </div>
 
-        <div className="flex items-center gap-4 bg-slate-950/80 border border-slate-800 rounded-xl px-5 py-3 shrink-0">
+        <div className="flex items-center gap-4 bg-canvas border border-line rounded-md px-5 py-3 shrink-0">
           <div>
-            <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+            <div className="text-[11px] tracking-wide text-muted font-semibold">
               Overall Score
             </div>
-            <div className="text-3xl font-extrabold text-sky-400 font-mono">
+            <div className="text-3xl font-extrabold text-accent font-mono">
               {hr.overall_score !== null ? (
                 <>
                   {hr.overall_score.toFixed(1)}
-                  <span className="text-sm text-slate-400 font-normal"> / 100</span>
+                  <span className="text-sm text-muted font-normal"> / 100</span>
                 </>
               ) : hr.status === 'insufficient_dependency_coverage' ? (
-                <span className="text-base text-amber-300 font-sans font-bold" data-testid="report-overall-score-status">
+                <span className="text-base text-warning font-sans font-bold" data-testid="report-overall-score-status">
                   Not Evaluated — Insufficient Dependency Coverage
                 </span>
               ) : (
-                <span className="text-xl text-slate-400" data-testid="report-overall-score-status">
+                <span className="text-xl text-muted" data-testid="report-overall-score-status">
                   N/A (Insufficient Data)
                 </span>
               )}
             </div>
           </div>
-          <div className="w-12 h-12 rounded-xl bg-sky-500/15 border border-sky-500/40 flex items-center justify-center text-2xl font-black text-sky-300">
+          <div className="w-12 h-12 rounded-md bg-accent/15 border border-accent/40 flex items-center justify-center text-2xl font-black text-accent">
             {hr.grade}
           </div>
         </div>
@@ -100,42 +100,42 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
         {hr.category_scores.map((cat) => (
           <div
             key={cat.category}
-            className="bg-slate-900/70 border border-slate-800 rounded-xl p-3.5 flex flex-col justify-between gap-2"
+            className="bg-panel border border-line rounded-md p-3.5 flex flex-col justify-between gap-2"
           >
             <div>
-              <div className="text-[11px] font-semibold text-slate-300">{cat.label}</div>
-              <div className="text-[10px] text-slate-400">
+              <div className="text-[11px] font-semibold text-muted">{cat.label}</div>
+              <div className="text-[11px] text-muted">
                 Weight: {cat.weight} pts &bull;{' '}
                 {cat.status === 'not_evaluated' ? 'Not evaluated' : `Deduction: -${cat.deductions.toFixed(1)}`}
               </div>
             </div>
             <div className="flex items-baseline justify-between mt-1">
-              <span className="text-lg font-bold font-mono text-slate-100">
+              <span className="text-lg font-bold font-mono text-ink">
                 {cat.score !== null
                   ? `${cat.score.toFixed(0)}%`
                   : cat.status === 'not_evaluated'
                   ? 'Not evaluated'
                   : 'N/A'}
               </span>
-              <span className="text-[11px] text-slate-400">
+              <span className="text-[11px] text-muted">
                 {cat.status === 'not_evaluated'
                   ? 'low AST coverage'
                   : `${cat.findings_count} ${cat.findings_count === 1 ? 'issue' : 'issues'}`}
               </span>
             </div>
-            <progress
-              value={cat.score ?? 0}
+            {cat.score !== null && <progress
+              value={cat.score}
               max={100}
               aria-label={`${cat.label} score`}
               className="w-full h-1.5 rounded overflow-hidden accent-sky-500"
-            />
+            />}
           </div>
         ))}
       </section>
 
       {/* Triggered Rule Findings Table */}
       <section aria-labelledby="findings-table-heading" className="space-y-3">
-        <h2 id="findings-table-heading" className="text-sm font-bold uppercase tracking-wider text-slate-200 m-0">
+        <h2 id="findings-table-heading" className="text-sm font-bold tracking-wide text-ink m-0">
           Rule Evaluations &amp; Mathematical Deductions ({hr.findings.length} Triggered, {hr.passed_rules.length} Passed)
         </h2>
 
@@ -159,7 +159,7 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
               Detailed architecture health rule findings, mathematical formulas, and remediation guidance
             </caption>
             <thead>
-              <tr className="text-xs text-slate-300">
+              <tr className="text-xs text-muted">
                 <th scope="col" className="p-3 text-left">Rule</th>
                 <th scope="col" className="p-3 text-left">Severity</th>
                 <th scope="col" className="p-3 text-left">Deduction</th>
@@ -167,50 +167,50 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
                 <th scope="col" className="p-3 text-left">Engineering Remediation</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/80 text-xs">
+            <tbody className="divide-y divide-line text-xs">
               {hr.findings.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-6 text-center text-emerald-400 font-medium">
-                    All architectural health rules passed with zero score deductions!
+                  <td colSpan={5} className="p-6 text-center text-success font-medium">
+                    {hr.dependency_graph_evaluated === false ? 'No findings from evaluated rules. Dependency rules remain unverified because AST coverage is insufficient.' : 'No findings in the evaluated rules. See coverage and unverified rules below.'}
                   </td>
                 </tr>
               ) : (
                 hr.findings.map((fn) => (
-                  <tr key={fn.rule_id} className="hover:bg-slate-900/40">
-                    <th scope="row" className="p-3 text-left align-top font-semibold text-slate-100">
-                      <div className="font-mono text-sky-400">{fn.rule_id}</div>
+                  <tr key={fn.rule_id} className="hover:bg-panel">
+                    <th scope="row" className="p-3 text-left align-top font-semibold text-ink">
+                      <div className="font-mono text-accent">{fn.rule_id}</div>
                       <div>{fn.title}</div>
                     </th>
                     <td className="p-3 align-top">
                       <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border ${
+                        className={`px-2 py-0.5 rounded-full text-[11px] font-bold uppercase border ${
                           fn.severity === 'critical'
-                            ? 'bg-red-500/20 text-red-300 border-red-500/40'
+                            ? 'bg-danger/20 text-danger border-danger/40'
                             : fn.severity === 'warning'
-                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                            : 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                            ? 'bg-warning/20 text-warning border-warning/40'
+                            : 'bg-accent/20 text-accent border-accent/40'
                         }`}
                       >
                         {fn.severity}
                       </span>
                     </td>
-                    <td className="p-3 align-top font-mono font-bold text-red-400">
-                      -{fn.score_deduction.toFixed(1)} <span className="text-slate-400 font-normal">/ -{fn.max_deduction}</span>
+                    <td className="p-3 align-top font-mono font-bold text-danger">
+                      -{fn.score_deduction.toFixed(1)} <span className="text-muted font-normal">/ -{fn.max_deduction}</span>
                     </td>
                     <td className="p-3 align-top space-y-1.5">
-                      <div className="text-[11px] font-mono text-slate-300 bg-slate-950/70 px-2 py-1 rounded border border-slate-800">
+                      <div className="text-[11px] font-mono text-muted bg-canvas px-2 py-1 rounded border border-line">
                         {fn.formula_explanation}
                       </div>
-                      <div className="text-[11px] text-slate-400">
+                      <div className="text-[11px] text-muted">
                         <strong>Threshold:</strong> {fn.threshold_description}
                       </div>
-                      <ul role="list" className="m-0 pl-4 space-y-0.5 text-[11px] font-mono text-slate-300">
+                      <ul role="list" className="m-0 pl-4 space-y-0.5 text-[11px] font-mono text-muted">
                         {fn.evidence.slice(0, 5).map((ev, i) => (
                           <li key={i}>{ev}</li>
                         ))}
                       </ul>
                     </td>
-                    <td className="p-3 align-top text-slate-300 leading-relaxed max-w-xs">
+                    <td className="p-3 align-top text-muted leading-relaxed max-w-xs">
                       {fn.remediation}
                     </td>
                   </tr>
@@ -222,12 +222,12 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
 
         {/* Passed Rules Box */}
         {hr.passed_rules.length > 0 && (
-          <div className="bg-emerald-950/20 border border-emerald-800/40 rounded-xl p-3.5 text-xs">
-            <div className="font-semibold text-emerald-300 mb-1.5 flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" aria-hidden="true" />
+          <div className="bg-success/10 border border-success/40 rounded-md p-3.5 text-xs">
+            <div className="font-semibold text-success mb-1.5 flex items-center gap-1.5">
+              <CheckCircle2 className="w-4 h-4 text-success" aria-hidden="true" />
               Passed Architectural Rules ({hr.passed_rules.length})
             </div>
-            <ul role="list" className="m-0 pl-5 space-y-1 text-slate-300">
+            <ul role="list" className="m-0 pl-5 space-y-1 text-muted">
               {hr.passed_rules.map((pr) => (
                 <li key={pr}>{pr}</li>
               ))}
@@ -239,13 +239,13 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
         {(hr.unverified_rules?.length ?? 0) > 0 && (
           <div
             data-testid="unverified-rules-box"
-            className="bg-amber-950/25 border border-amber-700/40 rounded-xl p-3.5 text-xs"
+            className="bg-warning/10 border border-warning/40 rounded-md p-3.5 text-xs"
           >
-            <div className="font-semibold text-amber-300 mb-1.5 flex items-center gap-1.5">
-              <AlertTriangle className="w-4 h-4 text-amber-400" aria-hidden="true" />
+            <div className="font-semibold text-warning mb-1.5 flex items-center gap-1.5">
+              <AlertTriangle className="w-4 h-4 text-warning" aria-hidden="true" />
               Unverified / Not Evaluated Rules ({hr.unverified_rules!.length})
             </div>
-            <ul role="list" className="m-0 pl-5 space-y-1 text-slate-300">
+            <ul role="list" className="m-0 pl-5 space-y-1 text-muted">
               {hr.unverified_rules!.map((ur) => (
                 <li key={ur}>{ur}</li>
               ))}
@@ -258,15 +258,15 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
       <section aria-labelledby="cycles-report-heading" className="space-y-3">
         <h2
           id="cycles-report-heading"
-          className="text-sm font-bold uppercase tracking-wider text-slate-200 m-0 flex items-center gap-1.5"
+          className="text-sm font-bold tracking-wide text-ink m-0 flex items-center gap-1.5"
         >
-          <RefreshCcw className="w-4 h-4 text-red-400" aria-hidden="true" />
+          <RefreshCcw className="w-4 h-4 text-danger" aria-hidden="true" />
           Circular Dependency Chains ({result.cycles.length} Cycles in {result.graph_metrics.scc_count} Cyclic SCCs)
         </h2>
 
         {result.graph_metrics.cycles_truncated && (
-          <div className="bg-amber-950/35 border border-amber-600/40 rounded-xl p-3 text-xs text-amber-200 flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
+          <div className="bg-warning/10 border border-warning/40 rounded-md p-3 text-xs text-warning flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-warning shrink-0" aria-hidden="true" />
             <span>
               <strong>Cycle Enumeration Truncated:</strong>{' '}
               {result.graph_metrics.cycle_truncation_reason ||
@@ -292,21 +292,21 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
           >
             <caption className="visually-hidden">Detected circular dependency paths</caption>
             <thead>
-              <tr className="text-xs text-slate-300">
+              <tr className="text-xs text-muted">
                 <th scope="col" className="p-3 text-left">Cycle ID</th>
                 <th scope="col" className="p-3 text-left">Length</th>
                 <th scope="col" className="p-3 text-left">Severity</th>
                 <th scope="col" className="p-3 text-left">Cycle Module Path (Click to Inspect in Studio)</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/80 text-xs">
+            <tbody className="divide-y divide-line text-xs">
               {result.cycles.length === 0 ? (
                 <tr>
                   <td
                     colSpan={4}
                     data-testid="cycle-analysis-summary-cell"
                     className={`p-5 text-center ${
-                      hr.dependency_graph_evaluated === false ? 'text-amber-300' : 'text-emerald-400'
+                      hr.dependency_graph_evaluated === false ? 'text-warning' : 'text-success'
                     }`}
                   >
                     {hr.cycle_analysis_summary ||
@@ -315,12 +315,12 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
                 </tr>
               ) : (
                 result.cycles.map((cyc) => (
-                  <tr key={cyc.id} className="hover:bg-slate-900/40">
-                    <th scope="row" className="p-3 text-left font-mono text-red-300">
+                  <tr key={cyc.id} className="hover:bg-panel">
+                    <th scope="row" className="p-3 text-left font-mono text-danger">
                       {cyc.id}
                     </th>
                     <td className="p-3 font-mono">{cyc.length} hops</td>
-                    <td className="p-3 uppercase font-bold text-red-400 text-[11px]">{cyc.severity}</td>
+                    <td className="p-3 uppercase font-bold text-danger text-[11px]">{cyc.severity}</td>
                     <td className="p-3 font-mono">
                       <div className="flex flex-wrap items-center gap-1.5">
                         {cyc.nodes.map((nodeId, idx) => (
@@ -328,11 +328,11 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
                             <button
                               type="button"
                               onClick={() => onSelectFileInStudio(nodeId)}
-                              className="px-2 py-0.5 rounded bg-slate-900 hover:bg-sky-950 border border-slate-700 text-sky-300 cursor-pointer"
+                              className="px-2 py-0.5 rounded bg-panel hover:bg-accent/10 border border-line text-accent cursor-pointer"
                             >
                               {nodeId}
                             </button>
-                            {idx < cyc.nodes.length - 1 && <span className="text-red-400">&rarr;</span>}
+                            {idx < cyc.nodes.length - 1 && <span className="text-danger">&rarr;</span>}
                           </React.Fragment>
                         ))}
                       </div>
@@ -349,40 +349,40 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
       <section aria-labelledby="transparency-report-heading" className="space-y-3">
         <h2
           id="transparency-report-heading"
-          className="text-sm font-bold uppercase tracking-wider text-slate-200 m-0 flex items-center gap-1.5"
+          className="text-sm font-bold tracking-wide text-ink m-0 flex items-center gap-1.5"
         >
-          <Layers className="w-4 h-4 text-sky-400" aria-hidden="true" />
+          <Layers className="w-4 h-4 text-accent" aria-hidden="true" />
           Language Distribution &amp; Parser Transparency
         </h2>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
-          <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3.5">
-            <div className="text-slate-400 font-semibold uppercase text-[10px]">
+          <div className="bg-panel border border-line rounded-md p-3.5">
+            <div className="text-muted font-semibold uppercase text-[11px]">
               Supported AST Languages (full_ast)
             </div>
-            <div className="text-slate-100 font-medium mt-1" data-testid="supported-ast-languages-list">
+            <div className="text-ink font-medium mt-1" data-testid="supported-ast-languages-list">
               {tr.supported_languages_detected.join(', ') || 'None'}
             </div>
           </div>
 
-          <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3.5">
-            <div className="text-amber-300 font-semibold uppercase text-[10px] flex items-center gap-1">
+          <div className="bg-panel border border-line rounded-md p-3.5">
+            <div className="text-warning font-semibold uppercase text-[11px] flex items-center gap-1">
               <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />
               Partial Static Languages (partial_static)
             </div>
-            <div className="text-slate-100 font-medium mt-1" data-testid="partial-static-languages-list">
+            <div className="text-ink font-medium mt-1" data-testid="partial-static-languages-list">
               {(tr.partial_static_languages_detected?.length ?? 0) > 0
                 ? `${tr.partial_static_languages_detected!.join(', ')} (${tr.partial_static_files_count ?? 0} files — static using/include scan only; no AST symbol or namespace-to-file graph resolution)`
                 : 'None'}
             </div>
           </div>
 
-          <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3.5">
-            <div className="text-amber-300 font-semibold uppercase text-[10px] flex items-center gap-1">
+          <div className="bg-panel border border-line rounded-md p-3.5">
+            <div className="text-warning font-semibold uppercase text-[11px] flex items-center gap-1">
               <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />
               Unsupported Languages (LOC Only)
             </div>
-            <div className="text-slate-100 font-medium mt-1" data-testid="unsupported-languages-list">
+            <div className="text-ink font-medium mt-1" data-testid="unsupported-languages-list">
               {tr.unsupported_languages_detected.length > 0
                 ? `${tr.unsupported_languages_detected.join(', ')} (${tr.unsupported_files_count} files)`
                 : (tr.partial_static_languages_detected?.length ?? 0) > 0
@@ -391,11 +391,11 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
             </div>
           </div>
 
-          <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3.5">
-            <div className="text-slate-400 font-semibold uppercase text-[10px]">
+          <div className="bg-panel border border-line rounded-md p-3.5">
+            <div className="text-muted font-semibold uppercase text-[11px]">
               Unresolved &amp; Dynamic Imports
             </div>
-            <div className="text-slate-100 font-medium mt-1">
+            <div className="text-ink font-medium mt-1">
               {tr.unresolved_internal_imports_count} unresolved paths &bull; {tr.dynamic_imports_count} dynamic expressions &bull; {tr.skipped_files.length} skipped files
             </div>
           </div>
@@ -419,7 +419,7 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
           >
             <caption className="visually-hidden">Language breakdown and parser support matrix</caption>
             <thead>
-              <tr className="text-xs text-slate-300">
+              <tr className="text-xs text-muted">
                 <th scope="col" className="p-3 text-left">Language</th>
                 <th scope="col" className="p-3 text-left">AST Import Support Level</th>
                 <th scope="col" className="p-3 text-left">File Count</th>
@@ -427,20 +427,20 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
                 <th scope="col" className="p-3 text-left">% of Repository Code</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/80 text-xs">
+            <tbody className="divide-y divide-line text-xs">
               {result.languages.map((lg) => (
-                <tr key={lg.language} className="hover:bg-slate-900/40">
-                  <th scope="row" className="p-3 text-left font-semibold text-slate-100">
+                <tr key={lg.language} className="hover:bg-panel">
+                  <th scope="row" className="p-3 text-left font-semibold text-ink">
                     {lg.language}
                   </th>
                   <td className="p-3 font-mono text-[11px]">
                     <span
                       className={`px-2 py-0.5 rounded border ${
                         lg.support_level === 'full_ast'
-                          ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                          ? 'bg-success/15 text-success border-success/30'
                           : lg.support_level === 'partial_static'
-                          ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
-                          : 'bg-slate-800 text-slate-400 border-slate-700'
+                          ? 'bg-warning/15 text-warning border-warning/30'
+                          : 'bg-raised text-muted border-line'
                       }`}
                     >
                       {lg.support_level}
@@ -460,14 +460,14 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
       <section aria-labelledby="git-report-heading" className="space-y-3">
         <h2
           id="git-report-heading"
-          className="text-sm font-bold uppercase tracking-wider text-slate-200 m-0 flex items-center gap-1.5"
+          className="text-sm font-bold tracking-wide text-ink m-0 flex items-center gap-1.5"
         >
-          <Flame className="w-4 h-4 text-orange-400" aria-hidden="true" />
+          <Flame className="w-4 h-4 text-warning" aria-hidden="true" />
           Git History, Bus Factor &amp; Churn Hotspots
         </h2>
 
         {!git.is_git_repo ? (
-          <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 text-xs text-slate-400">
+          <div className="bg-panel border border-line rounded-md p-4 text-xs text-muted">
             {git.note || 'Target directory is not a Git repository.'}
           </div>
         ) : (
@@ -488,32 +488,32 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
                   } as React.CSSProperties
                 }
               >
-                <caption className="p-2.5 text-left text-xs font-semibold text-slate-300 border-b border-slate-800">
+                <caption className="p-2.5 text-left text-xs font-semibold text-muted border-b border-line">
                   High-Churn Hotspot Modules (Commits &times; Complexity)
                 </caption>
                 <thead>
-                  <tr className="text-xs text-slate-300">
+                  <tr className="text-xs text-muted">
                     <th scope="col" className="p-2.5 text-left">Module</th>
                     <th scope="col" className="p-2.5 text-left">Commits</th>
                     <th scope="col" className="p-2.5 text-left">LOC</th>
                     <th scope="col" className="p-2.5 text-left">Churn Score</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800/80 text-xs">
+                <tbody className="divide-y divide-line text-xs">
                   {git.hotspots.map((hs) => (
-                    <tr key={hs.path} className="hover:bg-slate-900/40">
+                    <tr key={hs.path} className="hover:bg-panel">
                       <th scope="row" className="p-2.5 text-left font-mono">
                         <button
                           type="button"
                           onClick={() => onSelectFileInStudio(hs.path)}
-                          className="text-sky-300 hover:underline text-left cursor-pointer"
+                          className="text-accent hover:underline text-left cursor-pointer"
                         >
                           {hs.path}
                         </button>
                       </th>
                       <td className="p-2.5 font-mono">{hs.commits}</td>
                       <td className="p-2.5 font-mono">{hs.lines_code}</td>
-                      <td className="p-2.5 font-mono text-amber-300 font-semibold">
+                      <td className="p-2.5 font-mono text-warning font-semibold">
                         {hs.churn_risk_score.toFixed(1)}
                       </td>
                     </tr>
@@ -523,13 +523,13 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
             </div>
 
             {/* Recent Commits List */}
-            <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 space-y-3 text-xs">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                <span className="font-semibold text-slate-200 flex items-center gap-1.5">
-                  <GitCommitHorizontal className="w-4 h-4 text-sky-400" aria-hidden="true" />
+            <div className="bg-panel border border-line rounded-md p-4 space-y-3 text-xs">
+              <div className="flex items-center justify-between border-b border-line pb-2">
+                <span className="font-semibold text-ink flex items-center gap-1.5">
+                  <GitCommitHorizontal className="w-4 h-4 text-accent" aria-hidden="true" />
                   Recent Repository Commits
                 </span>
-                <span className="text-slate-400">
+                <span className="text-muted">
                   Contributors: <strong>{git.unique_contributors}</strong> &bull; Bus Factor:{' '}
                   <strong>{git.bus_factor_estimate}</strong>
                 </span>
@@ -538,15 +538,15 @@ export const HealthReportView: React.FC<HealthReportViewProps> = ({
                 {git.recent_commits.map((cm) => (
                   <li
                     key={cm.sha}
-                    className="bg-slate-950/60 border border-slate-800/80 rounded-lg p-2.5 flex items-start justify-between gap-2"
+                    className="bg-canvas border border-line rounded-lg p-2.5 flex items-start justify-between gap-2"
                   >
                     <div>
-                      <div className="font-medium text-slate-200">{cm.subject}</div>
-                      <div className="text-[11px] text-slate-400 mt-0.5">
+                      <div className="font-medium text-ink">{cm.subject}</div>
+                      <div className="text-[11px] text-muted mt-0.5">
                         {cm.author} &bull; {cm.date}
                       </div>
                     </div>
-                    <code className="px-1.5 py-0.5 rounded bg-slate-900 text-sky-400 border border-slate-800 text-[11px]">
+                    <code className="px-1.5 py-0.5 rounded bg-panel text-accent border border-line text-[11px]">
                       {cm.sha}
                     </code>
                   </li>
