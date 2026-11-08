@@ -181,6 +181,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     setup_p.add_argument("--dry-run", action="store_true", help="Preview planned changes without writing.")
     setup_p.add_argument("--verify", action="store_true", help="Check current agent integration status.")
+    setup_p.add_argument("--repair", action="store_true", help="Repair or refresh corrupted agent integrations.")
     setup_p.add_argument("--uninstall", action="store_true", help="Remove RepoDNA integration from agent.")
 
     # 6. doctor
@@ -241,6 +242,7 @@ def main(argv: list[str] | None = None) -> int:
             mgr = SnapshotManager(args.target)
             base_analysis, base_sha, base_is_wt = mgr.create_snapshot(args.base_ref)
             head_analysis, head_sha, head_is_wt = mgr.create_snapshot(args.head_ref)
+            git_renames = mgr.find_git_renames(args.base_ref, args.head_ref)
             diff_res = ArchitectureDiffEngine.compare_analyses(
                 base=base_analysis,
                 head=head_analysis,
@@ -250,6 +252,7 @@ def main(argv: list[str] | None = None) -> int:
                 head_commit_sha=head_sha,
                 base_is_working_tree=base_is_wt,
                 head_is_working_tree=head_is_wt,
+                git_renames=git_renames,
             )
         except Exception as exc:
             print(f"[ERROR] Architecture diff failed: {exc}", file=sys.stderr)
@@ -303,6 +306,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         if args.verify:
             res = installer.verify()
+            print(json.dumps(res, indent=2))
+            return 0
+        if args.repair:
+            res = installer.repair()
             print(json.dumps(res, indent=2))
             return 0
         if args.uninstall:

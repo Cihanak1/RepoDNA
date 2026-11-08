@@ -1,4 +1,4 @@
-"""One-command installer and environment doctor for AI coding agents."""
+"""One-command installer, repair tool, and environment doctor for AI coding agents."""
 
 from __future__ import annotations
 
@@ -18,7 +18,6 @@ def _get_skill_source() -> Path:
         return SKILL_SOURCE_DIR
     if ALT_SKILL_SOURCE_DIR.exists() and (ALT_SKILL_SOURCE_DIR / "SKILL.md").exists():
         return ALT_SKILL_SOURCE_DIR
-    # Fallback to current working directory
     cwd_src = Path.cwd() / "integrations" / "agent-skills" / "repodna"
     if cwd_src.exists() and (cwd_src / "SKILL.md").exists():
         return cwd_src
@@ -26,7 +25,7 @@ def _get_skill_source() -> Path:
 
 
 class AgentInstaller:
-    """Manages installation, uninstallation, and verification of RepoDNA across AI agents."""
+    """Manages installation, repair, uninstallation, and verification of RepoDNA across AI agents."""
 
     SUPPORTED_AGENTS = ["codex", "claude", "antigravity", "auto"]
 
@@ -45,23 +44,42 @@ class AgentInstaller:
         self.repo_root = (repo_root or Path.cwd()).resolve()
         self.user_home = Path.home().resolve()
 
-    def detect_agents(self) -> list[str]:
-        detected = []
-        # Check project-level directories
-        if (self.repo_root / ".claude").exists() or (self.user_home / ".claude").exists():
-            detected.append("claude")
-        if (self.repo_root / ".codex").exists() or (self.user_home / ".codex").exists():
-            detected.append("codex")
-        if (self.user_home / ".gemini").exists() or (self.repo_root / ".agents").exists():
-            detected.append("antigravity")
+    def is_agent_installed_on_host(self, agent_name: str) -> bool:
+        """Verifies whether an agent's runtime, config, or CLI actually exists on this host computer."""
+        if agent_name == "antigravity":
+            return (
+                (self.user_home / ".gemini").exists()
+                or any("ANTIGRAVITY" in k or "GEMINI" in k for k in os.environ)
+            )
+        elif agent_name == "codex":
+            return (
+                (self.user_home / ".codex").exists()
+                or shutil.which("codex") is not None
+            )
+        elif agent_name == "claude":
+            claude_desktop_win = Path(os.environ.get("APPDATA", "")) / "Claude" if os.environ.get("APPDATA") else None
+            claude_desktop_mac = self.user_home / "Library" / "Application Support" / "Claude"
+            return (
+                (self.user_home / ".claude").exists()
+                or shutil.which("claude") is not None
+                or (claude_desktop_win is not None and claude_desktop_win.exists())
+                or claude_desktop_mac.exists()
+            )
+        return False
 
+    def detect_agents(self) -> list[str]:
+        """Detects which agents are physically present on this host system."""
+        detected = []
+        for ag in ["antigravity", "codex", "claude"]:
+            if self.is_agent_installed_on_host(ag):
+                detected.append(ag)
         if not detected:
-            # Default to standard portable agent skills directory
-            detected = ["antigravity", "claude"]
+            # Fallback to universal Antigravity / Agent Skills standard directory
+            detected = ["antigravity"]
         return detected
 
     def _resolve_paths(self, target_agent: str) -> tuple[Path, Path | None]:
-        """Returns (skill_target_dir, mcp_config_path_or_none)."""
+        """Returns (skill_target_dir, mcp_config_path_or_none) with safe path handling."""
         if target_agent == "claude":
             if self.scope == "user":
                 skill_dir = self.user_home / ".claude" / "skills" / "repodna"
@@ -101,11 +119,20 @@ class AgentInstaller:
     def install(self) -> dict[str, Any]:
         targets = self.detect_agents() if self.agent == "auto" else [self.agent]
         actions_taken = []
+        warnings = []
         source_dir = _get_skill_source()
 
-        python_cmd = sys.executable or "python"
+        # Format Python path safely with quotes if spaces exist
+        python_exec = sys.executable or "python"
+        if " " in python_exec and not python_exec.startswith('"'):
+            python_cmd = f'"{python_exec}"'
+        else:
+            python_cmd = python_exec
 
         for tgt in targets:
+            if not self.is_agent_installed_on_host(tgt):
+                warnings.append(f"Agent '{tgt}' does not appear to be installed on this host.")
+
             skill_dir, mcp_path = self._resolve_paths(tgt)
 
             # 1. Install Skill
@@ -121,7 +148,7 @@ class AgentInstaller:
                         shutil.copy2(item, dest)
                 actions_taken.append(f"Installed Skill ({tgt}) at '{skill_dir}'")
 
-            # 2. Configure MCP if path exists or can be created
+            # 2. Configure MCP Server
             if mcp_path:
                 repodna_mcp_entry = {
                     "command": python_cmd,
@@ -135,7 +162,7 @@ class AgentInstaller:
                     data: dict[str, Any] = {}
                     if mcp_path.exists():
                         try:
-                            # Backup
+                            # Safe backup
                             shutil.copy2(mcp_path, str(mcp_path) + ".bak")
                             data = json.loads(mcp_path.read_text(encoding="utf-8"))
                         except Exception:
@@ -152,8 +179,25 @@ class AgentInstaller:
             "status": "success",
             "dry_run": self.dry_run,
             "agents": targets,
+            "warnings": warnings,
             "scope": self.scope,
             "actions": actions_taken,
+        }
+
+    def repair(self) -> dict[str, Any]:
+        """Detects missing components and repairs them idempotently."""
+        verification = self.verify()
+        repaired = []
+        for ag, status in verification.items():
+            if status["host_installed"]:
+                if not status["skill_installed"] or not status["mcp_configured"]:
+                    inst = AgentInstaller(agent=ag, scope=self.scope, dry_run=self.dry_run, repo_root=self.repo_root)
+                    res = inst.install()
+                    repaired.extend(res["actions"])
+        return {
+            "status": "repaired",
+            "dry_run": self.dry_run,
+            "repaired_actions": repaired,
         }
 
     def uninstall(self) -> dict[str, Any]:
@@ -175,6 +219,8 @@ class AgentInstaller:
                     actions_taken.append(f"[DRY-RUN] Would remove 'repodna' entry from '{mcp_path}'")
                 else:
                     try:
+                        # Backup before uninstallation
+                        shutil.copy2(mcp_path, str(mcp_path) + ".bak")
                         data = json.loads(mcp_path.read_text(encoding="utf-8"))
                         modified = False
                         for key in ("mcpServers", "servers"):
@@ -195,10 +241,11 @@ class AgentInstaller:
         }
 
     def verify(self) -> dict[str, Any]:
-        targets = self.detect_agents() if self.agent == "auto" else [self.agent]
+        targets = ["antigravity", "codex", "claude"] if self.agent == "auto" else [self.agent]
         results = {}
 
         for tgt in targets:
+            host_installed = self.is_agent_installed_on_host(tgt)
             skill_dir, mcp_path = self._resolve_paths(tgt)
             skill_ok = skill_dir.exists() and (skill_dir / "SKILL.md").exists()
             mcp_ok = False
@@ -212,18 +259,31 @@ class AgentInstaller:
                 except Exception:
                     mcp_ok = False
 
+            if not host_installed:
+                integration_status = "NOT INSTALLED ON HOST"
+            elif skill_ok and mcp_ok:
+                integration_status = "READY"
+            elif skill_ok and not mcp_ok:
+                integration_status = "INCOMPLETE (Skill Installed, MCP Missing)"
+            elif not skill_ok and mcp_ok:
+                integration_status = "INCOMPLETE (MCP Configured, Skill Missing)"
+            else:
+                integration_status = "NOT CONFIGURED"
+
             results[tgt] = {
+                "host_installed": host_installed,
                 "skill_installed": skill_ok,
                 "skill_path": str(skill_dir),
                 "mcp_configured": mcp_ok,
                 "mcp_path": str(mcp_path) if mcp_path else None,
+                "integration_status": integration_status,
             }
 
         return results
 
 
 def run_doctor() -> int:
-    """Diagnoses the RepoDNA environment, Tree-sitter parsers, and agent integrations."""
+    """Diagnoses the RepoDNA environment, Tree-sitter parsers, and agent integrations separately."""
     print("=" * 76)
     print("RepoDNA Environment & AI Agent Diagnostic (repodna doctor)")
     print("=" * 76)
@@ -239,6 +299,7 @@ def run_doctor() -> int:
             checks_passed += 1
         print(f"{status:<8} {title:<40} {details}")
 
+    print("--- Core Engine Diagnostic ---")
     # 1. Python version
     py_ver = sys.version_info
     py_ok = (py_ver.major, py_ver.minor) >= (3, 12)
@@ -261,7 +322,11 @@ def run_doctor() -> int:
             grammars_found.append(g)
         except ImportError:
             pass
-    check("AST Grammars (Tree-sitter)", len(grammars_found) == len(grammars), f"{len(grammars_found)}/5 grammars ({', '.join(grammars_found)})")
+    check(
+        "AST Grammars (Tree-sitter)",
+        len(grammars_found) == len(grammars),
+        f"{len(grammars_found)}/5 grammars ({', '.join(grammars_found)})",
+    )
 
     # 4. Git availability
     try:
@@ -281,9 +346,9 @@ def run_doctor() -> int:
         mcp_ok = bool(mcp_init and mcp_init.get("result", {}).get("serverInfo"))
     except Exception:
         mcp_ok = False
-    check("RepoDNA MCP Server (JSON-RPC)", mcp_ok, "8 tools registered")
+    check("RepoDNA MCP Server (SDK v2 & Stdio)", mcp_ok, "8 tools registered")
 
-    # 6. Skill Package
+    # 6. Skill Package Source
     try:
         src = _get_skill_source()
         skill_ok = src.exists() and (src / "SKILL.md").exists()
@@ -293,19 +358,38 @@ def run_doctor() -> int:
         skill_path = "Missing"
     check("Agent Skill Package (SKILL.md)", skill_ok, skill_path)
 
-    # 7. Agent Integrations
+    core_healthy = checks_passed == checks_total
+    print(f"Core Engine Status: {'HEALTHY' if core_healthy else 'ATTENTION NEEDED'}")
+
+    # 7. Agent Integrations Section
     installer = AgentInstaller()
     verification = installer.verify()
     print("-" * 76)
-    print("Detected Agent Registrations:")
+    print("AI Agent Integration Status:")
+    any_ready = False
+    any_incomplete = False
+
     for ag, v in verification.items():
+        host_str = "DETECTED" if v["host_installed"] else "NOT DETECTED"
         s_status = "INSTALLED" if v["skill_installed"] else "NOT FOUND"
         m_status = "CONFIGURED" if v["mcp_configured"] else "NOT CONFIGURED"
-        print(f"  * {ag:<14} | Skill: {s_status:<10} | MCP: {m_status}")
+        integ_status = v["integration_status"]
+
+        if integ_status == "READY":
+            any_ready = True
+        elif "INCOMPLETE" in integ_status:
+            any_incomplete = True
+
+        print(f"  * {ag.upper():<14} | Host: {host_str:<12} | Skill: {s_status:<10} | MCP: {m_status:<14} | Status: {integ_status}")
 
     print("=" * 76)
-    all_ok = checks_passed == checks_total
-    status_str = "HEALTHY" if all_ok else "ATTENTION NEEDED"
-    print(f"Diagnostic Summary: {checks_passed}/{checks_total} checks passed — Status: {status_str}")
+    if any_ready:
+        integ_overall = "READY"
+    elif any_incomplete:
+        integ_overall = "INCOMPLETE (Run 'repodna setup --repair' to complete)"
+    else:
+        integ_overall = "NOT CONFIGURED (Run 'repodna setup' to configure)"
+
+    print(f"Summary: Core Engine: {'HEALTHY' if core_healthy else 'ATTENTION NEEDED'} | Agent Integration: {integ_overall}")
     print("=" * 76)
-    return 0 if all_ok else 1
+    return 0 if core_healthy else 1
