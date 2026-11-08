@@ -4,7 +4,7 @@ All notable changes to **RepoDNA** are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - Target: v0.3.0 (AI-Native Repository Intelligence)
+## [0.3.0] - 2026-11-09
 
 ### Added
 - **Official Model Context Protocol (MCP SDK v2) Server (`repodna.mcp`)**:
