@@ -4,6 +4,23 @@ All notable changes to **RepoDNA** are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Precision Engineering Workstation with semantic dark/light tokens, compact repository identity and report layout.
+- Resizable panels with keyboard alternatives, canvas focus, persistent layout preferences and mobile Files / Canvas / Inspector navigation.
+- Package coverage summaries, path/metrics clipboard actions, command grouping/history, and zoom to selection.
+- ESLint and Axe/Playwright coverage for accessibility, five viewport sizes, clipboard, exports, panel workflows and live NiceWP analysis.
+
+### Fixed
+- Empty minimap, compact graph overlaps, light-theme contrast and rapid command-palette reopen race.
+- Unsupported modules no longer receive a generic healthy label; unverified report categories no longer display zero-score bars.
+- Export feedback checks the response before reporting a download; partial-static coverage semantics remain unchanged.
+
+### Performance
+- Lazy-loaded graph and report views; quieter edge labels and memoized graph nodes.
+- See [the delivery report](docs/design/DELIVERY.md) for measured timings, bundle sizes and limitations. Package version remains 0.1.1 pending release approval.
+
 ## [0.1.1] - 2026-11-08
 
 ### Fixed

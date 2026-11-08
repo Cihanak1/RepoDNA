@@ -1,0 +1,81 @@
+{
+  "environment": "Edge headless; 1440x900; Vite dev; same machine/backend/demo; one warmup plus five fresh browser contexts per version; automation wall-clock, not pure render time",
+  "before": {
+    "warmup": {
+      "launchMs": 308,
+      "selectMs": 97,
+      "groupMs": 91
+    },
+    "samples": [
+      {
+        "launchMs": 244,
+        "selectMs": 113,
+        "groupMs": 70
+      },
+      {
+        "launchMs": 333,
+        "selectMs": 167,
+        "groupMs": 169
+      },
+      {
+        "launchMs": 321,
+        "selectMs": 137,
+        "groupMs": 145
+      },
+      {
+        "launchMs": 363,
+        "selectMs": 164,
+        "groupMs": 157
+      },
+      {
+        "launchMs": 396,
+        "selectMs": 167,
+        "groupMs": 252
+      }
+    ],
+    "median": {
+      "launchMs": 333,
+      "selectMs": 164,
+      "groupMs": 157
+    }
+  },
+  "after": {
+    "warmup": {
+      "launchMs": 399,
+      "selectMs": 92,
+      "groupMs": 134
+    },
+    "samples": [
+      {
+        "launchMs": 332,
+        "selectMs": 131,
+        "groupMs": 121
+      },
+      {
+        "launchMs": 323,
+        "selectMs": 102,
+        "groupMs": 114
+      },
+      {
+        "launchMs": 322,
+        "selectMs": 114,
+        "groupMs": 185
+      },
+      {
+        "launchMs": 327,
+        "selectMs": 127,
+        "groupMs": 115
+      },
+      {
+        "launchMs": 326,
+        "selectMs": 113,
+        "groupMs": 131
+      }
+    ],
+    "median": {
+      "launchMs": 326,
+      "selectMs": 114,
+      "groupMs": 121
+    }
+  }
+}

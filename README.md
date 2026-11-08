@@ -16,13 +16,27 @@ Built for software architects, staff engineers, and open-source maintainers, Rep
 
 | Architecture Studio (Dark Theme) | Architecture Studio (Light Theme) |
 | :---: | :---: |
-| ![Architecture Studio Dark](./docs/screenshots/repodna-studio-dark.png) | ![Architecture Studio Light](./docs/screenshots/repodna-studio-light.png) |
+| ![Architecture Studio Dark](./docs/design/after/studio-dark.png) | ![Architecture Studio Light](./docs/design/after/studio-light.png) |
 
 | Command Palette (`Ctrl+K`) | Explainable Health & Transparency Report | Responsive Mobile View |
 | :---: | :---: | :---: |
-| ![Command Palette](./docs/screenshots/repodna-command-palette.png) | ![Health Report](./docs/screenshots/repodna-health-report.png) | ![Mobile Responsive](./docs/screenshots/repodna-mobile.png) |
+| ![Command Palette](./docs/design/after/commands.png) | ![Health Report](./docs/design/after/report.png) | ![Mobile Responsive](./docs/design/after/viewport-390.png) |
 
 ---
+
+## Precision Engineering Workstation
+
+The current workspace adds resizable Explorer and Inspector panels, a canvas focus mode,
+persistent panel widths and graph preferences, package coverage summaries, and a command
+palette with recent commands. Mobile and tablet use Files / Canvas / Inspector navigation.
+
+Use **Ctrl/Cmd+K** for commands, **/** for file search, **Alt+F** for canvas focus,
+**Alt+I** for the inspector, and **Escape** to leave focus or a dialog. Panel separators
+support dragging, arrow keys, Home and End. Select a node and use **Zoom to selection**
+for readable detail; **Fit & Reset** restores the deterministic overview.
+
+[Design audit, before/after captures, validation and performance evidence](docs/design/DELIVERY.md).
+Version remains **0.1.1** until a release is approved.
 
 ## System Architecture
 
