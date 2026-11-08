@@ -90,20 +90,20 @@ export const ExplorerSidebar: React.FC<ExplorerSidebarProps> = ({
   return (
     <aside
       aria-label="Repository Explorer and Filters"
-      className="w-full lg:w-80 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-800/80 bg-slate-950/60 flex flex-col max-h-[38vh] lg:max-h-none"
+      className="w-full lg:w-80 shrink-0 border-b lg:border-b-0 lg:border-r border-line bg-canvas flex flex-col max-h-[38vh] lg:max-h-none"
     >
       {/* Search & Filters Header */}
-      <div className="p-3 border-b border-slate-800/80 flex flex-col gap-2.5">
+      <div className="p-3 border-b border-line flex flex-col gap-2.5">
         <div className="flex items-center justify-between">
-          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-300 m-0 flex items-center gap-1.5">
-            <Filter className="w-3.5 h-3.5 text-sky-400" aria-hidden="true" />
+          <h2 className="text-xs font-bold tracking-wide text-muted m-0 flex items-center gap-1.5">
+            <Filter className="w-3.5 h-3.5 text-accent" aria-hidden="true" />
             Explorer ({filteredFiles.length}/{allFiles.length})
           </h2>
           {hasActiveFilters && (
             <button
               type="button"
               onClick={onResetFilters}
-              className="text-[11px] text-sky-400 hover:text-sky-300 font-medium cursor-pointer"
+              className="text-[11px] text-accent hover:text-accent font-medium cursor-pointer"
             >
               Reset filters
             </button>
@@ -116,7 +116,7 @@ export const ExplorerSidebar: React.FC<ExplorerSidebarProps> = ({
             Filter modules by path or symbol name
           </label>
           <Search
-            className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+            className="w-3.5 h-3.5 text-muted absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
             aria-hidden="true"
           />
           <input
@@ -125,7 +125,7 @@ export const ExplorerSidebar: React.FC<ExplorerSidebarProps> = ({
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder="Search file path or symbol..."
-            className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-2.5 py-1.5 text-xs text-slate-100 placeholder:text-slate-500"
+            className="w-full bg-panel border border-line rounded-lg pl-8 pr-2.5 py-1.5 text-xs text-ink placeholder:text-muted"
           />
         </div>
 
@@ -139,7 +139,7 @@ export const ExplorerSidebar: React.FC<ExplorerSidebarProps> = ({
               id="filter-language-select"
               value={languageFilter}
               onChange={(e) => onLanguageFilterChange(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-200"
+              className="w-full bg-panel border border-line rounded-lg px-2 py-1 text-xs text-ink"
             >
               <option value="ALL">All Languages</option>
               {uniqueLanguages.map((lang) => (
@@ -158,7 +158,7 @@ export const ExplorerSidebar: React.FC<ExplorerSidebarProps> = ({
               id="filter-support-select"
               value={supportFilter}
               onChange={(e) => onSupportFilterChange(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-200"
+              className="w-full bg-panel border border-line rounded-lg px-2 py-1 text-xs text-ink"
             >
               <option value="ALL">All Support Levels</option>
               <option value="full_ast">Full AST Only</option>
@@ -176,8 +176,8 @@ export const ExplorerSidebar: React.FC<ExplorerSidebarProps> = ({
             aria-pressed={cyclesOnly}
             className={`px-2 py-1 rounded-md text-[11px] font-medium flex items-center gap-1 border cursor-pointer ${
               cyclesOnly
-                ? 'bg-red-500/20 text-red-300 border-red-500/50'
-                : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
+                ? 'bg-danger/20 text-danger border-danger/50'
+                : 'bg-panel text-muted border-line hover:text-ink'
             }`}
           >
             <RefreshCcw className="w-3 h-3" aria-hidden="true" />
@@ -190,8 +190,8 @@ export const ExplorerSidebar: React.FC<ExplorerSidebarProps> = ({
             aria-pressed={hubsOnly}
             className={`px-2 py-1 rounded-md text-[11px] font-medium flex items-center gap-1 border cursor-pointer ${
               hubsOnly
-                ? 'bg-sky-500/20 text-sky-300 border-sky-500/50'
-                : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
+                ? 'bg-accent/20 text-accent border-accent/50'
+                : 'bg-panel text-muted border-line hover:text-ink'
             }`}
           >
             <Sparkles className="w-3 h-3" aria-hidden="true" />
@@ -204,8 +204,8 @@ export const ExplorerSidebar: React.FC<ExplorerSidebarProps> = ({
             aria-pressed={orphansOnly}
             className={`px-2 py-1 rounded-md text-[11px] font-medium flex items-center gap-1 border cursor-pointer ${
               orphansOnly
-                ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
-                : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
+                ? 'bg-warning/20 text-warning border-warning/50'
+                : 'bg-panel text-muted border-line hover:text-ink'
             }`}
           >
             <Unlink className="w-3 h-3" aria-hidden="true" />
@@ -215,32 +215,40 @@ export const ExplorerSidebar: React.FC<ExplorerSidebarProps> = ({
       </div>
 
       {/* Hierarchical Directory & File Tree */}
-      <div className="flex-1 overflow-y-auto p-2 space-y-1">
+      <div className="flex-1 overflow-y-auto p-2 space-y-1" onKeyDown={event => {
+        if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+        const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button'));
+        const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+        if (index < 0) return;
+        event.preventDefault();
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : Math.max(0, Math.min(buttons.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)));
+        buttons[next]?.focus();
+      }}>
         {groupedByDirectory.length === 0 ? (
-          <div className="p-6 text-center text-xs text-slate-400">
+          <div className="p-6 text-center text-xs text-muted">
             No modules match the active filters.
           </div>
         ) : (
           groupedByDirectory.map(([dirName, files]) => {
             const isCollapsed = collapsedDirs.has(dirName);
             return (
-              <div key={dirName} className="virtual-panel-section rounded-lg border border-slate-900/80 bg-slate-900/30">
+              <div key={dirName} className="virtual-panel-section explorer-directory">
                 <button
                   type="button"
                   onClick={() => toggleDir(dirName)}
                   aria-expanded={!isCollapsed}
-                  className="w-full px-2.5 py-1.5 flex items-center justify-between text-xs font-semibold text-slate-300 hover:bg-slate-800/50 rounded-t-lg cursor-pointer"
+                  className="w-full px-2.5 py-1.5 flex items-center justify-between text-xs font-semibold text-muted hover:bg-raised rounded-t-lg cursor-pointer"
                 >
                   <span className="flex items-center gap-1.5 truncate">
                     {isCollapsed ? (
-                      <ChevronRight className="w-3.5 h-3.5 text-slate-500 shrink-0" aria-hidden="true" />
+                      <ChevronRight className="w-3.5 h-3.5 text-muted shrink-0" aria-hidden="true" />
                     ) : (
-                      <ChevronDown className="w-3.5 h-3.5 text-slate-500 shrink-0" aria-hidden="true" />
+                      <ChevronDown className="w-3.5 h-3.5 text-muted shrink-0" aria-hidden="true" />
                     )}
-                    <Folder className="w-3.5 h-3.5 text-sky-400/80 shrink-0" aria-hidden="true" />
+                    <Folder className="w-3.5 h-3.5 text-accent shrink-0" aria-hidden="true" />
                     <span className="truncate font-mono text-[11px]">{dirName}</span>
                   </span>
-                  <span className="text-[10px] font-mono text-slate-400 px-1.5 py-0.5 rounded bg-slate-900">
+                  <span className="text-[11px] font-mono text-muted px-1.5 py-0.5 rounded bg-panel">
                     {files.length}
                   </span>
                 </button>
@@ -254,38 +262,39 @@ export const ExplorerSidebar: React.FC<ExplorerSidebarProps> = ({
                           <button
                             type="button"
                             data-testid={`explorer-file-${file.id}`}
+                            title={file.id}
                             onClick={() => onSelectFile(file.id)}
                             aria-current={isSelected ? 'true' : undefined}
                             className={`w-full px-2.5 py-1.5 rounded-md text-left text-xs flex items-center justify-between gap-2 transition cursor-pointer ${
                               isSelected
-                                ? 'bg-sky-500/20 text-sky-200 border border-sky-500/40 font-semibold'
-                                : 'text-slate-300 hover:bg-slate-800/60 border border-transparent'
+                                ? 'bg-accent/20 text-accent border border-accent/40 font-semibold'
+                                : 'text-muted hover:bg-raised border border-transparent'
                             }`}
                           >
                             <span className="flex items-center gap-1.5 truncate">
                               <FileCode
                                 className={`w-3.5 h-3.5 shrink-0 ${
                                   file.in_cycle
-                                    ? 'text-red-400'
+                                    ? 'text-danger'
                                     : file.support_level === 'unsupported'
-                                    ? 'text-amber-400'
-                                    : 'text-sky-400'
+                                    ? 'text-warning'
+                                    : 'text-accent'
                                 }`}
                                 aria-hidden="true"
                               />
-                              <span className="truncate font-mono text-[11px]">{file.name}</span>
+                              <span className="truncate font-mono text-[11px]">{searchQuery && file.name.toLowerCase().includes(searchQuery.toLowerCase()) ? <>{file.name.slice(0, file.name.toLowerCase().indexOf(searchQuery.toLowerCase()))}<mark>{file.name.slice(file.name.toLowerCase().indexOf(searchQuery.toLowerCase()), file.name.toLowerCase().indexOf(searchQuery.toLowerCase()) + searchQuery.length)}</mark>{file.name.slice(file.name.toLowerCase().indexOf(searchQuery.toLowerCase()) + searchQuery.length)}</> : file.name}</span>
                             </span>
 
                             <span className="flex items-center gap-1 shrink-0">
                               {file.in_cycle && (
                                 <span
                                   title="Participates in circular dependency"
-                                  className="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase bg-red-500/25 text-red-300 border border-red-500/40"
+                                  className="px-1.5 py-0.2 rounded text-[11px] font-bold uppercase bg-danger/10 text-danger border border-danger/40"
                                 >
                                   Cycle
                                 </span>
                               )}
-                              <span className="text-[10px] font-mono text-slate-400">
+                              <span className="text-[11px] font-mono text-muted">
                                 {file.lines_code}L
                               </span>
                             </span>
