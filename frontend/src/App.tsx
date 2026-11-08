@@ -1,11 +1,6 @@
-import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import React, { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
-  FolderOpen,
-  Github,
-  Play,
-  ShieldCheck,
-  Sparkles,
 } from 'lucide-react';
 import {
   cancelScanJob,
@@ -16,12 +11,13 @@ import {
   startAsyncScanJob,
 } from './api/client';
 import { CommandPaletteDialog } from './components/CommandPaletteDialog';
-import { DependencyGraph } from './components/DependencyGraph';
 import { ExplorerSidebar } from './components/ExplorerSidebar';
 import { FolderBrowserDialog } from './components/FolderBrowserDialog';
 import { HeaderBar } from './components/HeaderBar';
-import { HealthReportView } from './components/HealthReportView';
 import { InspectorPanel } from './components/InspectorPanel';
+import { Launchpad } from './components/Launchpad';
+import { PanelResizer } from './components/PanelResizer';
+import { readPreference, savePreference } from './utils/preferences';
 import { SummaryStrip } from './components/SummaryStrip';
 import type {
   AnalysisResult,
@@ -35,6 +31,9 @@ import {
   type GraphGroupingMode,
   type LayoutMode,
 } from './utils/graphLayout';
+
+const DependencyGraph = lazy(() => import('./components/DependencyGraph').then(module => ({ default: module.DependencyGraph })));
+const HealthReportView = lazy(() => import('./components/HealthReportView').then(module => ({ default: module.HealthReportView })));
 
 export const App: React.FC = () => {
   const [defaultWorkspacePath, setDefaultWorkspacePath] = useState<string>('');
@@ -57,9 +56,33 @@ export const App: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<'studio' | 'report'>('studio');
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
-  const [layoutMode, setLayoutMode] = useState<LayoutMode>('layered');
-  const [densityMode, setDensityMode] = useState<GraphDensityMode>('balanced');
-  const [groupingMode, setGroupingMode] = useState<GraphGroupingMode>('files');
+  const [layoutMode, setLayoutMode] = useState(() => readPreference<LayoutMode>('layout', 'layered', (v): v is LayoutMode => v === 'layered' || v === 'cluster' || v === 'radial'));
+  const [densityMode, setDensityMode] = useState(() => readPreference<GraphDensityMode>('density', 'balanced', (v): v is GraphDensityMode => v === 'compact' || v === 'balanced' || v === 'spacious'));
+  const [groupingMode, setGroupingMode] = useState(() => readPreference<GraphGroupingMode>('grouping', 'files', (v): v is GraphGroupingMode => v === 'files' || v === 'directories'));
+  useEffect(() => { savePreference('layout', layoutMode); }, [layoutMode]);
+  useEffect(() => { savePreference('density', densityMode); }, [densityMode]);
+  useEffect(() => { savePreference('grouping', groupingMode); }, [groupingMode]);
+
+  const [explorerWidth, setExplorerWidth] = useState(() => readPreference('explorerWidth', 260, (v): v is number => typeof v === 'number' && v >= 220 && v <= 400));
+  const [inspectorWidth, setInspectorWidth] = useState(() => readPreference('inspectorWidth', 320, (v): v is number => typeof v === 'number' && v >= 260 && v <= 460));
+  const [showExplorer, setShowExplorer] = useState(true);
+  const [showInspector, setShowInspector] = useState(true);
+  const [focusMode, setFocusMode] = useState(false);
+  const [mobileView, setMobileView] = useState<'files' | 'canvas' | 'inspector'>('canvas');
+  useEffect(() => { savePreference('explorerWidth', explorerWidth); }, [explorerWidth]);
+  useEffect(() => { savePreference('inspectorWidth', inspectorWidth); }, [inspectorWidth]);
+  useEffect(() => {
+    const shortcut = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLElement && (event.target.closest('input,textarea,select,[contenteditable=true],dialog[open]'))) return;
+      if (event.key === 'Escape') setFocusMode(false);
+      if (event.altKey && event.key.toLowerCase() === 'f') { event.preventDefault(); setFocusMode(v => !v); setMobileView('canvas'); }
+      if (event.altKey && event.key.toLowerCase() === 'i') { event.preventDefault(); setShowInspector(v => !v); }
+      if (event.key === '/') { event.preventDefault(); setShowExplorer(true); setMobileView('files'); requestAnimationFrame(() => document.getElementById('explorer-search-input')?.focus()); }
+    };
+    window.addEventListener('keydown', shortcut);
+    return () => window.removeEventListener('keydown', shortcut);
+  }, []);
+  const selectFile = (id: string) => { setSelectedFileId(id); setMobileView('inspector'); setShowInspector(true); };
 
   // Explorer & Graph Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -321,12 +344,12 @@ export const App: React.FC = () => {
   }, [result, selectedFileId]);
 
   const handleSelectFileFromReport = (fileId: string) => {
-    setSelectedFileId(fileId);
+    selectFile(fileId);
     setActiveTab('studio');
   };
 
   return (
-    <div className="min-h-screen lg:h-screen lg:overflow-hidden flex flex-col bg-slate-950 text-slate-100">
+    <div className="app-shell flex flex-col bg-canvas text-ink">
       <a href="#main-workspace" className="skip-link visually-hidden">
         Skip to main workspace
       </a>
@@ -356,10 +379,10 @@ export const App: React.FC = () => {
         <div
           role="alert"
           data-testid="error-alert-banner"
-          className="bg-red-950/70 border-b border-red-700/70 px-4 py-2.5 flex items-center justify-between gap-3 text-xs text-red-200"
+          className="bg-danger/10 border-b border-danger/70 px-4 py-2.5 flex items-center justify-between gap-3 text-xs text-danger"
         >
           <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-red-400 shrink-0" aria-hidden="true" />
+            <AlertCircle className="w-4 h-4 text-danger shrink-0" aria-hidden="true" />
             <span>
               <strong className="font-mono">[{errorBanner.code}]</strong> {errorBanner.message}
             </span>
@@ -367,7 +390,7 @@ export const App: React.FC = () => {
           <button
             type="button"
             onClick={() => setErrorBanner(null)}
-            className="px-2 py-0.5 rounded bg-red-900/60 hover:bg-red-800 text-red-100 text-[11px] cursor-pointer"
+            className="px-2 py-0.5 rounded bg-danger-solid hover:bg-danger-solid text-white text-[11px] cursor-pointer"
           >
             Dismiss
           </button>
@@ -378,19 +401,19 @@ export const App: React.FC = () => {
         <div
           role="status"
           data-testid="previous-analysis-banner"
-          className="bg-amber-950/60 border-b border-amber-700/60 px-4 py-2 flex items-center justify-between gap-3 text-xs text-amber-200"
+          className="bg-warning/10 border-b border-warning/60 px-4 py-2 flex items-center justify-between gap-3 text-xs text-warning"
         >
           <div>
-            <strong className="uppercase tracking-wider font-bold text-amber-300 mr-2">
+            <strong className="tracking-wide font-bold text-warning mr-2">
               Previous analysis ({result.repo_name})
             </strong>
             <span>
               Viewing previous snapshot while scanning{' '}
-              <code className="font-mono text-amber-100">{scanningTargetLabel}</code> &mdash;{' '}
+              <code className="font-mono text-warning">{scanningTargetLabel}</code> &mdash;{' '}
               {activeJob.phase_message} ({activeJob.progress_percent.toFixed(0)}%)
             </span>
           </div>
-          <span className="text-[11px] font-mono text-amber-300 shrink-0">
+          <span className="text-[11px] font-mono text-warning shrink-0">
             Updating automatically when complete...
           </span>
         </div>
@@ -411,126 +434,27 @@ export const App: React.FC = () => {
 
       <main id="main-workspace" tabIndex={-1} className="flex-1 flex flex-col overflow-hidden">
         {!result ? (
-          /* Explicit Consent Launchpad — Never auto-scans local folders without user action */
-          <div
-            data-testid="welcome-launchpad"
-            className="flex-1 flex items-center justify-center p-6"
-          >
-            <div className="max-w-3xl w-full bg-slate-900/75 border border-slate-800 rounded-2xl p-6 lg:p-8 shadow-2xl space-y-6">
-              <div className="space-y-2">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-sky-500/15 border border-sky-500/30 text-sky-300 text-xs font-medium">
-                  <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
-                  Zero Unsolicited Scanning &bull; Read-Only Static AST Intelligence
-                </div>
-                <h2 className="text-2xl font-bold text-slate-100 m-0">
-                  Analyze Repository Architecture &amp; Module Health
-                </h2>
-                <p className="text-xs text-slate-300 leading-relaxed m-0">
-                  Select a local source directory, enter a public HTTPS GitHub URL, or inspect the labeled Demo dataset. RepoDNA uses Tree-sitter AST parsing and Tarjan Strongly Connected Components to map internal module relationships, detect circular dependencies, and compute explainable rule-based health scores without executing a single line of repository code.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-                {/* Action 1: Analyze Current Local Workspace */}
-                <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between gap-4">
-                  <div className="space-y-1.5">
-                    <div className="w-8 h-8 rounded-lg bg-sky-500/15 border border-sky-500/30 flex items-center justify-center">
-                      <FolderOpen className="w-4 h-4 text-sky-400" aria-hidden="true" />
-                    </div>
-                    <h3 className="text-sm font-semibold text-slate-100 m-0">
-                      Local Repository Scan
-                    </h3>
-                    <p className="text-[11px] text-slate-400 m-0">
-                      Explicitly scan this workspace or browse any local directory on your machine.
-                    </p>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    {defaultWorkspacePath && (
-                      <button
-                        type="button"
-                        data-testid="launchpad-scan-workspace-btn"
-                        onClick={() => {
-                          setSourceType('local');
-                          setTargetInput(defaultWorkspacePath);
-                          void handleTriggerScan('local', defaultWorkspacePath);
-                        }}
-                        className="w-full px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
-                      >
-                        <Play className="w-3.5 h-3.5" aria-hidden="true" />
-                        Analyze Current Workspace
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setFolderDialogOpen(true)}
-                      className="w-full px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-medium text-slate-200 cursor-pointer"
-                    >
-                      Browse Other Folder...
-                    </button>
-                  </div>
-                </div>
-
-                {/* Action 2: Public HTTPS GitHub Repository */}
-                <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between gap-4">
-                  <div className="space-y-1.5">
-                    <div className="w-8 h-8 rounded-lg bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center">
-                      <Github className="w-4 h-4 text-indigo-400" aria-hidden="true" />
-                    </div>
-                    <h3 className="text-sm font-semibold text-slate-100 m-0">
-                      GitHub HTTPS Clone
-                    </h3>
-                    <p className="text-[11px] text-slate-400 m-0">
-                      Clones into an isolated temporary folder with hooks and symlinks disabled, then cleans up automatically.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSourceType('github');
-                      setTargetInput('https://github.com/Cihanak1/AImage');
-                    }}
-                    className="w-full px-3 py-2 rounded-lg bg-indigo-600/25 hover:bg-indigo-600/35 border border-indigo-500/40 text-indigo-200 text-xs font-semibold cursor-pointer"
-                  >
-                    Enter GitHub HTTPS URL
-                  </button>
-                </div>
-
-                {/* Action 3: Labeled Demo Dataset */}
-                <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-4 flex flex-col justify-between gap-4">
-                  <div className="space-y-1.5">
-                    <div className="w-8 h-8 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center">
-                      <Sparkles className="w-4 h-4 text-amber-400" aria-hidden="true" />
-                    </div>
-                    <h3 className="text-sm font-semibold text-slate-100 m-0">
-                      Labeled Demo Showcase
-                    </h3>
-                    <p className="text-[11px] text-slate-400 m-0">
-                      Explore a multi-language architecture with circular dependencies, dynamic imports, and churn hotspots.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    data-testid="launchpad-demo-btn"
-                    onClick={() => {
-                      setSourceType('demo');
-                      setTargetInput('demo');
-                      void handleTriggerScan('demo', 'demo');
-                    }}
-                    className="w-full px-3 py-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 text-xs font-semibold cursor-pointer"
-                  >
-                    Load Labeled Demo Mode
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+          <Launchpad workspace={defaultWorkspacePath} scanning={activeJob !== null}
+            onWorkspace={() => { setSourceType('local'); setTargetInput(defaultWorkspacePath); void handleTriggerScan('local', defaultWorkspacePath); }}
+            onBrowse={() => setFolderDialogOpen(true)}
+            onGithub={() => { setSourceType('github'); setTargetInput('https://github.com/'); document.getElementById('repo-target-input')?.focus(); }}
+            onDemo={() => { setSourceType('demo'); setTargetInput('demo'); void handleTriggerScan('demo', 'demo'); }} />
         ) : activeTab === 'studio' ? (
-          <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+          <>
+          <div className="workspace-controls" role="toolbar" aria-label="Workspace panels">
+            <span className="text-muted text-xs mr-auto hidden sm:block">Architecture / {groupingMode === 'files' ? 'Modules' : 'Packages'}</span>
+            {(['files', 'canvas', 'inspector'] as const).map(view => <button key={view} className="mobile-view" aria-pressed={mobileView === view} onClick={() => setMobileView(view)}>{view === 'files' ? 'Files' : view === 'canvas' ? 'Canvas' : 'Inspector'}</button>)}
+            <button className="desktop-panel-toggle" aria-pressed={showExplorer && !focusMode} onClick={() => { setFocusMode(false); setShowExplorer(v => !v); }}>Explorer</button>
+            <button className="desktop-panel-toggle" aria-pressed={showInspector && !focusMode} title="Toggle inspector (Alt+I)" onClick={() => { setFocusMode(false); setShowInspector(v => !v); }}>Inspector</button>
+            <button aria-pressed={focusMode} title="Focus canvas (Alt+F), Escape to exit" onClick={() => { setFocusMode(v => !v); setMobileView('canvas'); }}>{focusMode ? 'Exit focus' : 'Focus canvas'}</button>
+          </div>
+          <div className="workspace-panels" data-mobile={mobileView} data-explorer={showExplorer && !focusMode} data-inspector={showInspector && !focusMode}
+            style={{ '--explorer-width': `${explorerWidth}px`, '--inspector-width': `${inspectorWidth}px` } as React.CSSProperties}>
             <ExplorerSidebar
               allFiles={result.files}
               filteredFiles={filteredFiles}
               selectedFileId={selectedFileId}
-              onSelectFile={setSelectedFileId}
+              onSelectFile={selectFile}
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
               languageFilter={languageFilter}
@@ -546,12 +470,14 @@ export const App: React.FC = () => {
               onResetFilters={handleResetFilters}
             />
 
+            {showExplorer && !focusMode && <PanelResizer label="Explorer width" value={explorerWidth} min={220} max={400} onChange={setExplorerWidth} />}
+            <Suspense fallback={<div className="graph-workspace grid place-content-center" role="status">Loading architecture canvas…</div>}>
             <DependencyGraph
               files={filteredFiles}
               edges={filteredEdges}
               selectedFileId={selectedFileId}
               neighborIds={neighborIds}
-              onSelectFile={setSelectedFileId}
+              onSelectFile={selectFile}
               layoutMode={layoutMode}
               onLayoutModeChange={setLayoutMode}
               densityMode={densityMode}
@@ -563,19 +489,27 @@ export const App: React.FC = () => {
               highlightCycles={highlightCycles}
               onToggleHighlightCycles={() => setHighlightCycles((prev) => !prev)}
             />
+            </Suspense>
 
+            {showInspector && !focusMode && <PanelResizer label="Inspector width" value={inspectorWidth} min={260} max={460} reverse onChange={setInspectorWidth} />}
             <InspectorPanel
+              key={selectedFileId}
+              packageFiles={groupingMode === 'directories' && selectedFile ? result.files.filter(file => file.directory === selectedFile.directory) : undefined}
+              onExpandPackage={() => setGroupingMode('files')}
               selectedFile={selectedFile}
               allCycles={result.cycles}
               allFindings={result.health_report.findings}
-              onSelectFile={setSelectedFileId}
+              onSelectFile={selectFile}
             />
           </div>
+          </>
         ) : (
+          <Suspense fallback={<p role="status" className="p-6">Loading health report…</p>}>
           <HealthReportView
             result={result}
             onSelectFileInStudio={handleSelectFileFromReport}
           />
+          </Suspense>
         )}
       </main>
 
@@ -597,7 +531,7 @@ export const App: React.FC = () => {
         isOpen={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
         files={result ? result.files : []}
-        onSelectFile={setSelectedFileId}
+        onSelectFile={selectFile}
         onSwitchTab={setActiveTab}
         onToggleTheme={handleToggleThemeFromPalette}
         onChangeLayout={setLayoutMode}

@@ -13,6 +13,7 @@ import {
   Sun,
   X,
 } from 'lucide-react';
+import { readPreference, savePreference } from '../utils/preferences';
 import type { FileNode } from '../types/repodna';
 import type { GraphDensityMode, GraphGroupingMode, LayoutMode } from '../utils/graphLayout';
 
@@ -59,6 +60,7 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
 }) => {
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const [recent, setRecent] = useState(() => readPreference<string[]>('recentCommands', [], (v): v is string[] => Array.isArray(v) && v.every(item => typeof item === 'string')));
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
 
@@ -70,7 +72,7 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
       setActiveIndex(0);
       dialog.showModal();
       window.setTimeout(() => {
-        inputRef.current?.focus();
+        if (dialog.open) inputRef.current?.focus();
       }, 20);
     } else if (!isOpen && dialog.open) {
       dialog.close();
@@ -81,6 +83,8 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
     const dialog = dialogRef.current;
     if (!dialog) return;
     const handleClose = () => {
+      // A queued close event from a previous session must not close a reopened dialog.
+      if (dialog.open) return;
       dialog.returnValue = '';
       onClose();
     };
@@ -113,7 +117,7 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
         category: 'Navigation & Actions',
         title: 'Switch to Architecture Studio View',
         subtitle: 'Interactive module dependency graph and inspector',
-        icon: <FileCode2 className="w-4 h-4 text-sky-400" aria-hidden="true" />,
+        icon: <FileCode2 className="w-4 h-4 text-accent" aria-hidden="true" />,
         badge: 'View',
         onRun: () => {
           onSwitchTab('studio');
@@ -125,7 +129,7 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
         category: 'Navigation & Actions',
         title: 'Open Health & Transparency Report',
         subtitle: 'Rule-based architectural deductions, circular chains, and git churn',
-        icon: <ShieldCheck className="w-4 h-4 text-emerald-400" aria-hidden="true" />,
+        icon: <ShieldCheck className="w-4 h-4 text-success" aria-hidden="true" />,
         badge: 'View',
         onRun: () => {
           onSwitchTab('report');
@@ -137,7 +141,7 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
         category: 'Navigation & Actions',
         title: 'Toggle Dark / Light Workstation Theme',
         subtitle: 'Switch color scheme across all panels and canvas',
-        icon: <Sun className="w-4 h-4 text-amber-400" aria-hidden="true" />,
+        icon: <Sun className="w-4 h-4 text-warning" aria-hidden="true" />,
         badge: 'Theme',
         onRun: () => {
           onToggleTheme();
@@ -149,7 +153,7 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
         category: 'Navigation & Actions',
         title: 'Load Labeled Demo Showcase Dataset',
         subtitle: 'Inspect multi-language sample architecture with cycles and hotspots',
-        icon: <Sparkles className="w-4 h-4 text-amber-400" aria-hidden="true" />,
+        icon: <Sparkles className="w-4 h-4 text-warning" aria-hidden="true" />,
         badge: 'Scan',
         onRun: () => {
           onLoadDemo();
@@ -161,7 +165,7 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
         category: 'Graph Controls',
         title: 'Group Graph by Directory Packages (Collapse Nodes)',
         subtitle: 'Aggregate files by directory to reduce node and edge count',
-        icon: <FolderTree className="w-4 h-4 text-indigo-400" aria-hidden="true" />,
+        icon: <FolderTree className="w-4 h-4 text-accent" aria-hidden="true" />,
         badge: 'Cluster',
         onRun: () => {
           onChangeGrouping('directories');
@@ -174,7 +178,7 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
         category: 'Graph Controls',
         title: 'Expand Graph to Individual File Modules',
         subtitle: 'Show all individual source files and direct import edges',
-        icon: <Layers className="w-4 h-4 text-sky-400" aria-hidden="true" />,
+        icon: <Layers className="w-4 h-4 text-accent" aria-hidden="true" />,
         badge: 'Modules',
         onRun: () => {
           onChangeGrouping('files');
@@ -187,7 +191,7 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
         category: 'Graph Controls',
         title: 'Toggle Circular Dependency Filter (Cycles Only)',
         subtitle: 'Isolate modules participating in Tarjan SCC dependency cycles',
-        icon: <RefreshCcw className="w-4 h-4 text-red-400" aria-hidden="true" />,
+        icon: <RefreshCcw className="w-4 h-4 text-danger" aria-hidden="true" />,
         badge: 'Filter',
         onRun: () => {
           onToggleCyclesOnly();
@@ -200,7 +204,7 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
         category: 'Graph Controls',
         title: 'Reset All Graph & Explorer Filters',
         subtitle: 'Clear search, language, cycle, hub, and neighborhood filters',
-        icon: <Moon className="w-4 h-4 text-slate-400" aria-hidden="true" />,
+        icon: <Moon className="w-4 h-4 text-muted" aria-hidden="true" />,
         badge: 'Reset',
         onRun: () => {
           onResetFilters();
@@ -219,7 +223,7 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
           category: 'Navigation & Actions',
           title: 'Export Deterministic JSON Architecture Report',
           subtitle: 'Download machine-readable JSON snapshot of current analysis',
-          icon: <Download className="w-4 h-4 text-sky-400" aria-hidden="true" />,
+          icon: <Download className="w-4 h-4 text-accent" aria-hidden="true" />,
           badge: 'Export',
           onRun: () => {
             onExportReport('json');
@@ -231,7 +235,7 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
           category: 'Navigation & Actions',
           title: 'Export Standalone HTML Architecture Report',
           subtitle: 'Download self-contained HTML engineering report',
-          icon: <Download className="w-4 h-4 text-emerald-400" aria-hidden="true" />,
+          icon: <Download className="w-4 h-4 text-success" aria-hidden="true" />,
           badge: 'Export',
           onRun: () => {
             onExportReport('html');
@@ -248,7 +252,7 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
       subtitle: `${f.language} • ${f.lines_code} LOC • In:${f.fan_in} Out:${f.fan_out} I=${f.instability.toFixed(2)}`,
       icon: (
         <FileCode2
-          className={`w-4 h-4 ${f.in_cycle ? 'text-red-400' : 'text-sky-400'}`}
+          className={`w-4 h-4 ${f.in_cycle ? 'text-danger' : 'text-accent'}`}
           aria-hidden="true"
         />
       ),
@@ -262,7 +266,7 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
 
     const q = query.trim().toLowerCase();
     if (!q) {
-      return [...baseActions, ...fileActions.slice(0, 25)];
+      return [...baseActions].sort((a, b) => (recent.includes(b.id) ? 1 : 0) - (recent.includes(a.id) ? 1 : 0)).concat(fileActions.slice(0, 25));
     }
 
     return [...baseActions, ...fileActions]
@@ -272,10 +276,12 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
           item.subtitle.toLowerCase().includes(q) ||
           (item.badge && item.badge.toLowerCase().includes(q))
       )
+      .sort((a, b) => Number(b.title.toLowerCase().startsWith(q)) - Number(a.title.toLowerCase().startsWith(q)))
       .slice(0, 40);
   }, [
     files,
     query,
+    recent,
     onSelectFile,
     onSwitchTab,
     onToggleTheme,
@@ -289,6 +295,17 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
     onClose,
   ]);
 
+  const run = (action: PaletteAction) => {
+    if (!action.id.startsWith('file-')) {
+      const next = [action.id, ...recent.filter(id => id !== action.id)].slice(0, 5);
+      setRecent(next); savePreference('recentCommands', next);
+    }
+    action.onRun();
+  };
+  useEffect(() => {
+    dialogRef.current?.querySelector(`[data-active="true"]`)?.scrollIntoView?.({ block: 'nearest' });
+  }, [activeIndex]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
@@ -300,7 +317,7 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
       );
     } else if (e.key === 'Enter' && actions[activeIndex]) {
       e.preventDefault();
-      actions[activeIndex].onRun();
+      run(actions[activeIndex]);
     }
   };
 
@@ -310,17 +327,20 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
       data-testid="command-palette-dialog"
       {...({ closedby: 'any' } as React.DialogHTMLAttributes<HTMLDialogElement>)}
       aria-labelledby="command-palette-title"
-      onKeyDown={handleKeyDown}
+
     >
       <div className="flex flex-col max-h-[75vh]">
-        <div className="flex items-center gap-2.5 px-4 py-3 border-b border-slate-800">
-          <Command className="w-4 h-4 text-sky-400 shrink-0" aria-hidden="true" />
+        <div className="flex items-center gap-2.5 px-4 py-3 border-b border-line">
+          <Command className="w-4 h-4 text-accent shrink-0" aria-hidden="true" />
           <h2 id="command-palette-title" className="visually-hidden">
             Command Palette and Quick Module Jump
           </h2>
-          <Search className="w-4 h-4 text-slate-400 shrink-0" aria-hidden="true" />
+          <Search className="w-4 h-4 text-muted shrink-0" aria-hidden="true" />
           <input
             ref={inputRef}
+            onKeyDown={handleKeyDown}
+            role="combobox" aria-expanded={isOpen} aria-controls="palette-results" aria-autocomplete="list"
+            aria-activedescendant={actions[activeIndex] ? `command-option-${activeIndex}` : undefined}
             data-testid="command-palette-input"
             type="search"
             value={query}
@@ -330,65 +350,68 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
             }}
             placeholder="Jump to module path, symbol, or run workstation command..."
             aria-label="Search commands or modules"
-            className="flex-1 bg-transparent border-0 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none"
+            className="flex-1 bg-transparent border-0 text-sm text-ink placeholder:text-muted"
           />
           <button
             type="button"
             onClick={() => dialogRef.current?.close()}
             aria-label="Close command palette"
-            className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 cursor-pointer"
+            className="p-1 rounded-lg hover:bg-raised text-muted cursor-pointer"
           >
             <X className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
 
-        <div className="overflow-y-auto p-2 space-y-1 max-h-[55vh]">
+        <div id="palette-results" role="listbox" aria-label="Commands and modules" className="overflow-y-auto p-2 space-y-1 max-h-[55vh]">
           {actions.length === 0 ? (
-            <div className="p-6 text-center text-xs text-slate-400">
+            <div className="p-6 text-center text-xs text-muted">
               No matching commands or repository modules found for "{query}".
             </div>
           ) : (
             actions.map((item, idx) => {
               const isSelected = idx === activeIndex;
               return (
+                <React.Fragment key={item.id}>
+                {(idx === 0 || actions[idx - 1].category !== item.category) && <div role="presentation" className="command-group">{item.category}</div>}
                 <button
-                  key={item.id}
+                  id={`command-option-${idx}`} role="option" aria-selected={isSelected} data-active={isSelected} tabIndex={-1}
                   type="button"
                   data-testid={`palette-item-${item.id}`}
-                  onClick={item.onRun}
+                  onClick={() => run(item)}
                   onMouseEnter={() => setActiveIndex(idx)}
                   className={`w-full px-3 py-2 rounded-lg text-left flex items-center justify-between gap-3 transition cursor-pointer ${
                     isSelected
-                      ? 'bg-sky-500/20 border border-sky-500/40 text-slate-100'
-                      : 'hover:bg-slate-800/60 border border-transparent text-slate-300'
+                      ? 'bg-accent/20 border border-accent/40 text-ink'
+                      : 'hover:bg-raised border border-transparent text-muted'
                   }`}
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
                     {item.icon}
                     <div className="min-w-0">
                       <div className="text-xs font-semibold font-mono truncate">{item.title}</div>
-                      <div className="text-[11px] text-slate-400 truncate">{item.subtitle}</div>
+                      <div className="text-[11px] text-muted truncate">{item.subtitle}</div>
                     </div>
                   </div>
                   {item.badge && (
-                    <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-sky-300 shrink-0">
-                      {item.badge}
+                    <span className="text-[11px] font-mono uppercase px-2 py-0.5 rounded bg-panel border border-line text-accent shrink-0">
+                      {recent.includes(item.id) && !query ? 'Recent' : item.badge}
                     </span>
                   )}
                 </button>
+                </React.Fragment>
               );
             })
           )}
         </div>
 
-        <div className="px-4 py-2 border-t border-slate-800 bg-slate-900/60 flex items-center justify-between text-[11px] text-slate-400">
+        <div className="px-4 py-2 border-t border-line bg-panel flex items-center justify-between text-[11px] text-muted">
           <span>
-            Use <kbd className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-200 font-mono">↑</kbd>{' '}
-            <kbd className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-200 font-mono">↓</kbd> to
-            navigate, <kbd className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-200 font-mono">Enter</kbd> to select
+            Use <kbd className="px-1.5 py-0.5 rounded bg-raised text-ink font-mono">↑</kbd>{' '}
+            <kbd className="px-1.5 py-0.5 rounded bg-raised text-ink font-mono">↓</kbd> to
+            navigate, <kbd className="px-1.5 py-0.5 rounded bg-raised text-ink font-mono">Enter</kbd> to select
           </span>
           <span>
-            <kbd className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-200 font-mono">Esc</kbd> to dismiss
+            <kbd className="px-1.5 py-0.5 rounded bg-raised text-ink font-mono">Esc</kbd> to dismiss
           </span>
         </div>
       </div>
