@@ -15,14 +15,14 @@ RepoDNA provides 8 read-only tools via MCP (or CLI fallback). Call only the spec
 
 | Tool Name | When to Use | Key Arguments | Return Value & Purpose |
 | :--- | :--- | :--- | :--- |
-| `repodna_repository_overview` | First repo discovery, stack, LOC, hubs, cycles | `target="."` | Summary text, language distribution, top hubs, cycle count |
-| `repodna_find_modules` | Feature location, symbol/module discovery | `target="."`, `query="..."`, `limit=5` | Best matching modules with AST symbol hits & coupling |
-| `repodna_dependencies` | Inspect incoming & outgoing imports of a file | `target="."`, `module_path="..."`, `depth=2` | Direct & transitive dependencies, fan-in, fan-out |
-| `repodna_change_impact` | **Pre-edit safety check** (Change Guardian) | `target="."`, `changed_files=["..."]` | Blast radius, affected dependents, severity level |
+| `repodna_repository_overview` | First repo discovery, stack, LOC, hubs, cycles | `target="."`, `format="text"` | Summary text, language distribution, top hubs, cycle count |
+| `repodna_architecture_map` | High-level package/module clustering & layers | `target="."`, `level="clusters"`, `limit=30` | Multi-module architectural hierarchy and package clusters |
+| `repodna_find_modules` | Feature location, symbol/module discovery | `target="."`, `query="..."`, `limit=10` | Best matching modules with AST symbol hits & coupling |
+| `repodna_module_dependencies` | Inspect incoming & outgoing imports of a file | `target="."`, `file_path="..."`, `depth=1` | Direct & transitive dependencies, fan-in, fan-out |
+| `repodna_module_findings` | Audit violations (`ARCH-001` .. `ARCH-006`, `SEC-001`) | `target="."`, `rule_id="ARCH-001"` (opt) | Actionable architectural findings and remediations |
 | `repodna_architecture_diff` | Compare architecture between two git revisions | `target="."`, `base_ref="HEAD~1"`, `head_ref="HEAD"` | Cycle regressions, structural deltas, health score delta |
-| `repodna_architecture_findings` | Audit violations (`ARCH-001` .. `ARCH-006`, `SEC-001`) | `target="."`, `rule_id="ARCH-001"` (opt) | Actionable architectural findings and remediations |
-| `repodna_architecture_map` | High-level package/module clustering | `target="."`, `level="clusters"`, `depth=2` | Multi-module architectural hierarchy and layers |
-| `repodna_explain_health` | Plain-language explanation of repo health | `target="."`, `language="en"` (or `"tr"`) | Conversational health breakdown and coverage notes |
+| `repodna_change_impact` | **Pre-edit safety check** (Change Guardian) | `target="."`, `changed_files=["..."]` | Blast radius, affected dependents, severity level |
+| `repodna_analysis_coverage` | Verify AST coverage & unsupported languages | `target="."` | Language coverage ratio, unverified rules, honest N/A |
 
 ---
 
@@ -60,7 +60,7 @@ RepoDNA provides 8 read-only tools via MCP (or CLI fallback). Call only the spec
   4. **Structural Changes:** Added/removed modules and Git-verified renames.
 
 ### Q5: Circular Dependency Audit / "Döngüsel bağımlılık var mı?"
-- **Action:** Call `repodna_architecture_findings(target=".", rule_id="ARCH-001")`.
+- **Action:** Call `repodna_module_findings(target=".", rule_id="ARCH-001")`.
 - **Response Structure:**
   1. Return cycle count and exact cycle chains (e.g., `A -> B -> C -> A`).
   2. Provide deterministic remediation (e.g., extract shared interface or apply Dependency Inversion Principle).
@@ -70,23 +70,47 @@ RepoDNA provides 8 read-only tools via MCP (or CLI fallback). Call only the spec
 
 ## 3. CLI Fallback Instructions (When MCP is Unavailable)
 If the MCP client cannot establish a connection, stdio transport fails, or you are running in a CLI-only environment:
-1. **Targeted Agent Context:**
-   ```bash
-   python -m repodna.cli.main context . --mode overview
-   python -m repodna.cli.main context . --mode focus --query "auth security"
-   python -m repodna.cli.main context . --mode diff --base HEAD~1 --head HEAD
-   python -m repodna.cli.main context . --mode guardian --files "backend/repodna/core/analyzer.py"
-   ```
-2. **Terminal Analysis Report:**
-   ```bash
-   python -m repodna.cli.main analyze . --format table
-   python -m repodna.cli.main analyze . --format json
-   ```
-3. **Diagnostic & Repair:**
-   ```bash
-   python -m repodna.cli.main doctor
-   python -m repodna.cli.main setup --repair
-   ```
+
+### A. Targeted Agent Context (`repodna context`)
+Supports three calibrated density modes:
+- `--mode compact`: Executive high-level summary, key architectural hubs, and cycle count (lowest token footprint).
+- `--mode focused`: Keyword/symbol-targeted context focusing on matching files and their immediate dependencies (requires `--query`).
+- `--mode deep`: Full architectural breakdown including module coupling metrics, dependency edges, and complete findings.
+
+```bash
+# High-level architecture overview
+repodna context --mode compact
+
+# Feature-targeted context
+repodna context --mode focused --query "auth security"
+
+# Deep comprehensive context with token budget
+repodna context --mode deep --max-tokens 4000
+```
+
+### B. Architecture Diff (`repodna diff`)
+```bash
+# Compare last two commits
+repodna diff HEAD~1 HEAD
+
+# Compare working tree against HEAD
+repodna diff HEAD working_tree
+```
+
+### C. Terminal Analysis (`repodna analyze`)
+```bash
+repodna analyze . --format table
+repodna analyze . --format json
+```
+
+### D. Diagnostic & Repair (`repodna doctor`, `repodna setup`)
+```bash
+# Diagnose environment, grammars, and agent integrations
+repodna doctor
+
+# Repair or refresh missing agent configs idempotently
+repodna setup --repair
+```
 
 ---
 

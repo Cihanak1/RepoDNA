@@ -77,7 +77,7 @@ Agent Output:
 **English Prompt:** "Are there any circular dependencies in the codebase?"
 
 ```markdown
-Step 1: Agent calls `repodna_architecture_findings(target=".", rule_id="ARCH-001")`.
+Step 1: Agent calls `repodna_module_findings(target=".", rule_id="ARCH-001")`.
 
 Agent Output:
 - Active Violations: 0 circular dependencies detected.
