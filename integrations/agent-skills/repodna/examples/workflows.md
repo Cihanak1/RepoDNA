@@ -1,44 +1,85 @@
-# Practical RepoDNA Agent Workflows
+# Practical RepoDNA Agent Workflows & Canonical Question Guide
 
-## Workflow 1: Instant Codebase Onboarding
+This document provides concrete interaction examples for the 5 most common developer inquiries.
+
+---
+
+## Guide 1: Codebase Purpose & Architecture
+**Turkish Prompt:** "Bu repository ne işe yarıyor ve mimarisi nasıl?"  
+**English Prompt:** "What does this repository do and what is its architecture?"
+
 ```markdown
-User: "I just cloned this codebase. What is the high-level architecture and where are the main hubs?"
-
-Agent Action:
-1. Calls `repodna_repository_overview(target=".")`.
-2. Calls `repodna_architecture_map(target=".", level="clusters")`.
+Step 1: Agent calls `repodna_repository_overview(target=".")`.
+Step 2: Agent calls `repodna_architecture_map(target=".", level="clusters")`.
 
 Agent Output:
-1. Concise Conclusion: RepoDNA is a 3-layer architecture with a Python/FastAPI backend and a React/TypeScript frontend.
-2. Relevant Files: `backend/repodna/core/analyzer.py`, `backend/repodna/graph/engine.py`.
-3. Why They Are Relevant: Primary architectural hubs with Fan-In > 15.
-4. Verified Dependencies: `analyzer.py` coordinates parsers, resolver, and rules engines.
-5. Change Impact: Modifying `analyzer.py` impacts the CLI and FastAPI endpoints directly.
-6. Unknowns & Coverage: 98.8% AST coverage across Python and TypeScript.
-7. Recommended Next Action: Begin exploration from `backend/repodna/core/analyzer.py`.
+- Primary Stack: 54% Python, 46% TypeScript (100% Tree-sitter AST coverage).
+- Architectural Hubs: `backend/repodna/core/analyzer.py` (Fan-In: 18), `backend/repodna/api/app.py` (Fan-In: 12).
+- Health & Cycles: 95.8/100, 0 circular dependencies (Tarjan SCC verified).
+- Architecture Style: Multi-layer workstation — FastAPI REST & MCP backend with React Flow visualization.
 ```
 
-## Workflow 2: Change Guardian Pre-Edit Verification
-```markdown
-User: "Refactor backend/repodna/parsers/resolver.py to support custom path aliases."
+---
 
-Agent Action:
-1. Calls `repodna_change_impact(target=".", changed_files=["backend/repodna/parsers/resolver.py"])`.
-2. Inspects blast radius: Fan-In=4, Direct Dependents: `analyzer.py`, `test_parsers.py`.
-3. Performs the requested code edit.
-4. Calls `repodna_architecture_diff(target=".", base_ref="HEAD", head_ref="working_tree")`.
-5. Verifies that `cycle_changes.new_cycles` is empty and health score did not degrade.
+## Guide 2: Locating Feature & Subsystem Files
+**Turkish Prompt:** "Kullanıcı girişi ve kimlik doğrulama ile ilgili dosyaları bul"  
+**English Prompt:** "Find modules related to authentication, login, and security"
+
+```markdown
+Step 1: Agent calls `repodna_find_modules(target=".", query="auth login security validation", limit=5)`.
+
+Agent Output:
+- Matched Files:
+  1. `backend/repodna/security/validators.py` (AST Symbols: `validate_git_revision`, `is_safe_subpath`, Fan-In: 14)
+  2. `backend/repodna/security/sanitizer.py` (AST Symbols: `sanitize_text`, Fan-In: 6)
+- Recommendation: Review `validators.py` for input boundary validation rules.
 ```
 
-## Workflow 3: Multi-Revision PR Architectural Audit
-```markdown
-User: "Check PR branch against main for architectural regressions."
+---
 
-Agent Action:
-1. Calls `repodna_architecture_diff(target=".", base_ref="main", head_ref="HEAD")`.
-2. Identifies:
-   - +3 added modules
-   - 0 new cyclic SCCs
-   - Health score: 94.2 -> 95.1 (+0.9 pts)
-   - Verdict: IMPROVED
+## Guide 3: Change Guardian & Blast Radius Assessment
+**Turkish Prompt:** "analyzer.py dosyasını değiştirirsem nereler etkilenir?"  
+**English Prompt:** "If I change analyzer.py, what is the blast radius and affected files?"
+
+```markdown
+Step 1: Agent calls `repodna_change_impact(target=".", changed_files=["backend/repodna/core/analyzer.py"])`.
+
+Agent Output:
+- Impact Severity: CRITICAL (Architectural Hub, Fan-In: 18).
+- Direct Dependents:
+  - `backend/repodna/api/app.py`
+  - `backend/repodna/cli/main.py`
+  - `backend/repodna/diff/snapshot.py`
+- Transitive Impact: 34 downstream modules indirectly impacted.
+- Guardrail: Run `pytest backend/tests` immediately after any signature refactoring.
+```
+
+---
+
+## Guide 4: Commit & PR Risk Check (Architecture Diff)
+**Turkish Prompt:** "Son iki commit arasında mimari bir risk oluştu mu?"  
+**English Prompt:** "Was any architectural risk introduced between the last two commits?"
+
+```markdown
+Step 1: Agent calls `repodna_architecture_diff(target=".", base_ref="HEAD~1", head_ref="HEAD")`.
+
+Agent Output:
+- Verdict: NEUTRAL / IMPROVED.
+- Structural Delta: +1 module added, 0 removed, 0 renamed.
+- Cycle Changes: 0 new cycles introduced.
+- Health Score Delta: 95.8 -> 95.8 (0.0 pts delta).
+```
+
+---
+
+## Guide 5: Circular Dependency Cycle Audit
+**Turkish Prompt:** "Projede döngüsel bağımlılık var mı?"  
+**English Prompt:** "Are there any circular dependencies in the codebase?"
+
+```markdown
+Step 1: Agent calls `repodna_architecture_findings(target=".", rule_id="ARCH-001")`.
+
+Agent Output:
+- Active Violations: 0 circular dependencies detected.
+- Verification Method: Tarjan Strongly Connected Components (SCC) over Tree-sitter AST import graph.
 ```
