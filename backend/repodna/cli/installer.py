@@ -96,10 +96,11 @@ class AgentInstaller:
         self.user_home = Path.home().resolve()
 
     def is_agent_installed_on_host(self, agent_name: str) -> bool:
-        """Verifies whether an agent's runtime, config, or CLI actually exists on this host computer."""
+        """Verifies whether an agent's runtime, config, or CLI actually exists on this host computer or workspace."""
         if agent_name == "antigravity":
             return (
                 (self.user_home / ".gemini").exists()
+                or (self.repo_root / ".agents").exists()
                 or any("ANTIGRAVITY" in k or "GEMINI" in k for k in os.environ)
             )
         elif agent_name == "codex":
@@ -107,6 +108,7 @@ class AgentInstaller:
             codex_appdata = (local_appdata / "OpenAI" / "Codex") if local_appdata else None
             return (
                 (self.user_home / ".codex").exists()
+                or (self.repo_root / ".codex").exists()
                 or shutil.which("codex") is not None
                 or (codex_appdata is not None and codex_appdata.exists())
             )
@@ -115,6 +117,7 @@ class AgentInstaller:
             claude_desktop_mac = self.user_home / "Library" / "Application Support" / "Claude"
             return (
                 (self.user_home / ".claude").exists()
+                or (self.repo_root / ".claude").exists()
                 or shutil.which("claude") is not None
                 or (claude_desktop_win is not None and claude_desktop_win.exists())
                 or claude_desktop_mac.exists()
@@ -408,12 +411,12 @@ class AgentInstaller:
             else:
                 connection_detail = "MCP config file missing or 'repodna' not declared"
 
-            if not host_installed:
-                integration_status = "NOT INSTALLED ON HOST"
+            if skill_ok and mcp_ok and not mcp_connected:
+                integration_status = f"ERROR (MCP Connection Failed: {connection_detail})"
             elif skill_ok and mcp_ok and mcp_connected:
                 integration_status = "READY"
-            elif skill_ok and mcp_ok and not mcp_connected:
-                integration_status = f"ERROR (MCP Connection Failed: {connection_detail})"
+            elif not host_installed:
+                integration_status = "NOT INSTALLED ON HOST"
             elif skill_ok and not mcp_ok:
                 integration_status = "INCOMPLETE (Skill Installed, MCP Missing)"
             elif not skill_ok and mcp_ok:

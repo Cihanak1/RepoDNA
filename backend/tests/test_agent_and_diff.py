@@ -548,6 +548,10 @@ def test_skill_examples_automated_validation() -> None:
             call_args: dict[str, Any] = {"target": target_arg}
             if tool_name == "repodna_change_impact":
                 call_args["changed_files"] = ["backend/repodna/core/analyzer.py"] if target_arg == "." else ["service.py"]
+            if tool_name == "repodna_architecture_diff":
+                # Ensure diff test succeeds even on shallow or CI git checkouts
+                call_args["base_ref"] = "HEAD"
+                call_args["head_ref"] = "HEAD"
             res = server.call_tool(tool_name, call_args)
             assert not res.get("isError"), f"Tool call {tool_name} failed: {res}"
 
