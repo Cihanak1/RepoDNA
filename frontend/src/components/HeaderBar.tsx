@@ -21,6 +21,7 @@ import {
 import { getExportUrl } from '../api/client';
 import type { AnalysisResult, ScanLimits, ScanProgress, SourceType } from '../types/repodna';
 import { savePreference, type WorkstationMode } from '../utils/preferences';
+import { APP_VERSION } from '../version';
 
 interface HeaderBarProps {
   sourceType: SourceType;
@@ -124,19 +125,49 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
       return 'dark';
     };
 
-    setRenderedScheme(computeCurrentRendered());
+    const syncScheme = () => {
+      const current = computeCurrentRendered();
+      setRenderedScheme(current);
+      if (current === 'dark') {
+        document.documentElement.classList.add('dark');
+        document.documentElement.setAttribute('data-theme', 'dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+    };
 
+    syncScheme();
+
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="color-scheme"]');
+    let observer: MutationObserver | null = null;
+    if (meta && typeof MutationObserver !== 'undefined') {
+      observer = new MutationObserver(syncScheme);
+      observer.observe(meta, { attributes: true, attributeFilter: ['content'] });
+    }
+
+    window.addEventListener('storage', syncScheme);
+
+    let mq: MediaQueryList | null = null;
+    let onMqChange: (() => void) | null = null;
     if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
-      const mq = window.matchMedia('(prefers-color-scheme: dark)');
-      const onChange = () => {
+      mq = window.matchMedia('(prefers-color-scheme: dark)');
+      onMqChange = () => {
         const explicit = document.querySelector<HTMLMetaElement>('meta[name="color-scheme"]')?.content;
         if (!explicit) {
-          setRenderedScheme(mq.matches ? 'dark' : 'light');
+          syncScheme();
         }
       };
-      mq.addEventListener('change', onChange);
-      return () => mq.removeEventListener('change', onChange);
+      mq.addEventListener('change', onMqChange);
     }
+
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('storage', syncScheme);
+      if (mq && onMqChange) {
+        mq.removeEventListener('change', onMqChange);
+      }
+    };
   }, []);
 
   const handleToggleTheme = () => {
@@ -226,7 +257,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             <div className="flex items-center gap-2">
               <h1 className="text-base font-bold tracking-tight m-0 text-ink">{t('header.title')}</h1>
               <span className="text-[11px] font-mono tracking-wide px-2 py-0.5 rounded-full bg-accent/15 text-accent border border-accent/30">
-                v0.1.1
+                v{APP_VERSION}
               </span>
               {result?.is_demo && (
                 <span
