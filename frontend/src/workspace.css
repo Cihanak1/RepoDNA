@@ -111,3 +111,28 @@
  .launchpad-foot { flex-direction:column; gap:8px; }
  .report-document { padding:16px; }
 }
+
+/* Cognitive Simplicity & Workstation Mode Enhancements */
+.summary-strip[data-mode="simple"] > :first-child { flex: 1.2; }
+.summary-strip[data-mode="simple"] > :nth-child(2) { flex: 1; }
+.summary-strip[data-mode="simple"] > :nth-child(3) { flex: 1.2; }
+.summary-strip[data-mode="simple"] > :nth-child(4) { flex: 1.6; }
+
+/* Progressive edge label disclosure in Simple mode */
+.graph-workspace[data-mode="simple"] .react-flow__edge-textwrapper {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.graph-workspace[data-mode="simple"] .react-flow__edge:hover .react-flow__edge-textwrapper,
+.graph-workspace[data-mode="simple"] .react-flow__edge.selected .react-flow__edge-textwrapper {
+  opacity: 1;
+}
+
+/* 1366x768 Workstation Screen Optimization */
+@media(max-height: 800px) {
+  .app-header { padding: 6px 12px; gap: 4px; }
+  .summary-strip > * { padding: 6px 10px; }
+  .summary-strip .text-base { font-size: 16px; }
+  .workspace-controls { padding: 4px 10px; }
+  .graph-toolbar { padding: 5px; }
+}
