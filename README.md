@@ -279,26 +279,33 @@ To install manually, copy the `integrations/agent-skills/repodna` directory into
 
 ### 3. Model Context Protocol (MCP) Setup
 
-Add RepoDNA's local stdio server to your agent's MCP configuration:
+Add RepoDNA's local stdio server to your agent's MCP configuration (with optional `--allowed-root` to constrain workspace access boundaries):
 
+- **Google Antigravity (`.agents/mcp_config.json` or `~/.gemini/config/mcp_config.json`):**
+  ```json
+  {
+    "mcpServers": {
+      "repodna": {
+        "command": "python",
+        "args": ["-m", "repodna.mcp", "--allowed-root", "."]
+      }
+    }
+  }
+  ```
+- **OpenAI Codex (`.codex/config.toml` or `~/.codex/config.toml`):**
+  ```toml
+  [mcp_servers.repodna]
+  command = "python"
+  args = ["-m", "repodna.mcp", "--allowed-root", "."]
+  cwd = "."
+  ```
 - **Claude Desktop / Claude Code (`claude_desktop_config.json` / `.mcp.json`):**
   ```json
   {
     "mcpServers": {
       "repodna": {
         "command": "python",
-        "args": ["-m", "repodna.mcp"]
-      }
-    }
-  }
-  ```
-- **Antigravity (`.agents/mcp.json`):**
-  ```json
-  {
-    "servers": {
-      "repodna": {
-        "command": "repodna",
-        "args": ["mcp"]
+        "args": ["-m", "repodna.mcp", "--allowed-root", "."]
       }
     }
   }

@@ -6,9 +6,14 @@ providing stdio transport, strict stdout cleanliness, and read-only tools.
 
 from __future__ import annotations
 
+import argparse
+import hashlib
 import json
 import os
+import re
 import sys
+import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +41,19 @@ PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "repodna-mcp"
 SERVER_VERSION = "0.3.0"
 
+RELEVANT_EXTENSIONS = {
+    ".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+    ".go", ".rs", ".cs", ".java",
+    ".json", ".toml", ".yaml", ".yml", ".md",
+    ".csproj", ".sln",
+}
+
+IGNORED_SCAN_DIRS = {
+    ".git", "node_modules", ".venv", "venv", "dist", "build",
+    "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+    ".next", ".nuxt", "bin", "obj",
+}
+
 
 def _log(msg: str) -> None:
     """Logs diagnostics strictly to stderr to prevent stdout JSON-RPC corruption."""
@@ -47,8 +65,32 @@ class RepoDNAMCPServer:
     """Dual-engine Model Context Protocol server (Official SDK v2 + Stdio fallback)."""
 
     def __init__(self, allowed_roots: list[Path] | None = None) -> None:
-        self.allowed_roots = allowed_roots or []
-        self._analysis_cache: dict[str, tuple[float, AnalysisResult]] = {}
+        configured_roots: list[Path] = []
+        if allowed_roots:
+            configured_roots = [p.resolve() for p in allowed_roots if p]
+        else:
+            env_val = os.environ.get("REPODNA_ALLOWED_ROOTS", "").strip()
+            if env_val:
+                raw_parts = re.split(r"(?<![a-zA-Z]):|;", env_val) if sys.platform == "win32" else env_val.split(":")
+                for part in raw_parts:
+                    p_str = part.strip()
+                    if p_str:
+                        p = Path(p_str).resolve()
+                        if p.exists() and p.is_dir():
+                            configured_roots.append(p)
+
+        if not configured_roots:
+            configured_roots = [Path.cwd().resolve()]
+
+        self.allowed_roots: list[Path] = configured_roots
+        _log(f"Configured authorized workspace roots: {[str(r) for r in self.allowed_roots]}")
+
+        # Analysis cache: (cache_type, repo_str, git_rev) -> (fingerprint, time_iso, dur_ms, AnalysisResult)
+        self._analysis_cache: dict[tuple[str, str, str], tuple[str, str, float, AnalysisResult]] = {}
+        # Per-repo file stat cache for fast incremental hashing: {repo_str: {norm_rel: (size, mtime_ns, hash)}}
+        self._file_stat_cache: dict[str, dict[str, tuple[int, int, str]]] = {}
+        self._last_cache_report: dict[str, Any] = {}
+
         self._official_server: Any = None
         if HAS_OFFICIAL_MCP and MCPServer is not None:
             self._setup_official_server()
@@ -57,37 +99,172 @@ class RepoDNAMCPServer:
         cleaned = target.strip()
         if cleaned.lower() == "demo":
             return "demo", SourceType.DEMO
-        resolved = validate_local_directory(cleaned)
-        if self.allowed_roots:
-            is_allowed = any(
-                resolved == root or root in resolved.parents for root in self.allowed_roots
+
+        if cleaned in ("", ".", "./", ".\\"):
+            resolved = self.allowed_roots[0]
+        else:
+            target_path = Path(cleaned)
+            if not target_path.is_absolute():
+                resolved = (self.allowed_roots[0] / target_path).resolve()
+            else:
+                resolved = target_path.resolve()
+
+        validate_local_directory(str(resolved))
+
+        # Strict boundary enforcement
+        is_allowed = False
+        for root in self.allowed_roots:
+            try:
+                if resolved == root or resolved.is_relative_to(root):
+                    is_allowed = True
+                    break
+            except (ValueError, TypeError):
+                continue
+
+        if not is_allowed:
+            roots_str = ", ".join(f"'{r}'" for r in self.allowed_roots)
+            raise SecurityValidationError(
+                "ROOT_VIOLATION",
+                f"Access denied: path '{resolved}' is outside authorized workspace roots ({roots_str}). "
+                "Use --allowed-root or set REPODNA_ALLOWED_ROOTS to authorize additional locations.",
             )
-            if not is_allowed:
-                raise SecurityValidationError(
-                    "ROOT_VIOLATION", f"Access to path '{resolved}' outside authorized roots."
-                )
+
         return resolved, SourceType.LOCAL
+
+    def _compute_fingerprint(self, repo_path: Path) -> tuple[str, str]:
+        """
+        Fast composite fingerprinting of repository files and Git state.
+        Uses incremental stat caching: only files with changed size or mtime_ns are re-hashed.
+        Returns: (fingerprint_hex, git_revision_or_head)
+        """
+        repo_str = str(repo_path)
+        if repo_str not in self._file_stat_cache:
+            self._file_stat_cache[repo_str] = {}
+        cached_files = self._file_stat_cache[repo_str]
+
+        # 1. Git metadata
+        git_dir = repo_path / ".git"
+        git_metadata = "no_git"
+        git_rev = "working_tree"
+        if git_dir.exists():
+            head_file = git_dir / "HEAD"
+            index_file = git_dir / "index"
+            head_content = ""
+            head_mtime = 0
+            index_stat = "0_0"
+            if head_file.exists():
+                try:
+                    head_content = head_file.read_text(encoding="utf-8", errors="replace").strip()
+                    head_mtime = head_file.stat().st_mtime_ns
+                except OSError:
+                    pass
+            if index_file.exists():
+                try:
+                    st = index_file.stat()
+                    index_stat = f"{st.st_size}_{st.st_mtime_ns}"
+                except OSError:
+                    pass
+            git_metadata = f"{head_content}|{head_mtime}|{index_stat}"
+            git_rev = head_content.split("/")[-1] if "/" in head_content else (head_content[:8] or "HEAD")
+
+        # 2. Collect relevant source files
+        file_entries: list[tuple[str, int, int]] = []
+        for root, dirs, files in os.walk(repo_path):
+            dirs[:] = [d for d in dirs if d not in IGNORED_SCAN_DIRS and not d.startswith(".")]
+            rel_root = os.path.relpath(root, repo_path)
+            for f in files:
+                ext = os.path.splitext(f)[1].lower()
+                if ext in RELEVANT_EXTENSIONS or f in ("pyproject.toml", "package.json", "Cargo.toml", "go.mod"):
+                    rel_path = f if rel_root == "." else os.path.join(rel_root, f)
+                    norm_rel = rel_path.replace("\\", "/")
+                    full_path = os.path.join(root, f)
+                    try:
+                        st = os.stat(full_path)
+                        file_entries.append((norm_rel, st.st_size, st.st_mtime_ns))
+                    except OSError:
+                        continue
+
+        file_entries.sort(key=lambda x: x[0])
+        current_rel_paths = {entry[0] for entry in file_entries}
+
+        # Evict deleted files from cache
+        for stale in list(cached_files.keys()):
+            if stale not in current_rel_paths:
+                del cached_files[stale]
+
+        # 3. Incremental hash
+        hasher = hashlib.blake2b(digest_size=16)
+        hasher.update(git_metadata.encode("utf-8"))
+
+        for norm_rel, size, mtime_ns in file_entries:
+            if norm_rel in cached_files and cached_files[norm_rel][:2] == (size, mtime_ns):
+                file_hash = cached_files[norm_rel][2]
+            else:
+                target_file = repo_path / norm_rel
+                try:
+                    content_bytes = target_file.read_bytes()
+                    file_hash = hashlib.blake2b(content_bytes, digest_size=16).hexdigest()
+                    cached_files[norm_rel] = (size, mtime_ns, file_hash)
+                except OSError:
+                    file_hash = f"err_{size}_{mtime_ns}"
+
+            hasher.update(f"{norm_rel}:{file_hash}\n".encode())
+
+        return hasher.hexdigest(), git_rev
 
     def get_analysis(self, target: str) -> AnalysisResult:
         resolved, stype = self._resolve_target(target)
-        cache_key = str(resolved)
+        if stype == SourceType.DEMO:
+            req = ScanRequest(
+                source_type=SourceType.DEMO,
+                target="demo",
+                limits=ScanLimits(max_files=2500, timeout_seconds=60.0),
+            )
+            return run_repository_analysis(req)
 
-        if stype == SourceType.LOCAL and isinstance(resolved, Path):
-            mtime = resolved.stat().st_mtime
-            if cache_key in self._analysis_cache:
-                cached_mtime, cached_res = self._analysis_cache[cache_key]
-                if mtime <= cached_mtime:
-                    return cached_res
+        assert isinstance(resolved, Path)
+        repo_str = str(resolved)
+        fingerprint, git_rev = self._compute_fingerprint(resolved)
+        cache_key = ("worktree", repo_str, git_rev)
 
+        t0 = time.perf_counter()
+        if cache_key in self._analysis_cache:
+            cached_fp, cached_time_iso, cached_dur, cached_res = self._analysis_cache[cache_key]
+            if cached_fp == fingerprint:
+                duration_ms = (time.perf_counter() - t0) * 1000.0
+                self._last_cache_report = {
+                    "target": repo_str,
+                    "cache_hit": True,
+                    "analysis_time_iso": cached_time_iso,
+                    "revision": git_rev,
+                    "fingerprint": fingerprint[:16],
+                    "duration_ms": round(duration_ms, 2),
+                }
+                return cached_res
+
+        # Cache miss / stale: Run full analysis
         req = ScanRequest(
             source_type=stype,
-            target=str(resolved),
+            target=repo_str,
             limits=ScanLimits(max_files=2500, timeout_seconds=60.0),
         )
         res = run_repository_analysis(req)
-        curr_mtime = resolved.stat().st_mtime if isinstance(resolved, Path) else 0.0
-        self._analysis_cache[cache_key] = (curr_mtime, res)
+        duration_ms = (time.perf_counter() - t0) * 1000.0
+        analysis_time_iso = datetime.now(UTC).isoformat()
+        self._analysis_cache[cache_key] = (fingerprint, analysis_time_iso, duration_ms, res)
+        self._last_cache_report = {
+            "target": repo_str,
+            "cache_hit": False,
+            "analysis_time_iso": analysis_time_iso,
+            "revision": git_rev,
+            "fingerprint": fingerprint[:16],
+            "duration_ms": round(duration_ms, 2),
+        }
         return res
+
+    def get_last_cache_report(self) -> dict[str, Any]:
+        """Returns the cache report from the most recent get_analysis query."""
+        return dict(self._last_cache_report)
 
     def tool_repository_overview(self, target: str, format: str = "text") -> str:
         analysis = self.get_analysis(target)
@@ -138,8 +315,8 @@ class RepoDNAMCPServer:
         base_analysis, base_sha, base_is_wt = snap_mgr.create_snapshot(base_ref)
         head_analysis, head_sha, head_is_wt = snap_mgr.create_snapshot(head_ref)
         git_renames = snap_mgr.find_git_renames(base_ref, head_ref)
-
-        diff = ArchitectureDiffEngine.compare_analyses(
+        engine = ArchitectureDiffEngine()
+        diff_res = engine.compare_analyses(
             base=base_analysis,
             head=head_analysis,
             base_ref=base_ref,
@@ -150,7 +327,7 @@ class RepoDNAMCPServer:
             head_is_working_tree=head_is_wt,
             git_renames=git_renames,
         )
-        return diff.model_dump_json(indent=2)
+        return diff_res.model_dump_json(indent=2)
 
     def tool_change_impact(
         self, target: str, changed_files: list[str], max_depth: int = 2
@@ -164,92 +341,72 @@ class RepoDNAMCPServer:
         analysis = self.get_analysis(target)
         svc = RepositoryIntelligenceService(analysis)
         cov = svc.get_analysis_coverage()
-        return cov.model_dump_json(indent=2)
+        report = cov.model_dump()
+        report["cache_status"] = self.get_last_cache_report()
+        return json.dumps(report, indent=2)
 
+    # -------------------------------------------------------------------------
+    # Official Python MCP SDK Server Setup
+    # -------------------------------------------------------------------------
     def _setup_official_server(self) -> None:
-        """Configures official MCPServer v2 with typed tool registrations."""
-        server = MCPServer(SERVER_NAME)
+        """Configures official MCPServer with typed tools when SDK is available."""
+        self._official_server = MCPServer(name=SERVER_NAME)
 
-        @server.tool(
-            name="repodna_repository_overview",
-            description="Returns executive architecture scorecard, health grade, AST coverage, and key hubs.",
-        )
-        def overview(target: str, format: str = "text") -> str:
+        @self._official_server.tool(name="repodna_repository_overview", description="Provides high-level codebase architecture snapshot, health metrics, and component vitals.")
+        def _mcp_overview(target: str, format: str = "text") -> str:
             return self.tool_repository_overview(target=target, format=format)
 
-        @server.tool(
-            name="repodna_architecture_map",
-            description="Returns package clusters, module counts, and inter-cluster dependency links.",
-        )
-        def arch_map(target: str, level: str = "clusters", limit: int = 30) -> str:
+        @self._official_server.tool(name="repodna_architecture_map", description="Outputs component taxonomy, dependency graph linkages, and modular hierarchy.")
+        def _mcp_arch_map(target: str, level: str = "clusters", limit: int = 30) -> str:
             return self.tool_architecture_map(target=target, level=level, limit=limit)
 
-        @server.tool(
-            name="repodna_find_modules",
-            description="Finds repository modules matching a search query by filename, symbols, or hub status.",
-        )
-        def find_mods(target: str, query: str, limit: int = 10) -> str:
+        @self._official_server.tool(name="repodna_find_modules", description="Finds repository modules matching a search query by filename, symbols, or architectural hub status.")
+        def _mcp_find_modules(target: str, query: str, limit: int = 10) -> str:
             return self.tool_find_modules(target=target, query=query, limit=limit)
 
-        @server.tool(
-            name="repodna_module_dependencies",
-            description="Traces direct or transitive incoming/outgoing dependencies for a specific module.",
-        )
-        def mod_deps(
-            target: str, file_path: str, direction: str = "outgoing", depth: int = 1
-        ) -> str:
-            return self.tool_module_dependencies(
-                target=target, file_path=file_path, direction=direction, depth=depth
-            )
+        @self._official_server.tool(name="repodna_module_dependencies", description="Traces direct or transitive incoming/outgoing dependencies for a specific module.")
+        def _mcp_dependencies(target: str, file_path: str, direction: str = "outgoing", depth: int = 1) -> str:
+            return self.tool_module_dependencies(target=target, file_path=file_path, direction=direction, depth=depth)
 
-        @server.tool(
-            name="repodna_module_findings",
-            description="Lists architectural rule findings (circular dependencies, coupling hotspots) filtered by module or rule.",
-        )
-        def mod_findings(
-            target: str,
-            file_path: str | None = None,
-            rule_id: str | None = None,
-            severity: str | None = None,
-        ) -> str:
-            return self.tool_module_findings(
-                target=target, file_path=file_path, rule_id=rule_id, severity=severity
-            )
+        @self._official_server.tool(name="repodna_module_findings", description="Lists architectural rule findings (circular dependencies, coupling hotspots) filtered by module or rule.")
+        def _mcp_findings(target: str, file_path: str | None = None, rule_id: str | None = None, severity: str | None = None) -> str:
+            return self.tool_module_findings(target=target, file_path=file_path, rule_id=rule_id, severity=severity)
 
-        @server.tool(
-            name="repodna_architecture_diff",
-            description="Compares two Git revisions or working tree against a revision for architectural changes.",
-        )
-        def arch_diff(target: str, base_ref: str = "HEAD~1", head_ref: str = "HEAD") -> str:
+        @self._official_server.tool(name="repodna_architecture_diff", description="Compares two Git revisions or working tree against a revision for architectural changes.")
+        def _mcp_diff(target: str, base_ref: str = "HEAD~1", head_ref: str = "HEAD") -> str:
             return self.tool_architecture_diff(target=target, base_ref=base_ref, head_ref=head_ref)
 
-        @server.tool(
-            name="repodna_change_impact",
-            description="Evaluates architectural risk and direct/transitive blast radius of proposed file edits.",
-        )
-        def change_imp(target: str, changed_files: list[str], max_depth: int = 2) -> str:
-            return self.tool_change_impact(
-                target=target, changed_files=changed_files, max_depth=max_depth
-            )
+        @self._official_server.tool(name="repodna_change_impact", description="Evaluates architectural risk and direct/transitive blast radius of proposed file edits.")
+        def _mcp_change_impact(target: str, changed_files: list[str], max_depth: int = 2) -> str:
+            return self.tool_change_impact(target=target, changed_files=changed_files, max_depth=max_depth)
 
-        @server.tool(
-            name="repodna_analysis_coverage",
-            description="Returns full AST vs partial static language coverage, unverified rules, and honesty guarantees.",
-        )
-        def coverage(target: str) -> str:
+        @self._official_server.tool(name="repodna_analysis_coverage", description="Returns full AST vs partial static language coverage, unverified rules, and honesty guarantees.")
+        def _mcp_coverage(target: str) -> str:
             return self.tool_analysis_coverage(target=target)
 
-        self._official_server = server
+    def run(self, transport: str = "stdio") -> None:
+        """Runs the server. Enforces official Python MCP SDK as standard."""
+        if not HAS_OFFICIAL_MCP or self._official_server is None:
+            raise RuntimeError(
+                f"RepoDNA MCP server requires the official Python Model Context Protocol SDK (mcp>=2.0.0). "
+                f"Currently installed: {MCP_SDK_VERSION}. Please install with: pip install 'mcp>=2.0.0'"
+            )
 
+        _log(f"Starting RepoDNA MCP server via official Python SDK v2 ({MCP_SDK_VERSION}), transport={transport}")
+        self._official_server.run(transport=transport)
+
+    # -------------------------------------------------------------------------
+    # JSON-RPC 2.0 Direct Handling (For fast in-process tests & fallback)
+    # -------------------------------------------------------------------------
     def get_tools_list(self) -> list[dict[str, Any]]:
         return [
             {
                 "name": "repodna_repository_overview",
-                "description": "Returns executive architecture scorecard, health grade, AST coverage, and key hubs for a repository.",
+                "description": "Provides high-level codebase architecture snapshot, health metrics, and component vitals.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "target": {"type": "string", "description": "Local filesystem path or 'demo'."},
+                        "target": {"type": "string", "description": "Local path, repo URL, or 'demo'."},
                         "format": {"type": "string", "enum": ["text", "json"], "default": "text"},
                     },
                     "required": ["target"],
@@ -257,7 +414,7 @@ class RepoDNAMCPServer:
             },
             {
                 "name": "repodna_architecture_map",
-                "description": "Returns package clusters, module counts, and inter-cluster dependency links.",
+                "description": "Outputs component taxonomy, dependency graph linkages, and modular hierarchy.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -349,17 +506,19 @@ class RepoDNAMCPServer:
         ]
 
     def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Direct dispatch for in-process tests and fallback handling."""
         if not isinstance(arguments, dict):
             return {
                 "isError": True,
-                "content": [{"type": "text", "text": "Invalid tool arguments: expected key-value dictionary."}],
+                "content": [{"type": "text", "text": f"Invalid arguments for {name}: expected JSON object."}],
             }
         target = arguments.get("target", ".")
-        fmt = arguments.get("format", "text")
-
         try:
             if name == "repodna_repository_overview":
-                content = self.tool_repository_overview(target=target, format=fmt)
+                content = self.tool_repository_overview(
+                    target=target,
+                    format=arguments.get("format", "text"),
+                )
             elif name == "repodna_architecture_map":
                 content = self.tool_architecture_map(
                     target=target,
@@ -418,22 +577,20 @@ class RepoDNAMCPServer:
                 "content": [{"type": "text", "text": f"Error executing {name}: {exc}"}],
             }
 
-    def handle_request(self, req: dict[str, Any]) -> dict[str, Any] | None:
-        if not isinstance(req, dict):
+    def handle_request(self, request: dict[str, Any]) -> dict[str, Any] | None:
+        """Processes raw JSON-RPC 2.0 requests with strict validation."""
+        if not isinstance(request, dict):
             return {
                 "jsonrpc": "2.0",
                 "id": None,
-                "error": {"code": -32600, "message": "Invalid Request: payload must be a JSON object."},
+                "error": {"code": -32600, "message": "Invalid Request: root must be JSON object."},
             }
 
-        msg_id = req.get("id")
-        jsonrpc = req.get("jsonrpc")
-        method = req.get("method")
-        params = req.get("params", {})
-        if not isinstance(params, dict):
-            params = {}
+        msg_id = request.get("id")
+        method = request.get("method")
+        params = request.get("params", {})
 
-        if jsonrpc != "2.0":
+        if request.get("jsonrpc") != "2.0":
             return {
                 "jsonrpc": "2.0",
                 "id": msg_id,
@@ -478,11 +635,11 @@ class RepoDNAMCPServer:
         if method == "tools/call":
             tool_name = params.get("name", "")
             args = params.get("arguments", {})
-            call_result = self.call_tool(tool_name, args)
+            call_res = self.call_tool(tool_name, args)
             return {
                 "jsonrpc": "2.0",
                 "id": msg_id,
-                "result": call_result,
+                "result": call_res,
             }
 
         return {
@@ -491,30 +648,13 @@ class RepoDNAMCPServer:
             "error": {"code": -32601, "message": f"Method not found: '{method}'"},
         }
 
-    def run(self, transport: str = "stdio") -> None:
-        """Runs the MCP server using official Python SDK v2."""
-        if not HAS_OFFICIAL_MCP or self._official_server is None:
-            err_msg = (
-                "RepoDNA MCP Server requires the official Python Model Context Protocol SDK "
-                '(mcp>=2.0.0). Please install it via \'pip install "mcp>=2.0.0"\' or run \'repodna setup --repair\'.'
-            )
-            _log(f"FATAL: {err_msg}")
-            raise RuntimeError(err_msg)
-
-        _log(
-            f"Starting official MCP SDK v2 server ({SERVER_NAME} v{SERVER_VERSION}, "
-            f"SDK: {MCP_SDK_VERSION}) on {transport} (PID: {os.getpid()})"
-        )
-        self._official_server.run(transport=transport)
-
     def run_stdio(self) -> None:
-        """Runs the server on stdio transport (convenience alias)."""
-        self.run(transport="stdio")
-
-    def run_legacy_stdio(self) -> None:
-        """Direct JSON-RPC 2.0 stdio event loop."""
-        _log(f"Starting direct JSON-RPC stdio loop ({SERVER_NAME} v{SERVER_VERSION}, PID: {os.getpid()})")
-        for line in sys.stdin:
+        """Synchronous stdio event loop."""
+        _log(f"RepoDNA MCP server listening on stdio (JSON-RPC 2.0 / {PROTOCOL_VERSION}).")
+        while True:
+            line = sys.stdin.readline()
+            if not line:
+                break
             line_str = line.strip()
             if not line_str:
                 continue
@@ -538,7 +678,16 @@ class RepoDNAMCPServer:
 
 
 def main() -> int:
-    server = RepoDNAMCPServer()
+    parser = argparse.ArgumentParser(description="RepoDNA MCP Server")
+    parser.add_argument(
+        "--allowed-root",
+        action="append",
+        dest="allowed_roots",
+        help="Authorized workspace root directory (can be specified multiple times).",
+    )
+    args, _ = parser.parse_known_args()
+    roots = [Path(r) for r in args.allowed_roots] if args.allowed_roots else None
+    server = RepoDNAMCPServer(allowed_roots=roots)
     server.run(transport="stdio")
     return 0
 

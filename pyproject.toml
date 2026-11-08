@@ -64,6 +64,9 @@ repodna = "repodna.cli.main:main"
 [tool.setuptools.packages.find]
 where = ["backend"]
 
+[tool.setuptools.package-data]
+"repodna.skills.repodna" = ["*.md", "**/*.md"]
+
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]
 pythonpath = ["backend"]

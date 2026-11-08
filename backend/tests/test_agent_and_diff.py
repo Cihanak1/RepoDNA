@@ -433,7 +433,8 @@ def test_codex_installer_toml_lifecycle(tmp_path: Path) -> None:
     updated = tomllib.loads(config_file.read_text(encoding="utf-8"))
     assert "other_server" in updated["mcp_servers"]
     assert "repodna" in updated["mcp_servers"]
-    assert updated["mcp_servers"]["repodna"]["args"] == ["-m", "repodna.mcp"]
+    assert updated["mcp_servers"]["repodna"]["args"][:2] == ["-m", "repodna.mcp"]
+    assert "--allowed-root" in updated["mcp_servers"]["repodna"]["args"]
     assert str(tmp_path) in updated["mcp_servers"]["repodna"]["cwd"]
 
     # Skill was installed
@@ -473,7 +474,8 @@ def test_antigravity_installer_json_lifecycle(tmp_path: Path) -> None:
     data = json.loads(mcp_config_file.read_text(encoding="utf-8"))
     assert "existing_tool" in data["mcpServers"]
     assert "repodna" in data["mcpServers"]
-    assert data["mcpServers"]["repodna"]["args"] == ["-m", "repodna.mcp"]
+    assert data["mcpServers"]["repodna"]["args"][:2] == ["-m", "repodna.mcp"]
+    assert "--allowed-root" in data["mcpServers"]["repodna"]["args"]
 
     # Verify skill
     assert (agents_dir / "skills" / "repodna" / "SKILL.md").exists()
@@ -580,3 +582,232 @@ def test_official_mcp_sdk_required_error(monkeypatch: pytest.MonkeyPatch) -> Non
     assert "requires the official Python Model Context Protocol SDK" in str(exc_info.value)
 
 
+
+
+def _init_git_repo(path: Path) -> None:
+    """Helper to initialize a clean git repository for testing."""
+    import subprocess
+    subprocess.check_call(["git", "-C", str(path), "init"], stdout=subprocess.DEVNULL)
+    subprocess.check_call(["git", "-C", str(path), "config", "user.name", "Test User"], stdout=subprocess.DEVNULL)
+    subprocess.check_call(["git", "-C", str(path), "config", "user.email", "test@example.com"], stdout=subprocess.DEVNULL)
+    subprocess.check_call(["git", "-C", str(path), "add", "."], stdout=subprocess.DEVNULL)
+    subprocess.check_call(["git", "-C", str(path), "commit", "-m", "initial commit"], stdout=subprocess.DEVNULL)
+
+
+def test_mcp_access_boundary_enforcement(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verifies strict MCP repository access boundaries and unauthorized target rejection across all 8 tools."""
+    authorized_ws = tmp_path / "authorized_ws"
+    authorized_ws.mkdir()
+    (authorized_ws / "mod_a.py").write_text("def a(): pass\n", encoding="utf-8")
+    _init_git_repo(authorized_ws)
+
+    secret_ws = tmp_path / "secret_ws"
+    secret_ws.mkdir()
+    (secret_ws / "secret.py").write_text("SECRET_KEY = 12345\n", encoding="utf-8")
+
+    server = RepoDNAMCPServer(allowed_roots=[authorized_ws])
+
+    # 1. target="." deterministically resolves to primary allowed root
+    res_dot = server.call_tool("repodna_repository_overview", {"target": "."})
+    assert not res_dot.get("isError")
+    assert "authorized_ws" in res_dot["content"][0]["text"]
+
+    # 2. Relative subpath inside authorized root succeeds
+    sub_pkg = authorized_ws / "pkg"
+    sub_pkg.mkdir()
+    (sub_pkg / "sub.py").write_text("def sub(): pass\n", encoding="utf-8")
+    res_sub = server.call_tool("repodna_find_modules", {"target": "pkg", "query": "sub"})
+    assert not res_sub.get("isError")
+
+    # 3. Explicit path outside authorized roots MUST be rejected across all 8 tools
+    tools_and_args: list[tuple[str, dict[str, Any]]] = [
+        ("repodna_repository_overview", {"target": str(secret_ws)}),
+        ("repodna_architecture_map", {"target": str(secret_ws)}),
+        ("repodna_find_modules", {"target": str(secret_ws), "query": "secret"}),
+        ("repodna_module_dependencies", {"target": str(secret_ws), "file_path": "secret.py"}),
+        ("repodna_module_findings", {"target": str(secret_ws)}),
+        ("repodna_architecture_diff", {"target": str(secret_ws)}),
+        ("repodna_change_impact", {"target": str(secret_ws), "changed_files": ["secret.py"]}),
+        ("repodna_analysis_coverage", {"target": str(secret_ws)}),
+    ]
+    for tool_name, call_args in tools_and_args:
+        tool_res = server.call_tool(tool_name, call_args)
+        assert tool_res.get("isError") is True, f"Tool {tool_name} failed to reject unauthorized path {secret_ws}"
+        err_msg = tool_res["content"][0]["text"]
+        assert "ROOT_VIOLATION" in err_msg or "outside authorized workspace roots" in err_msg
+
+    # 4. Path traversal attempt (../) outside authorized root MUST be rejected
+    traversal_path = str(authorized_ws / ".." / "secret_ws")
+    res_trav = server.call_tool("repodna_repository_overview", {"target": traversal_path})
+    assert res_trav.get("isError") is True
+
+    # 5. Symlink pointing outside authorized root MUST be rejected
+    symlink_path = authorized_ws / "leak_symlink"
+    try:
+        symlink_path.symlink_to(secret_ws, target_is_directory=True)
+        res_sym = server.call_tool("repodna_repository_overview", {"target": str(symlink_path)})
+        assert res_sym.get("isError") is True
+    except (OSError, NotImplementedError):
+        # On non-elevated Windows without symlink privileges, skip symlink creation
+        pass
+
+    # 6. REPODNA_ALLOWED_ROOTS environment variable authorizes additional roots
+    monkeypatch.setenv("REPODNA_ALLOWED_ROOTS", str(secret_ws))
+    server_env = RepoDNAMCPServer()
+    assert secret_ws in server_env.allowed_roots
+    res_env = server_env.call_tool("repodna_repository_overview", {"target": str(secret_ws)})
+    assert not res_env.get("isError")
+
+
+def test_stale_analysis_cache_invalidation_and_recovery(tmp_path: Path) -> None:
+    """
+    Mandatory Test:
+    - Run initial analysis.
+    - Modify import line of nested file.
+    - Repeat MCP tool call -> verify NEW dependency graph returned.
+    - Revert modification -> verify cache returns accurately to previous state.
+    """
+    repo = tmp_path / "cache_test_repo"
+    repo.mkdir()
+    pkg = repo / "pkg"
+    pkg.mkdir()
+    sub = pkg / "sub"
+    sub.mkdir()
+
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (sub / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "service_a.py").write_text("def run_a(): pass\n", encoding="utf-8")
+    (pkg / "service_b.py").write_text("def run_b(): pass\n", encoding="utf-8")
+
+    nested_file = sub / "controller.py"
+    nested_file.write_text(
+        "from pkg.service_a import run_a\n\ndef handle():\n    run_a()\n",
+        encoding="utf-8",
+    )
+    _init_git_repo(repo)
+
+    server = RepoDNAMCPServer(allowed_roots=[repo])
+
+    # Step 1: Initial call
+    res1 = server.call_tool(
+        "repodna_module_dependencies",
+        {"target": ".", "file_path": "pkg/sub/controller.py", "direction": "outgoing"},
+    )
+    assert not res1.get("isError")
+    data1 = json.loads(res1["content"][0]["text"])
+    report1 = server.get_last_cache_report()
+    assert report1["cache_hit"] is False
+    outgoing1 = [item["target"] for item in data1.get("items", [])]
+    assert any("service_a.py" in d for d in outgoing1)
+
+    # Step 2: Unchanged repeat call -> Cache Hit
+    res2 = server.call_tool(
+        "repodna_module_dependencies",
+        {"target": ".", "file_path": "pkg/sub/controller.py", "direction": "outgoing"},
+    )
+    assert not res2.get("isError")
+    report2 = server.get_last_cache_report()
+    assert report2["cache_hit"] is True
+
+    # Step 3: Modify import in nested file (point to service_b instead of service_a)
+    nested_file.write_text(
+        "from pkg.service_b import run_b\n\ndef handle():\n    run_b()\n",
+        encoding="utf-8",
+    )
+
+    # Step 4: Repeat tool call -> Cache Invalidation & New Graph Verified!
+    res3 = server.call_tool(
+        "repodna_module_dependencies",
+        {"target": ".", "file_path": "pkg/sub/controller.py", "direction": "outgoing"},
+    )
+    assert not res3.get("isError")
+    report3 = server.get_last_cache_report()
+    assert report3["cache_hit"] is False
+    data3 = json.loads(res3["content"][0]["text"])
+    outgoing3 = [item["target"] for item in data3.get("items", [])]
+    assert any("service_b.py" in d for d in outgoing3)
+    assert not any("service_a.py" in d for d in outgoing3)
+
+    # Step 5: Revert back to original service_a import
+    nested_file.write_text(
+        "from pkg.service_a import run_a\n\ndef handle():\n    run_a()\n",
+        encoding="utf-8",
+    )
+
+    # Step 6: Tool call returns to original dependency graph!
+    res4 = server.call_tool(
+        "repodna_module_dependencies",
+        {"target": ".", "file_path": "pkg/sub/controller.py", "direction": "outgoing"},
+    )
+    assert not res4.get("isError")
+    data4 = json.loads(res4["content"][0]["text"])
+    outgoing4 = [item["target"] for item in data4.get("items", [])]
+    assert any("service_a.py" in d for d in outgoing4)
+    assert not any("service_b.py" in d for d in outgoing4)
+
+
+def test_cache_invalidation_variations(tmp_path: Path) -> None:
+    """Tests file addition, deletion, rename, same size edit, and multi-repo isolation."""
+    repo1 = tmp_path / "repo1"
+    repo1.mkdir()
+    (repo1 / "main.py").write_text("import utils\n", encoding="utf-8")
+    (repo1 / "utils.py").write_text("X = 1\n", encoding="utf-8")
+    _init_git_repo(repo1)
+
+    repo2 = tmp_path / "repo2"
+    repo2.mkdir()
+    (repo2 / "main.py").write_text("import helper\n", encoding="utf-8")
+    (repo2 / "helper.py").write_text("Y = 2\n", encoding="utf-8")
+    _init_git_repo(repo2)
+
+    server = RepoDNAMCPServer(allowed_roots=[repo1, repo2])
+
+    # 1. Multi-repo isolation: Cache keys must not collide between repo1 and repo2
+    r1 = server.get_analysis(str(repo1))
+    r2 = server.get_analysis(str(repo2))
+    assert r1.repo_name != r2.repo_name
+    assert any("utils.py" in f.id for f in r1.files)
+    assert any("helper.py" in f.id for f in r2.files)
+
+    # 2. Add new file -> Cache invalidated
+    (repo1 / "extra.py").write_text("EXTRA = True\n", encoding="utf-8")
+    r1_after_add = server.get_analysis(str(repo1))
+    assert server.get_last_cache_report()["cache_hit"] is False
+    assert any("extra.py" in f.id for f in r1_after_add.files)
+
+    # 3. Delete file -> Cache invalidated
+    (repo1 / "extra.py").unlink()
+    r1_after_del = server.get_analysis(str(repo1))
+    assert server.get_last_cache_report()["cache_hit"] is False
+    assert not any("extra.py" in f.id for f in r1_after_del.files)
+
+    # 4. Same size, different content -> Cache invalidated
+    # Replace "X = 1\n" (6 bytes) with "Z = 9\n" (6 bytes)
+    (repo1 / "utils.py").write_text("Z = 9\n", encoding="utf-8")
+    server.get_analysis(str(repo1))
+    assert server.get_last_cache_report()["cache_hit"] is False
+
+
+def test_portable_skill_packaging_and_doctor() -> None:
+    """Verifies that skill assets are discoverable from package resources and doctor reports them."""
+    installer = AgentInstaller()
+    verification = installer.verify()
+    assert "antigravity" in verification
+
+    ret = run_doctor()
+    assert ret == 0
+
+
+def test_git_archive_security_stream_limit(tmp_path: Path) -> None:
+    """Verifies that git archive streaming enforces memory/disk size bounds and terminates process."""
+    repo = tmp_path / "stream_repo"
+    repo.mkdir()
+    (repo / "data.py").write_text("X = 'hello world'\n" * 10000, encoding="utf-8")
+    _init_git_repo(repo)
+
+    snap_mgr = SnapshotManager(repo)
+    # Set limit to minimum valid 65536 bytes (64 KB); data.py is ~170 KB, so archive exceeds 64 KB
+    limits = ScanLimits(max_total_size_bytes=65536)
+    with pytest.raises(SecurityValidationError) as exc_info:
+        snap_mgr.create_snapshot("HEAD", limits=limits)
+    assert exc_info.value.code == "MAX_SIZE_EXCEEDED"

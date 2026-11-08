@@ -53,7 +53,7 @@ The aggregate **-99.5% reduction** measured below represents **Synthetic Archite
 ---
 
 ## 4. Unsupported Languages & Partial Coverage Honesty
-When evaluated against multi-language codebases containing unsupported or partially supported languages (such as C# in NiceWP, PHP, or Ruby):
+When evaluated against multi-language codebases containing unsupported or partially supported languages (such as C# / .NET in NiceWP, or external PHP/Ruby scripts):
 - RepoDNA refuses to emit an artificial `100/100` health score or hallucinated dependency graphs.
 - If AST grammars cover file metrics but cannot resolve module imports, the architecture health score reports `N/A (Insufficient dependency coverage)`.
 - All graph-dependent rules (ARCH-001 through ARCH-004) are explicitly cataloged under `unverified_rules`, informing the AI agent that dependency-level risk cannot be certified from source code alone.

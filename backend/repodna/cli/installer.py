@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.resources
 import json
 import os
 import re
@@ -16,15 +17,45 @@ SKILL_SOURCE_DIR = Path(__file__).resolve().parent.parent.parent.parent / "integ
 ALT_SKILL_SOURCE_DIR = Path(__file__).resolve().parent.parent.parent.parent / ".agents" / "skills" / "repodna"
 
 
+def _atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> None:
+    """Writes content to a temporary file in the target directory and replaces target atomically."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(path.suffix + f".tmp_{os.getpid()}")
+    try:
+        tmp_path.write_text(content, encoding=encoding)
+        os.replace(tmp_path, path)
+    except Exception:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+        raise
+
+
 def _get_skill_source() -> Path:
-    if SKILL_SOURCE_DIR.exists() and (SKILL_SOURCE_DIR / "SKILL.md").exists():
-        return SKILL_SOURCE_DIR
-    if ALT_SKILL_SOURCE_DIR.exists() and (ALT_SKILL_SOURCE_DIR / "SKILL.md").exists():
-        return ALT_SKILL_SOURCE_DIR
-    cwd_src = Path.cwd() / "integrations" / "agent-skills" / "repodna"
-    if cwd_src.exists() and (cwd_src / "SKILL.md").exists():
-        return cwd_src
-    raise FileNotFoundError("RepoDNA Skill source files (SKILL.md) not found.")
+    """Locates portable skill assets from package resources (wheel/site-packages) or local source tree."""
+    # 1. Packaged Python resources (works when installed via pip/wheel anywhere)
+    try:
+        pkg_traversable = importlib.resources.files("repodna.skills.repodna")
+        candidate = Path(str(pkg_traversable))
+        if candidate.exists() and (candidate / "SKILL.md").exists():
+            return candidate
+    except Exception:
+        pass
+
+    # 2. Local development checkout fallbacks
+    candidates = [
+        Path(__file__).resolve().parent.parent / "skills" / "repodna",
+        SKILL_SOURCE_DIR,
+        ALT_SKILL_SOURCE_DIR,
+        Path.cwd() / "integrations" / "agent-skills" / "repodna",
+    ]
+    for c in candidates:
+        if c.exists() and (c / "SKILL.md").exists():
+            return c
+
+    raise FileNotFoundError("RepoDNA Skill source files (SKILL.md) not found in package resources or source trees.")
 
 
 def _test_mcp_connection(command: str, args: list[str], cwd: Path | str | None) -> tuple[bool, str]:
@@ -60,25 +91,20 @@ def _test_mcp_connection(command: str, args: list[str], cwd: Path | str | None) 
                 continue
             try:
                 res = json.loads(line_str)
-                if "result" in res and res.get("id") == 1:
-                    return True, "Handshake successful (8 tools registered)"
-            except Exception:
+                if res.get("result", {}).get("serverInfo", {}).get("name") == "repodna-mcp":
+                    return True, "Handshake successful (repodna-mcp responded)"
+            except json.JSONDecodeError:
                 continue
-        return False, f"Invalid stdout response: {stdout[:100]}"
-    except subprocess.TimeoutExpired:
-        try:
-            proc.kill()
-        except Exception:
-            pass
-        return False, "Connection timed out after 4.0s"
+
+        return False, f"Invalid or non-JSON-RPC response: {stdout[:100]}"
     except Exception as exc:
-        return False, str(exc)
+        return False, f"Execution failed: {exc}"
 
 
 class AgentInstaller:
-    """Manages installation, repair, uninstallation, and verification of RepoDNA across AI agents."""
+    """Manages idempotent installation, verification, and diagnostics of RepoDNA across agents."""
 
-    SUPPORTED_AGENTS = ["codex", "claude", "antigravity", "auto"]
+    SUPPORTED_AGENTS = ["codex", "claude", "antigravity"]
 
     def __init__(
         self,
@@ -88,8 +114,6 @@ class AgentInstaller:
         repo_root: Path | None = None,
     ) -> None:
         self.agent = agent.lower()
-        if self.agent not in self.SUPPORTED_AGENTS:
-            raise ValueError(f"Unsupported agent '{agent}'. Supported: {', '.join(self.SUPPORTED_AGENTS)}")
         self.scope = scope.lower()
         self.dry_run = dry_run
         self.repo_root = (repo_root or Path.cwd()).resolve()
@@ -131,7 +155,6 @@ class AgentInstaller:
             if self.is_agent_installed_on_host(ag):
                 detected.append(ag)
         if not detected:
-            # Fallback to universal Antigravity / Agent Skills standard directory
             detected = ["antigravity"]
         return detected
 
@@ -152,7 +175,6 @@ class AgentInstaller:
                 mcp_path = self.repo_root / ".mcp.json"
 
         elif target_agent == "codex":
-            # Codex official format: config.toml
             if self.scope == "user":
                 skill_dir = self.user_home / ".codex" / "skills" / "repodna"
                 mcp_path = self.user_home / ".codex" / "config.toml"
@@ -161,7 +183,6 @@ class AgentInstaller:
                 mcp_path = self.repo_root / ".codex" / "config.toml"
 
         elif target_agent == "antigravity":
-            # Antigravity official format: mcp_config.json
             if self.scope == "user":
                 skill_dir = self.user_home / ".gemini" / "antigravity" / "skills" / "repodna"
                 mcp_path = self.user_home / ".gemini" / "config" / "mcp_config.json"
@@ -202,20 +223,20 @@ class AgentInstaller:
 
             skill_dir, mcp_path = self._resolve_paths(tgt)
 
-            # 1. Install Skill
+            # 1. Install Skill (copy only documentation & rule assets, excluding python bytecode)
             if self.dry_run:
                 actions_taken.append(f"[DRY-RUN] Would copy skill files from '{source_dir}' to '{skill_dir}'")
             else:
                 skill_dir.mkdir(parents=True, exist_ok=True)
                 for item in source_dir.glob("**/*"):
-                    if item.is_file():
+                    if item.is_file() and not item.name.endswith((".py", ".pyc")) and "__pycache__" not in item.parts:
                         rel = item.relative_to(source_dir)
                         dest = skill_dir / rel
                         dest.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copy2(item, dest)
                 actions_taken.append(f"Installed Skill ({tgt}) at '{skill_dir}'")
 
-            # 2. Configure MCP Server
+            # 2. Configure MCP Server with authorized boundary
             if mcp_path:
                 if self.dry_run:
                     actions_taken.append(f"[DRY-RUN] Would configure MCP server in '{mcp_path}'")
@@ -241,13 +262,11 @@ class AgentInstaller:
         if path.exists():
             shutil.copy2(path, str(path) + ".bak")
 
-        # In TOML, single-quoted strings are literal strings (no backslash escape parsing),
-        # perfectly suited for Windows file paths.
         clean_python = python_exec.strip('"').strip("'")
         new_block = (
             "[mcp_servers.repodna]\n"
             f"command = '{clean_python}'\n"
-            'args = ["-m", "repodna.mcp"]\n'
+            f'args = ["-m", "repodna.mcp", "--allowed-root", \'{self.repo_root}\']\n'
             f"cwd = '{self.repo_root}'"
         )
 
@@ -264,7 +283,7 @@ class AgentInstaller:
                 updated_text = new_block + "\n"
 
         tomllib.loads(updated_text)
-        path.write_text(updated_text, encoding="utf-8")
+        _atomic_write_text(path, updated_text, encoding="utf-8")
 
     def _install_json_mcp(self, path: Path, python_exec: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -284,10 +303,10 @@ class AgentInstaller:
 
         data[servers_key]["repodna"] = {
             "command": python_exec,
-            "args": ["-m", "repodna.mcp"],
+            "args": ["-m", "repodna.mcp", "--allowed-root", str(self.repo_root)],
             "cwd": str(self.repo_root),
         }
-        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        _atomic_write_text(path, json.dumps(data, indent=2), encoding="utf-8")
 
     def repair(self) -> dict[str, Any]:
         """Detects missing components and repairs them idempotently."""
@@ -347,7 +366,7 @@ class AgentInstaller:
             existing_text,
         )
         tomllib.loads(updated_text)
-        path.write_text(updated_text, encoding="utf-8")
+        _atomic_write_text(path, updated_text, encoding="utf-8")
         return True
 
     def _uninstall_json_mcp(self, path: Path) -> bool:
@@ -360,7 +379,7 @@ class AgentInstaller:
                     del data[key]["repodna"]
                     modified = True
             if modified:
-                path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+                _atomic_write_text(path, json.dumps(data, indent=2), encoding="utf-8")
             return modified
         except Exception:
             return False
@@ -493,21 +512,25 @@ def run_doctor() -> int:
         git_ok = False
     check("Git Binary Availability", git_ok, git_ver)
 
-    # 5. MCP stdio Server
+    # 5. MCP stdio Server & Authorized Roots
     try:
         from repodna.mcp.server import RepoDNAMCPServer
         srv = RepoDNAMCPServer()
         mcp_init = srv.handle_request({"jsonrpc": "2.0", "id": 1, "method": "initialize"})
         mcp_ok = bool(mcp_init and mcp_init.get("result", {}).get("serverInfo"))
+        roots_display = f"{len(srv.allowed_roots)} root(s): {', '.join(str(r) for r in srv.allowed_roots[:2])}"
     except Exception:
         mcp_ok = False
+        roots_display = "Initialization failed"
     check("RepoDNA MCP Server (SDK v2 & Stdio)", mcp_ok, "8 tools registered")
+    check("MCP Authorized Boundaries", mcp_ok, roots_display)
 
     # 6. Skill Package Source
     try:
         src = _get_skill_source()
         skill_ok = src.exists() and (src / "SKILL.md").exists()
-        skill_path = str(src)
+        is_packaged = "repodna" in str(src) and "site-packages" in str(src) or "backend" in str(src)
+        skill_path = f"{src} ({'packaged' if is_packaged else 'source tree'})"
     except Exception:
         skill_ok = False
         skill_path = "Missing"

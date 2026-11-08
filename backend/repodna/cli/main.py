@@ -163,7 +163,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ctx_p.add_argument("--output", "-o", type=str, default=None, help="Optional file path to write context.")
 
     # 4. mcp
-    sub.add_parser("mcp", help="Run the local Model Context Protocol (MCP) stdio server.")
+    mcp_p = sub.add_parser("mcp", help="Run the local Model Context Protocol (MCP) stdio server.")
+    mcp_p.add_argument(
+        "--allowed-root",
+        action="append",
+        dest="allowed_roots",
+        help="Authorized workspace root directory (can be specified multiple times).",
+    )
 
     # 5. setup
     setup_p = sub.add_parser("setup", help="Configure RepoDNA Skill and MCP server in AI agents.")
@@ -294,7 +300,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "mcp":
-        server = RepoDNAMCPServer()
+        roots = [Path(r) for r in args.allowed_roots] if args.allowed_roots else None
+        server = RepoDNAMCPServer(allowed_roots=roots)
         server.run_stdio()
         return 0
 
