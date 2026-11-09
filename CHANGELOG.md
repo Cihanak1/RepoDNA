@@ -43,6 +43,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   - Enterprise integration guide (`docs/integrations/github-actions.md`).
   - Updated internal CI (`.github/workflows/ci.yml`) testing contract validation, passport generation, and guardian assessment.
 
+### Fixed & Hardened
+- **Baseline Fail-Safe Validation (`repodna.contract.loader`)**:
+  - Replaced silent empty set return on corrupted or missing baselines with explicit `FileNotFoundError` and `ValueError` validation errors.
+  - Enforced `is_safe_subpath` repository boundary checks and 5 MB size limit on baseline files.
+- **Contract Evaluation Correctness & Disambiguation (`repodna.contract.evaluator`)**:
+  - Separated rule statuses into `rules_passed`, `rules_violated`, `rules_unmatched` (0 files matched), and `rules_unknown` (inconclusive due to unsupported AST or unresolvable imports).
+  - Resolved multi-rule loop variable leak (`matching_files`) in coverage calculation.
+  - Reinforced `unknown_behavior` (`fail`, `warn`, `ignore`) semantics across varying AST support levels.
+- **Guardian Verdict vs CI Exit Code Decoupling (`repodna.guardian.engine`)**:
+  - Decoupled engineering architectural verdict (`PASS`, `WARNING`, `FAIL`, `INCONCLUSIVE`) from process exit code (`should_block_ci`).
+  - Default advisory mode now strictly informs users with exit code `0`, while enforce mode blocks CI (exit code `1`) on verified circular loops and contract errors.
+- **Repository Passport Privacy & Revision Provenance (`repodna.passport`)**:
+  - Automatically sanitizes target paths, stripping Windows username paths, user home folders, and tokens into relative project identifiers.
+  - Verifies Git revision provenance against hexadecimal commit SHAs (`^[0-9a-fA-F]{7,40}$`), clearly distinguishing verified SHAs from unverified symbolic refs (`HEAD`).
+  - Added strict privacy scanner in `validator.py` rejecting leaks with `SecurityValidationError`.
+- **GitHub Actions Installation Reliability**:
+  - Updated starter workflow to use pinned Git source distribution for pre-release stability and immutable pull_request event context commit SHAs (`github.event.pull_request.base.sha` and `github.event.pull_request.head.sha`).
+
 ## [0.3.0] - 2026-11-09
 
 ### Added

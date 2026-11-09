@@ -393,7 +393,7 @@ Measured on **Windows 11 (Python 3.12.10, Tree-sitter 0.25.2, Microsoft Edge Hea
 ### Backend Verification
 
 ```bash
-# Run pytest unit & integration suite (103 tests)
+# Run pytest unit & integration suite (113 tests)
 python -m pytest -v
 
 # Run Ruff linter

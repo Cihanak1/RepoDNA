@@ -19,9 +19,14 @@ However, modern software engineering teams and autonomous AI agents require cont
 - Implements strict Pydantic v2 schemas:
   - `ArchitectureContract`: `version`, `policy` (`mode: advisory | enforce`, `unknown_behavior: warn | ignore | fail`), `rules`, `metadata`.
   - `ContractRule`: `id`, `title`, `description`, `from` (POSIX glob pattern(s)), `disallow_imports` (POSIX glob pattern(s)), `allow_imports` (optional whitelist), `severity` (`error`, `warning`, `info`).
-- **Safety First:** Safe YAML deserialization with PyYAML `yaml.safe_load`, file size cap (512 KB), no remote fetching, no command execution, and no regex DoS vectors (POSIX glob pattern matching).
+- **Safety First:** Safe YAML deserialization with PyYAML `yaml.safe_load`, file size cap (512 KB), no remote fetching, no command execution, and ReDoS-safe POSIX glob pattern matching via `pathspec`.
 - **Honesty Invariant:** Unresolved references and unsupported language files mapped to rule patterns are recorded as `unknown_evaluations` rather than passing evaluations.
-- **Baseline Support:** Existing violations can be captured in a baseline snapshot to ensure CI and PR reviews focus exclusively on newly introduced regressions.
+- **Fail-Safe Baseline Validation:**
+  - Unspecified baseline: safely returns empty baseline.
+  - Explicitly specified but missing: raises `FileNotFoundError`.
+  - Corrupted JSON or schema error: raises `ValueError` (never silently converts to empty baseline).
+  - Path traversal and 5 MB size caps strictly enforced via `is_safe_subpath`.
+- **Rule Status Partitioning:** Rules are partitioned into `rules_passed`, `rules_violated`, `rules_unmatched` (0 files matched), and `rules_unknown` (inconclusive due to unsupported AST/unresolved imports).
 
 ### 2. PR Architecture Guardian (`repodna.guardian`)
 - Builds atop `SnapshotManager` and `ArchitectureDiffEngine` to evaluate pull requests between two Git revisions (`base` vs `head`).
@@ -30,12 +35,17 @@ However, modern software engineering teams and autonomous AI agents require cont
   - `resolved_violations`: Fixed by the PR (celebrated).
   - `baseline_violations`: Pre-existing in base (tracked separately, avoiding alert fatigue).
 - Traces circular dependency deltas (`new_cycles`, `resolved_cycles`, `persisting_cycles`).
-- Synthesizes an authoritative architectural verdict:
-  - `PASS`: Zero new cycles, zero new enforce violations, healthy metrics.
-  - `WARNING`: Advisory violations or notable coupling degradation.
-  - `FAIL`: Verified high-severity policy violations in `enforce` mode, or verified new circular dependencies.
-  - `INCONCLUSIVE`: Analysis coverage insufficient or degraded to the point that architecture changes cannot be verified with high confidence.
-- Provides GitHub Actions Job Summary output (Markdown table, collapsible details, and annotations).
+- **Decoupled Architecture Verdict vs CI Exit Code:**
+  - **Verdict:** True architectural assessment (`PASS`, `WARNING`, `FAIL`, `INCONCLUSIVE`). Newly introduced cycles always receive a `FAIL` verdict.
+  - **CI Gating:**
+    - `advisory` mode: Informational only; `should_block_ci = False` and exit code is `0`.
+    - `enforce` mode: `should_block_ci = True` and exit code is `1` on `FAIL`, `2` on `INCONCLUSIVE`, `0` on `PASS`/`WARNING`.
+- **Deterministic Risk Scoring ($0$–$100$):**
+  - Factor A (New cycles): $\min(60.0, \text{count} \times 30.0)$
+  - Factor B (New contract violations): enforce ($\min(50.0, \text{errors} \times 25.0 + \text{warnings} \times 15.0)$), advisory ($\min(25.0, \text{errors} \times 10.0 + \text{warnings} \times 5.0)$)
+  - Factor C (Coupling surges on hubs): $\min(20.0, \text{hubs} \times 10.0)$
+  - Factor D (Health degradation): $\min(20.0, |\Delta \text{score}| \times 2.5)$ if $\Delta \text{score} < -2.0$
+  - Tiers: `LOW` (0–15), `MODERATE` (16–40), `HIGH` (41–70), `CRITICAL` (71–100).
 
 ### 3. Repository Passport (`repodna.passport`)
 - Standardized, portable structural identity saved to `.repodna/passport.json` or generated dynamically in memory.
@@ -45,7 +55,11 @@ However, modern software engineering teams and autonomous AI agents require cont
   - Architectural hubs (high fan-in / fan-out modules).
   - Module inventory (sanitized relative paths, LOC, instability, cycle flags, hub status).
   - Active architecture contracts, verified findings, and unverified rules.
-- **Security & Privacy:** Contains NO source code bodies, absolute host paths, environment variables, or secrets. Output size is deterministically capped.
+- **Security & Privacy Guardrails:**
+  - Zero source code bodies, environment variables, tokens, or credentials.
+  - Zero absolute host paths (`/Users/`, `C:\Users\`, `/home/`, `/tmp`, `\Temp\`); all paths sanitized to repo-relative identifiers.
+  - Explicit commit provenance verification: validates hexadecimal Git commit SHAs (`^[0-9a-fA-F]{7,40}$`) vs unverified symbolic refs (`HEAD`).
+  - Privacy validation scanner in `validator.py` rejecting leaks with `SecurityValidationError`.
 
 ### 4. Unified MCP & CLI Surface
 - Exposes new MCP tools: `repodna_get_passport`, `repodna_get_contract`, `repodna_check_contract`, and `repodna_pr_guardian`.
