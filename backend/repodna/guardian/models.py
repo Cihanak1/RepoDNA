@@ -88,6 +88,16 @@ class GuardianReport(BaseModel):
     health_delta: HealthScoreDelta
     coverage_delta: CoverageDelta
 
+    # Policy and CI gate execution
+    should_block_ci: bool = Field(
+        default=False,
+        description="Whether this assessment warrants failing CI (exit code 1) under active policy mode.",
+    )
+    exit_code: int = Field(
+        default=0,
+        description="Recommended process exit code (0: clean/advisory, 1: policy block/fail, 2: inconclusive/error).",
+    )
+
     # Raw diff reference
     diff_summary: str
     summary_markdown: str

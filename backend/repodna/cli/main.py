@@ -20,7 +20,7 @@ from repodna.contract import (
 from repodna.core.analyzer import run_repository_analysis
 from repodna.diff.engine import ArchitectureDiffEngine
 from repodna.diff.snapshot import SnapshotManager
-from repodna.guardian import GuardianVerdict, PRArchitectureGuardian
+from repodna.guardian import PRArchitectureGuardian
 from repodna.mcp.server import RepoDNAMCPServer
 from repodna.passport import (
     export_passport_to_json,
@@ -506,11 +506,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(output_text)
 
-            if guardian_report.verdict == GuardianVerdict.FAIL:
-                return 1
-            if guardian_report.verdict == GuardianVerdict.INCONCLUSIVE:
-                return 2
-            return 0
+            return guardian_report.exit_code
 
     if args.command == "passport":
         if args.passport_action == "generate":

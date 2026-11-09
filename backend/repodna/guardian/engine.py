@@ -207,7 +207,23 @@ class PRArchitectureGuardian:
             verdict = GuardianVerdict.PASS
             verdict_reason = "Architecture clean: no new circular dependencies or enforced contract violations detected."
 
-        # 5. Build Markdown Summary
+        # 5. Determine Policy Gate and CI Exit Code
+        if effective_mode == ContractMode.ENFORCE:
+            if verdict == GuardianVerdict.FAIL:
+                should_block_ci = True
+                exit_code = 1
+            elif verdict == GuardianVerdict.INCONCLUSIVE:
+                should_block_ci = False
+                exit_code = 2
+            else:
+                should_block_ci = False
+                exit_code = 0
+        else:
+            # Advisory mode: Informational only, never fail CI
+            should_block_ci = False
+            exit_code = 0
+
+        # 6. Build Markdown Summary
         summary_md = _build_guardian_markdown(
             base_ref=base_ref,
             head_ref=head_ref,
@@ -220,6 +236,7 @@ class PRArchitectureGuardian:
             resolved_violations=resolved_violations,
             existing_violations=existing_violations,
             unknown_evals=unknown_evals,
+            should_block_ci=should_block_ci,
         )
 
         return GuardianReport(
@@ -230,6 +247,8 @@ class PRArchitectureGuardian:
             verdict_reason=verdict_reason,
             risk_assessment=assessment,
             mode=effective_mode,
+            should_block_ci=should_block_ci,
+            exit_code=exit_code,
             added_modules=diff_res.module_changes.added,
             removed_modules=diff_res.module_changes.removed,
             renamed_modules=diff_res.module_changes.renamed,
@@ -266,6 +285,7 @@ def _build_guardian_markdown(
     resolved_violations: list[ContractViolation],
     existing_violations: list[ContractViolation],
     unknown_evals: list[Any],
+    should_block_ci: bool = False,
 ) -> str:
     icon = {
         GuardianVerdict.PASS: "PASS",
@@ -274,10 +294,15 @@ def _build_guardian_markdown(
         GuardianVerdict.INCONCLUSIVE: "INCONCLUSIVE",
     }[verdict]
 
+    ci_status = "**CI Status:** `BLOCK (exit 1)`" if should_block_ci else (
+        "**CI Status:** `INCONCLUSIVE (exit 2)`" if (mode == ContractMode.ENFORCE and verdict == GuardianVerdict.INCONCLUSIVE)
+        else "**CI Status:** `PASS/ADVISORY (exit 0)`"
+    )
+
     md: list[str] = [
         f"## RepoDNA Architecture Guardian — `{icon}`",
         "",
-        f"**Revision:** `{base_ref}` → `{head_ref}` | **Policy Mode:** `{mode.value.upper()}` | **Risk:** `{risk.risk_level.value}` ({risk.risk_score:.0f}/100)",
+        f"**Revision:** `{base_ref}` → `{head_ref}` | **Policy Mode:** `{mode.value.upper()}` | {ci_status} | **Risk:** `{risk.risk_level.value}` ({risk.risk_score:.0f}/100)",
         f"> {verdict_reason}",
         "",
         "| Metric | Base | Head | Delta |",
