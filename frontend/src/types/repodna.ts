@@ -268,3 +268,277 @@ export interface HealthCheckResponse {
   parsers: Record<string, string>;
   default_workspace: string;
 }
+
+// ---------------------------------------------------------------------------
+// RepoDNA v0.4.0 — Architecture Contract, PR Guardian, and Repository Passport
+// ---------------------------------------------------------------------------
+
+export type ContractMode = 'advisory' | 'enforce';
+export type UnknownBehavior = 'warn' | 'fail' | 'ignore';
+export type GuardianVerdict = 'PASS' | 'WARNING' | 'FAIL' | 'INCONCLUSIVE';
+export type RiskLevel = 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL';
+
+export interface ContractRule {
+  id: string;
+  title: string;
+  description: string;
+  from: string[];
+  disallow_imports: string[];
+  allow_imports?: string[] | null;
+  severity: SeverityLevel;
+  remediation: string;
+}
+
+export interface ContractPolicy {
+  mode: ContractMode;
+  unknown_behavior: UnknownBehavior;
+}
+
+export interface ArchitectureContract {
+  version: number;
+  policy: ContractPolicy;
+  rules: ContractRule[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface ContractViolation {
+  rule_id: string;
+  rule_title: string;
+  severity: SeverityLevel;
+  source_file: string;
+  target_file: string;
+  import_names: string[];
+  line: number;
+  message: string;
+  remediation: string;
+  is_baseline: boolean;
+}
+
+export interface ContractUnknown {
+  rule_id: string;
+  rule_title: string;
+  source_file: string;
+  raw_import: string;
+  line: number;
+  reason: string;
+  detail: string;
+}
+
+export interface ContractEvaluationReport {
+  contract_version: number;
+  mode: ContractMode;
+  unknown_behavior: UnknownBehavior;
+  total_rules: number;
+  rules_evaluated: number;
+  rules_passed: string[];
+  rules_violated: string[];
+  rules_unmatched?: string[];
+  rules_unknown?: string[];
+  violations: ContractViolation[];
+  new_violations: ContractViolation[];
+  baseline_violations: ContractViolation[];
+  unknowns: ContractUnknown[];
+  is_compliant: boolean;
+  verdict: string;
+  summary_text: string;
+}
+
+export interface RiskAssessment {
+  risk_score: number;
+  risk_level: RiskLevel;
+  risk_factors: string[];
+  mitigation_advice: string[];
+}
+
+export interface RenamedModule {
+  old_path: string;
+  new_path: string;
+  confidence: number;
+  reason: string;
+  is_verified_by_git: boolean;
+}
+
+export interface EdgeDiffItem {
+  source: string;
+  target: string;
+  import_names: string[];
+}
+
+export interface CycleDiffItem {
+  id: string;
+  nodes: string[];
+  length: number;
+  severity: SeverityLevel;
+  description: string;
+}
+
+export interface CouplingDeltaItem {
+  file_id: string;
+  fan_in_before: number;
+  fan_in_after: number;
+  fan_in_delta: number;
+  fan_out_before: number;
+  fan_out_after: number;
+  fan_out_delta: number;
+  instability_before: number;
+  instability_after: number;
+  instability_delta: number;
+}
+
+export interface HealthScoreDelta {
+  score_before: number | null;
+  score_after: number | null;
+  score_delta: number | null;
+  grade_before: string;
+  grade_after: string;
+  status_before: string;
+  status_after: string;
+}
+
+export interface CoverageDelta {
+  ast_loc_coverage_before: number;
+  ast_loc_coverage_after: number;
+  ast_loc_coverage_delta: number;
+  supported_langs_before: string[];
+  supported_langs_after: string[];
+  caveats: string[];
+}
+
+export interface RevisionProvenance {
+  ref_name: string;
+  commit_sha?: string | null;
+  is_working_tree: boolean;
+  analyzed_at: string;
+  total_files: number;
+  total_lines_code: number;
+  ast_coverage_pct: number;
+  health_score?: number | null;
+  health_grade: string;
+}
+
+export interface GuardianReport {
+  generated_at: string;
+  base_provenance: RevisionProvenance;
+  head_provenance: RevisionProvenance;
+  verdict: GuardianVerdict;
+  verdict_reason: string;
+  risk_assessment: RiskAssessment;
+  mode: ContractMode;
+  should_block_ci?: boolean;
+  exit_code?: number;
+  added_modules: string[];
+  removed_modules: string[];
+  renamed_modules: RenamedModule[];
+  added_edges: EdgeDiffItem[];
+  removed_edges: EdgeDiffItem[];
+  new_cycles: CycleDiffItem[];
+  resolved_cycles: CycleDiffItem[];
+  persisting_cycles_count: number;
+  contract_evaluated: boolean;
+  contract_version?: number | null;
+  new_contract_violations: ContractViolation[];
+  resolved_contract_violations: ContractViolation[];
+  existing_baseline_violations: ContractViolation[];
+  unknown_evaluations: ContractUnknown[];
+  base_contract_report?: ContractEvaluationReport | null;
+  head_contract_report?: ContractEvaluationReport | null;
+  coupling_deltas: CouplingDeltaItem[];
+  health_delta: HealthScoreDelta;
+  coverage_delta: CoverageDelta;
+  diff_summary: string;
+  summary_markdown: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface PassportHubModule {
+  file_id: string;
+  fan_in: number;
+  fan_out: number;
+  instability: number;
+  is_hub: boolean;
+}
+
+export interface PassportModuleItem {
+  id: string;
+  language: string;
+  lines_code: number;
+  fan_in: number;
+  fan_out: number;
+  instability: number;
+  in_cycle: boolean;
+  is_hub: boolean;
+}
+
+export interface PassportLanguageItem {
+  language: string;
+  support_level: string;
+  file_count: number;
+  lines_code: number;
+  percentage: number;
+}
+
+export interface PassportCoverage {
+  ast_file_coverage_pct: number;
+  ast_loc_coverage_pct: number;
+  supported_languages: string[];
+  partial_static_languages: string[];
+  unsupported_languages: string[];
+}
+
+export interface PassportDependencySummary {
+  total_modules: number;
+  total_internal_edges: number;
+  cycle_count: number;
+  cyclic_scc_count: number;
+  orphan_modules_count: number;
+  hub_modules_count: number;
+  average_instability: number;
+}
+
+export interface PassportHealth {
+  score?: number | null;
+  grade: string;
+  status: string;
+  confidence: string;
+  confidence_reason: string;
+}
+
+export interface PassportContractStatus {
+  has_contract: boolean;
+  contract_version?: number | null;
+  mode?: string | null;
+  rules_count: number;
+  is_compliant?: boolean | null;
+  active_violations_count: number;
+}
+
+export interface PassportTruncation {
+  is_truncated: boolean;
+  total_inventory_count: number;
+  returned_inventory_count: number;
+  reason?: string | null;
+}
+
+export interface RepositoryPassport {
+  schema_version: string;
+  repo_name: string;
+  git_revision: string;
+  provenance_verified?: boolean;
+  revision_status?: string;
+  analyzed_at: string;
+  repodna_version: string;
+  primary_languages: PassportLanguageItem[];
+  ast_coverage: PassportCoverage;
+  confidence: string;
+  architectural_hubs: PassportHubModule[];
+  module_inventory: PassportModuleItem[];
+  dependency_summary: PassportDependencySummary;
+  identified_boundaries: string[];
+  architecture_health: PassportHealth;
+  verified_findings: string[];
+  unknown_unverified: string[];
+  contract_status: PassportContractStatus;
+  evidence_references: string[];
+  truncation_metadata: PassportTruncation;
+  metadata?: Record<string, unknown>;
+}

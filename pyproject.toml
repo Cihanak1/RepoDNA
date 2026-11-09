@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "repodna"
-version = "0.3.0"
+version = "0.4.0"
 description = "RepoDNA — Developer Repository Intelligence Platform for architectural graph analysis, circular dependency detection, and explainable rule-based code health reporting."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -40,6 +40,8 @@ dependencies = [
     "tree-sitter-go>=0.23.0",
     "tree-sitter-rust>=0.23.0",
     "mcp>=2.0.0",
+    "PyYAML>=6.0.0",
+    "pathspec>=0.11.0",
 ]
 
 [project.optional-dependencies]

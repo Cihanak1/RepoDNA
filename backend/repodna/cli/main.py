@@ -9,10 +9,25 @@ from pathlib import Path
 
 from repodna.cli.installer import AgentInstaller, run_doctor
 from repodna.context.builder import AgentContextBuilder
+from repodna.contract import (
+    ArchitectureContract,
+    ContractEvaluator,
+    ContractMode,
+    find_contract_file,
+    init_starter_contract,
+    load_contract_file,
+)
 from repodna.core.analyzer import run_repository_analysis
 from repodna.diff.engine import ArchitectureDiffEngine
 from repodna.diff.snapshot import SnapshotManager
+from repodna.guardian import PRArchitectureGuardian
 from repodna.mcp.server import RepoDNAMCPServer
+from repodna.passport import (
+    export_passport_to_json,
+    export_passport_to_markdown,
+    generate_repository_passport,
+    validate_passport_file,
+)
 from repodna.reports.exporter import export_analysis_to_html, export_analysis_to_json
 from repodna.schemas.models import AnalysisResult, ScanLimits, ScanRequest, SourceType
 from repodna.security.validators import SecurityValidationError
@@ -193,6 +208,53 @@ def build_arg_parser() -> argparse.ArgumentParser:
     # 6. doctor
     sub.add_parser("doctor", help="Run comprehensive diagnostic of environment, parsers, and agent tools.")
 
+    # 7. contract
+    contract_p = sub.add_parser("contract", help="Define and evaluate declarative Architecture Contracts.")
+    c_sub = contract_p.add_subparsers(dest="contract_action", required=True)
+
+    c_init = c_sub.add_parser("init", help="Create starter .repodna/architecture.yml in target repository.")
+    c_init.add_argument("target", nargs="?", default=".", help="Target repository directory (default: .).")
+    c_init.add_argument("--force", "-f", action="store_true", help="Overwrite existing architecture.yml.")
+
+    c_val = c_sub.add_parser("validate", help="Validate architecture contract YAML syntax and schema.")
+    c_val.add_argument("path", nargs="?", default=".", help="Path to architecture.yml or repository root (default: .).")
+
+    c_check = c_sub.add_parser("check", help="Evaluate repository against architecture contract rules.")
+    c_check.add_argument("target", nargs="?", default=".", help="Target repository directory (default: .).")
+    c_check.add_argument("--contract", "-c", type=str, default=None, help="Explicit path to architecture.yml.")
+    c_check.add_argument("--baseline", "-b", type=str, default=None, help="Path to baseline violations JSON.")
+    c_check.add_argument("--mode", choices=["advisory", "enforce"], default=None, help="Evaluation mode override.")
+    c_check.add_argument("--format", choices=["table", "json"], default="table", help="Output format (default: table).")
+    c_check.add_argument("--output", "-o", type=str, default=None, help="Optional output file path.")
+
+    # 8. guardian
+    guardian_p = sub.add_parser("guardian", help="Continuous pull request architecture assessment.")
+    g_sub = guardian_p.add_subparsers(dest="guardian_action", required=True)
+
+    g_check = g_sub.add_parser("check", help="Evaluate architectural regression between Git revisions.")
+    g_check.add_argument("target", nargs="?", default=".", help="Target Git repository directory (default: .).")
+    g_check.add_argument("--base", type=str, required=True, help="Base Git revision (e.g. main, HEAD~1, commit SHA).")
+    g_check.add_argument("--head", type=str, default="HEAD", help="Head Git revision (default: HEAD).")
+    g_check.add_argument("--contract", "-c", type=str, default=None, help="Explicit path to architecture.yml.")
+    g_check.add_argument("--baseline", "-b", type=str, default=None, help="Path to baseline violations JSON.")
+    g_check.add_argument("--mode", choices=["advisory", "enforce"], default=None, help="Enforce or advisory mode.")
+    g_check.add_argument("--format", choices=["table", "markdown", "json"], default="table", help="Output format.")
+    g_check.add_argument("--output", "-o", type=str, default=None, help="Optional output file path.")
+
+    # 9. passport
+    pass_p = sub.add_parser("passport", help="Manage and verify portable Repository Passport manifests.")
+    p_sub = pass_p.add_subparsers(dest="passport_action", required=True)
+
+    p_gen = p_sub.add_parser("generate", help="Generate .repodna/passport.json for AI coding agents.")
+    p_gen.add_argument("target", nargs="?", default=".", help="Target directory (default: .).")
+    p_gen.add_argument("--output", "-o", type=str, default=None, help="Output file path (default: .repodna/passport.json or stdout).")
+    p_gen.add_argument("--format", choices=["json", "markdown"], default="json", help="Output format (default: json).")
+    p_gen.add_argument("--max-modules", type=int, default=150, help="Maximum modules in inventory (default: 150).")
+    p_gen.add_argument("--contract", "-c", type=str, default=None, help="Optional path to architecture.yml.")
+
+    p_val = p_sub.add_parser("validate", help="Validate passport.json schema and integrity.")
+    p_val.add_argument("path", nargs="?", default=None, help="Path to passport.json (default: .repodna/passport.json).")
+
     return parser
 
 
@@ -329,6 +391,184 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "doctor":
         return run_doctor()
+
+    if args.command == "contract":
+        if args.contract_action == "init":
+            try:
+                target_p = init_starter_contract(args.target, overwrite=args.force)
+                print(f"Created starter Architecture Contract at: {target_p}")
+                return 0
+            except Exception as exc:
+                print(f"[ERROR] Failed to init architecture contract: {exc}", file=sys.stderr)
+                return 1
+
+        if args.contract_action == "validate":
+            try:
+                target_path = Path(args.path).resolve()
+                c_file = target_path if target_path.is_file() else find_contract_file(target_path)
+                if not c_file:
+                    print(f"[ERROR] No architecture contract file found at '{target_path}'", file=sys.stderr)
+                    return 1
+                contract = load_contract_file(c_file)
+                print(
+                    f"Valid Architecture Contract: '{c_file}' (Schema v{contract.version}, {len(contract.rules)} rules, "
+                    f"Policy: mode={contract.policy.mode.value}, unknown_behavior={contract.policy.unknown_behavior.value})"
+                )
+                return 0
+            except Exception as exc:
+                print(f"[ERROR] Contract validation failed: {exc}", file=sys.stderr)
+                return 1
+
+        if args.contract_action == "check":
+            try:
+                target_path = Path(args.target).resolve()
+                if args.contract:
+                    c_file = Path(args.contract).resolve()
+                else:
+                    c_file = find_contract_file(target_path)
+
+                if not c_file or not c_file.exists():
+                    print(f"[ERROR] No architecture contract found for '{target_path}'. Run 'repodna contract init' to create one.", file=sys.stderr)
+                    return 1
+
+                contract = load_contract_file(c_file)
+                stype = _detect_source_type(str(target_path))
+                analysis = run_repository_analysis(ScanRequest(source_type=stype, target=str(target_path)))
+                mode_override = ContractMode(args.mode) if args.mode else None
+                evaluator = ContractEvaluator(
+                    contract=contract,
+                    baseline=args.baseline,
+                    mode_override=mode_override,
+                )
+                report = evaluator.evaluate(analysis)
+            except Exception as exc:
+                print(f"[ERROR] Contract check failed: {exc}", file=sys.stderr)
+                return 1
+
+            output_text = report.model_dump_json(indent=2) if args.format == "json" else report.summary_text
+            if args.output:
+                out_p = Path(args.output)
+                out_p.parent.mkdir(parents=True, exist_ok=True)
+                out_p.write_text(output_text, encoding="utf-8")
+                print(f"Report written to {out_p}")
+            else:
+                print(output_text)
+
+            return 0 if (report.verdict in ("PASS", "WARNING") and report.mode == ContractMode.ADVISORY) or report.verdict == "PASS" else 1
+
+    if args.command == "guardian":
+        if args.guardian_action == "check":
+            try:
+                target_path = Path(args.target).resolve()
+                snap_mgr = SnapshotManager(target_path)
+                base_analysis, base_sha, base_is_wt = snap_mgr.create_snapshot(args.base)
+                head_analysis, head_sha, head_is_wt = snap_mgr.create_snapshot(args.head)
+                git_renames = snap_mgr.find_git_renames(args.base, args.head)
+
+                guardian_contract: ArchitectureContract | None = None
+                c_file = Path(args.contract).resolve() if args.contract else find_contract_file(target_path)
+                if c_file and c_file.exists():
+                    guardian_contract = load_contract_file(c_file)
+
+                mode_override = ContractMode(args.mode) if args.mode else None
+                guardian = PRArchitectureGuardian(
+                    contract=guardian_contract,
+                    baseline=args.baseline,
+                    mode_override=mode_override,
+                )
+                guardian_report = guardian.assess(
+                    base_analysis=base_analysis,
+                    head_analysis=head_analysis,
+                    base_ref=args.base,
+                    head_ref=args.head,
+                    base_commit_sha=base_sha,
+                    head_commit_sha=head_sha,
+                    base_is_working_tree=base_is_wt,
+                    head_is_working_tree=head_is_wt,
+                    git_renames=git_renames,
+                )
+            except Exception as exc:
+                print(f"[ERROR] PR Guardian evaluation failed: {exc}", file=sys.stderr)
+                return 2
+
+            if args.format == "json":
+                output_text = guardian_report.model_dump_json(indent=2)
+            elif args.format == "markdown":
+                output_text = guardian_report.summary_markdown
+            else:
+                output_text = guardian_report.summary_markdown
+
+            if args.output:
+                out_p = Path(args.output)
+                out_p.parent.mkdir(parents=True, exist_ok=True)
+                out_p.write_text(output_text, encoding="utf-8")
+                print(f"Guardian report written to {out_p}")
+            else:
+                print(output_text)
+
+            return guardian_report.exit_code
+
+    if args.command == "passport":
+        if args.passport_action == "generate":
+            try:
+                target_path = Path(args.target).resolve()
+                stype = _detect_source_type(str(target_path))
+                analysis = run_repository_analysis(ScanRequest(source_type=stype, target=str(target_path)))
+                c_file = Path(args.contract).resolve() if args.contract else find_contract_file(target_path)
+                passport_contract: ArchitectureContract | None = (
+                    load_contract_file(c_file) if c_file and c_file.exists() else None
+                )
+
+                git_rev = "HEAD"
+                try:
+                    snap_mgr = SnapshotManager(target_path)
+                    git_rev, _, _ = snap_mgr.resolve_commit_metadata("HEAD")
+                except Exception:
+                    git_rev = "working_tree"
+
+                passport = generate_repository_passport(
+                    analysis=analysis,
+                    git_revision=git_rev,
+                    contract=passport_contract,
+                    max_modules=args.max_modules,
+                )
+            except Exception as exc:
+                print(f"[ERROR] Failed to generate passport: {exc}", file=sys.stderr)
+                return 1
+
+            if args.format == "markdown":
+                output_text = export_passport_to_markdown(passport)
+            else:
+                output_text = export_passport_to_json(passport)
+
+            if args.output:
+                out_p = Path(args.output).resolve()
+                out_p.parent.mkdir(parents=True, exist_ok=True)
+                out_p.write_text(output_text, encoding="utf-8")
+                print(f"Repository passport written to {out_p}")
+            elif args.format == "json":
+                default_p = target_path / ".repodna" / "passport.json"
+                default_p.parent.mkdir(parents=True, exist_ok=True)
+                default_p.write_text(output_text, encoding="utf-8")
+                print(f"Repository passport generated at: {default_p}")
+            else:
+                print(output_text)
+            return 0
+
+        if args.passport_action == "validate":
+            try:
+                target_p = Path(args.path or (Path.cwd() / ".repodna" / "passport.json")).resolve()
+                passport = validate_passport_file(target_p)
+                print(
+                    f"Valid Repository Passport: '{target_p}' (Schema v{passport.schema_version}, "
+                    f"Repo='{passport.repo_name}', Revision='{passport.git_revision}', "
+                    f"Modules={len(passport.module_inventory)}, Health={passport.architecture_health.score} "
+                    f"Grade {passport.architecture_health.grade})"
+                )
+                return 0
+            except Exception as exc:
+                print(f"[ERROR] Passport validation failed: {exc}", file=sys.stderr)
+                return 1
 
     return 1
 

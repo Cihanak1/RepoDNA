@@ -17,10 +17,19 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from repodna.contract.evaluator import ContractEvaluator
+from repodna.contract.loader import find_contract_file, load_contract_file
+from repodna.contract.models import ContractMode
 from repodna.core.analyzer import run_repository_analysis
 from repodna.diff.engine import ArchitectureDiffEngine
 from repodna.diff.snapshot import SnapshotManager
+from repodna.guardian.engine import PRArchitectureGuardian
 from repodna.intelligence.service import RepositoryIntelligenceService
+from repodna.passport.generator import (
+    export_passport_to_json,
+    export_passport_to_markdown,
+    generate_repository_passport,
+)
 from repodna.schemas.models import AnalysisResult, ScanLimits, ScanRequest, SourceType
 from repodna.security.validators import SecurityValidationError, validate_local_directory
 
@@ -39,7 +48,7 @@ except Exception:
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "repodna-mcp"
-SERVER_VERSION = "0.3.0"
+SERVER_VERSION = "0.4.0"
 
 RELEVANT_EXTENSIONS = {
     ".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
@@ -364,6 +373,113 @@ class RepoDNAMCPServer:
         report["cache_status"] = self.get_last_cache_report()
         return json.dumps(report, indent=2)
 
+    def tool_get_passport(
+        self,
+        target: str,
+        max_modules: int = 150,
+        format: str = "json",
+        force: bool = False,
+    ) -> str:
+        resolved, stype = self._resolve_target(target)
+        analysis = self.get_analysis(target, force=force)
+        contract = None
+        git_rev = "HEAD"
+        if stype == SourceType.LOCAL and isinstance(resolved, Path):
+            c_file = find_contract_file(resolved)
+            if c_file:
+                try:
+                    contract = load_contract_file(c_file)
+                except Exception as exc:
+                    _log(f"Warning: Failed to load contract '{c_file}': {exc}")
+            try:
+                snap_mgr = SnapshotManager(resolved)
+                git_rev, _, _ = snap_mgr.resolve_commit_metadata("HEAD")
+            except Exception:
+                git_rev = "working_tree"
+
+        passport = generate_repository_passport(
+            analysis=analysis,
+            git_revision=git_rev,
+            contract=contract,
+            max_modules=max_modules,
+        )
+        if format.lower() == "markdown":
+            return export_passport_to_markdown(passport)
+        return export_passport_to_json(passport)
+
+    def tool_get_contract(self, target: str, format: str = "yaml") -> str:
+        resolved, stype = self._resolve_target(target)
+        if stype != SourceType.LOCAL or not isinstance(resolved, Path):
+            return json.dumps({"has_contract": False, "message": "Contracts are only supported for local repositories."})
+        c_file = find_contract_file(resolved)
+        if not c_file:
+            return json.dumps({"has_contract": False, "message": "No .repodna/architecture.yml found in repository."})
+        content = c_file.read_text(encoding="utf-8", errors="replace")
+        if format.lower() == "json":
+            contract = load_contract_file(c_file)
+            return contract.model_dump_json(indent=2)
+        return content
+
+    def tool_check_contract(
+        self,
+        target: str,
+        mode: str | None = None,
+        force: bool = False,
+    ) -> str:
+        resolved, stype = self._resolve_target(target)
+        if stype != SourceType.LOCAL or not isinstance(resolved, Path):
+            return json.dumps({"error": "Contract checks require a local repository."})
+        c_file = find_contract_file(resolved)
+        if not c_file:
+            return json.dumps({"has_contract": False, "message": "No .repodna/architecture.yml found in repository. Run 'repodna contract init' to create one."})
+        contract = load_contract_file(c_file)
+        analysis = self.get_analysis(target, force=force)
+        mode_override = ContractMode(mode) if mode else None
+        evaluator = ContractEvaluator(contract=contract, mode_override=mode_override)
+        report = evaluator.evaluate(analysis)
+        return report.model_dump_json(indent=2)
+
+    def tool_pr_guardian(
+        self,
+        target: str,
+        base_ref: str = "HEAD~1",
+        head_ref: str = "HEAD",
+        mode: str | None = None,
+        format: str = "json",
+    ) -> str:
+        resolved, stype = self._resolve_target(target)
+        if stype != SourceType.LOCAL or not isinstance(resolved, Path):
+            return json.dumps({"error": "PR Guardian requires a local Git repository."})
+        snap_mgr = SnapshotManager(resolved)
+        base_analysis, base_sha, base_is_wt = snap_mgr.create_snapshot(base_ref)
+        head_analysis, head_sha, head_is_wt = snap_mgr.create_snapshot(head_ref)
+        git_renames = snap_mgr.find_git_renames(base_ref, head_ref)
+
+        contract = None
+        c_file = find_contract_file(resolved)
+        if c_file:
+            try:
+                contract = load_contract_file(c_file)
+            except Exception as exc:
+                _log(f"Warning: could not load contract '{c_file}': {exc}")
+
+        mode_override = ContractMode(mode) if mode else None
+        guardian = PRArchitectureGuardian(contract=contract, mode_override=mode_override)
+        report = guardian.assess(
+            base_analysis=base_analysis,
+            head_analysis=head_analysis,
+            base_ref=base_ref,
+            head_ref=head_ref,
+            base_commit_sha=base_sha,
+            head_commit_sha=head_sha,
+            base_is_working_tree=base_is_wt,
+            head_is_working_tree=head_is_wt,
+            git_renames=git_renames,
+        )
+        if format.lower() == "markdown":
+            return report.summary_markdown
+        return report.model_dump_json(indent=2)
+
     # -------------------------------------------------------------------------
     # Official Python MCP SDK Server Setup
     # -------------------------------------------------------------------------
@@ -402,6 +518,22 @@ class RepoDNAMCPServer:
         @self._official_server.tool(name="repodna_analysis_coverage", description="Returns full AST vs partial static language coverage, unverified rules, and honesty guarantees.")
         def _mcp_coverage(target: str, force: bool = False) -> str:
             return self.tool_analysis_coverage(target=target, force=force)
+
+        @self._official_server.tool(name="repodna_get_passport", description="Retrieves portable Repository Passport containing structural identity, AST coverage, hubs, and contracts.")
+        def _mcp_passport(target: str, max_modules: int = 150, format: str = "json", force: bool = False) -> str:
+            return self.tool_get_passport(target=target, max_modules=max_modules, format=format, force=force)
+
+        @self._official_server.tool(name="repodna_get_contract", description="Returns declared repository Architecture Contract rules and boundary policies from .repodna/architecture.yml.")
+        def _mcp_get_contract(target: str, format: str = "yaml") -> str:
+            return self.tool_get_contract(target=target, format=format)
+
+        @self._official_server.tool(name="repodna_check_contract", description="Evaluates repository against architecture contract rules, reporting violations, baseline items, and unknowns.")
+        def _mcp_check_contract(target: str, mode: str | None = None, force: bool = False) -> str:
+            return self.tool_check_contract(target=target, mode=mode, force=force)
+
+        @self._official_server.tool(name="repodna_pr_guardian", description="Continuous architectural assessment between base and head Git revisions for PR review with pass/fail verdict.")
+        def _mcp_guardian(target: str, base_ref: str = "HEAD~1", head_ref: str = "HEAD", mode: str | None = None, format: str = "json") -> str:
+            return self.tool_pr_guardian(target=target, base_ref=base_ref, head_ref=head_ref, mode=mode, format=format)
 
     def run(self, transport: str = "stdio") -> None:
         """Runs the server. Enforces official Python MCP SDK as standard."""
@@ -522,6 +654,58 @@ class RepoDNAMCPServer:
                     "required": ["target"],
                 },
             },
+            {
+                "name": "repodna_get_passport",
+                "description": "Retrieves portable Repository Passport containing structural identity, AST coverage, hubs, and contracts.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": {"type": "string", "description": "Local path or 'demo'."},
+                        "max_modules": {"type": "integer", "default": 150},
+                        "format": {"type": "string", "enum": ["json", "markdown"], "default": "json"},
+                    },
+                    "required": ["target"],
+                },
+            },
+            {
+                "name": "repodna_get_contract",
+                "description": "Returns declared repository Architecture Contract rules and boundary policies from .repodna/architecture.yml.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": {"type": "string", "description": "Local path."},
+                        "format": {"type": "string", "enum": ["yaml", "json"], "default": "yaml"},
+                    },
+                    "required": ["target"],
+                },
+            },
+            {
+                "name": "repodna_check_contract",
+                "description": "Evaluates repository against architecture contract rules, reporting violations, baseline items, and unknowns.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": {"type": "string", "description": "Local path."},
+                        "mode": {"type": "string", "enum": ["advisory", "enforce"]},
+                    },
+                    "required": ["target"],
+                },
+            },
+            {
+                "name": "repodna_pr_guardian",
+                "description": "Continuous architectural assessment between base and head Git revisions for PR review with pass/fail verdict.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": {"type": "string", "description": "Local Git repository directory."},
+                        "base_ref": {"type": "string", "default": "HEAD~1"},
+                        "head_ref": {"type": "string", "default": "HEAD"},
+                        "mode": {"type": "string", "enum": ["advisory", "enforce"]},
+                        "format": {"type": "string", "enum": ["json", "markdown"], "default": "json"},
+                    },
+                    "required": ["target"],
+                },
+            },
         ]
 
     def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -586,6 +770,32 @@ class RepoDNAMCPServer:
                 )
             elif name in ("repodna_analysis_coverage", "repodna_explain_health"):
                 content = self.tool_analysis_coverage(target=target, force=force)
+            elif name in ("repodna_get_passport", "repodna_passport"):
+                content = self.tool_get_passport(
+                    target=target,
+                    max_modules=int(arguments.get("max_modules", 150)),
+                    format=arguments.get("format", "json"),
+                    force=force,
+                )
+            elif name in ("repodna_get_contract", "repodna_contract"):
+                content = self.tool_get_contract(
+                    target=target,
+                    format=arguments.get("format", "yaml"),
+                )
+            elif name in ("repodna_check_contract", "repodna_contract_check"):
+                content = self.tool_check_contract(
+                    target=target,
+                    mode=arguments.get("mode"),
+                    force=force,
+                )
+            elif name in ("repodna_pr_guardian", "repodna_guardian"):
+                content = self.tool_pr_guardian(
+                    target=target,
+                    base_ref=arguments.get("base_ref", "HEAD~1"),
+                    head_ref=arguments.get("head_ref", "HEAD"),
+                    mode=arguments.get("mode"),
+                    format=arguments.get("format", "json"),
+                )
             else:
                 return {
                     "isError": True,

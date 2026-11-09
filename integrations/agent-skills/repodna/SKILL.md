@@ -1,17 +1,17 @@
 ---
 name: repodna
-description: "Evidence-based repository intelligence platform for architecture discovery, dependency graph tracing, change impact blast radius, circular dependency detection, and git architecture diffing."
+description: "Evidence-based repository intelligence platform for architecture discovery, dependency graph tracing, change impact blast radius, circular dependency detection, PR architecture guarding, and architecture contract enforcement."
 ---
 
-# RepoDNA — AI-Native Repository Intelligence
+# RepoDNA — AI-Native Repository Intelligence (v0.4.0)
 
-RepoDNA provides deterministic, read-only architectural intelligence for AI coding agents. It extracts Tree-sitter AST dependency graphs, calculates Robert C. Martin instability metrics, detects circular dependency cycles (Tarjan SCC), verifies architectural health rules, and computes commit-level architecture diffs.
+RepoDNA provides deterministic, read-only architectural intelligence for AI coding agents. It extracts Tree-sitter AST dependency graphs, calculates Robert C. Martin instability metrics, detects circular dependency cycles (Tarjan SCC), verifies architectural health rules, evaluates declarative Architecture Contracts (`.repodna/architecture.yml`), guards Pull Requests (`repodna_pr_guardian`), and serves portable Repository Passports (`.repodna/passport.json`).
 
 ---
 
 ## 1. Fast Routing & Tool Invocation Matrix
 
-RepoDNA provides 8 read-only tools via MCP (or CLI fallback). Call only the specific tool required for your task:
+RepoDNA provides 12 read-only tools via MCP (or CLI fallback). Call only the specific tool required for your task:
 
 | Tool Name | When to Use | Key Arguments | Return Value & Purpose |
 | :--- | :--- | :--- | :--- |
@@ -23,117 +23,95 @@ RepoDNA provides 8 read-only tools via MCP (or CLI fallback). Call only the spec
 | `repodna_architecture_diff` | Compare architecture between two git revisions | `target="."`, `base_ref="HEAD~1"`, `head_ref="HEAD"` | Cycle regressions, structural deltas, health score delta |
 | `repodna_change_impact` | **Pre-edit safety check** (Change Guardian) | `target="."`, `changed_files=["..."]` | Blast radius, affected dependents, severity level |
 | `repodna_analysis_coverage` | Verify AST coverage & unsupported languages | `target="."` | Language coverage ratio, unverified rules, honest N/A |
+| `repodna_get_passport` | **Repository Passport** structural identity & vitals | `target="."`, `max_modules=150`, `format="json"` | Complete portable manifest (hubs, coverage, contracts) |
+| `repodna_get_contract` | Read declared architecture rules & layer boundaries | `target="."`, `format="yaml"` | Active rules from `.repodna/architecture.yml` |
+| `repodna_check_contract` | Verify compliance against architecture contract | `target="."`, `mode="enforce"` (opt) | Violations, baseline items, unknowns, compliant status |
+| `repodna_pr_guardian` | **PR Architecture Guardian** (Pass/Fail gate) | `target="."`, `base_ref="main"`, `head_ref="HEAD"` | New cycles, new violations, baseline diff, risk verdict |
 
 ---
 
-## 2. Five Real User Questions & Exact Guides (TR / EN)
+## 2. Core Questions & Exact Agent Guides (TR / EN)
 
-### Q1: Codebase Purpose & Architecture / "Bu repository ne işe yarıyor ve mimarisi nasıl?"
-- **Action:** Call `repodna_repository_overview(target=".")`. If package structure is complex, call `repodna_architecture_map(target=".", level="clusters")`.
-- **Response Structure:** 
-  1. Primary programming languages and AST coverage percentage.
-  2. Identified architectural hubs (highest Fan-In modules).
-  3. Identified cycles (Tarjan SCC count).
-  4. Core entrypoints and module layering.
-
-### Q2: Locating Feature Files / "Kullanıcı girişiyle ilgili dosyaları bul"
-- **Action:** Call `repodna_find_modules(target=".", query="auth login session user credentials", limit=5)`.
+### Q1: PR Architectural Safety / "Bu PR mimari açıdan güvenli mi?"
+- **Action:** Call `repodna_pr_guardian(target=".", base_ref="main", head_ref="HEAD")`.
 - **Response Structure:**
-  1. Highlight top matching file paths ranked by AST symbol relevance.
-  2. Mention coupling metrics (Fan-In / Fan-Out) so the user knows which file is core vs peripheral.
-  3. Do NOT sweep the directory tree with raw grep when RepoDNA returns direct matches.
+  1. **Verdict:** `PASS`, `WARNING`, `FAIL`, or `INCONCLUSIVE`.
+  2. **Risk Assessment:** Score (0-100) and risk factors (e.g. new cycles, coupling surge on hubs).
+  3. **New vs Baseline Violations:** State clearly that baseline violations are not counted against this PR.
+  4. **Circular Dependencies:** Confirm whether `new_cycles` is 0 or lists offending paths.
 
-### Q3: Blast Radius Assessment / "X dosyasını değiştirirsem nereler etkilenir?"
-- **Action:** Call `repodna_change_impact(target=".", changed_files=["path/to/X"])`.
+### Q2: Circular Dependency Regression / "Değişiklik yeni bir circular dependency oluşturuyor mu?"
+- **Action:** Check `new_cycles` in `repodna_pr_guardian` or `repodna_architecture_diff`.
 - **Response Structure:**
-  1. **Severity:** `CRITICAL` (hub module or cycle participant), `WARNING` (direct consumers affected), or `INFO` (isolated leaf node).
-  2. **Direct Dependents:** List internal modules importing `X`.
-  3. **Transitive Blast Radius:** Downstream modules indirectly impacted.
-  4. **Recommended Safeguard:** Specific test files to execute before committing changes.
+  1. If `new_cycles` is non-empty, list each exact loop (e.g., `A -> B -> C -> A`).
+  2. Explain the root import edge causing the cycle.
+  3. Provide concrete remediation (extract common interface or apply Dependency Inversion Principle).
 
-### Q4: Commit & PR Risk Check / "Son iki commit arasında mimari bir risk oluştu mu?"
-- **Action:** Call `repodna_architecture_diff(target=".", base_ref="HEAD~1", head_ref="HEAD")`.
+### Q3: Architectural Contract Violations / "Projenin mimari kurallarına aykırı dosyalar hangileri?"
+- **Action:** Call `repodna_check_contract(target=".")`.
 - **Response Structure:**
-  1. **Verdict:** `IMPROVED`, `NEUTRAL`, or `REGRESSED`.
-  2. **Cycle Delta:** Check `cycle_changes.new_cycles`. Any new circular dependency is a critical blocker.
-  3. **Health Score Delta:** Note whether health points increased or decreased.
-  4. **Structural Changes:** Added/removed modules and Git-verified renames.
+  1. List triggered violations with `rule_id`, source file, target file, and line number.
+  2. Distinguish newly introduced violations from existing baseline items.
+  3. Disclose any `unknowns` caused by unresolvable imports or unsupported languages.
 
-### Q5: Circular Dependency Audit / "Döngüsel bağımlılık var mı?"
-- **Action:** Call `repodna_module_findings(target=".", rule_id="ARCH-001")`.
+### Q4: Architecture Contract Discovery / "Bu repository'nin Architecture Contract dosyası var mı?"
+- **Action:** Call `repodna_get_contract(target=".")`.
 - **Response Structure:**
-  1. Return cycle count and exact cycle chains (e.g., `A -> B -> C -> A`).
-  2. Provide deterministic remediation (e.g., extract shared interface or apply Dependency Inversion Principle).
-  3. If 0 cycles, confirm mathematical Tarjan SCC proof.
+  1. If contract exists, summarize the policy mode (`advisory` vs `enforce`), rules count, and key boundaries.
+  2. If missing, recommend running `repodna contract init` to establish `.repodna/architecture.yml`.
+
+### Q5: Repository Passport Inspection / "Bu projenin Repository Passport bilgisi nedir?"
+- **Action:** Call `repodna_get_passport(target=".", format="json")`.
+- **Freshness Invariant:** Inspect `git_revision` in the passport against active `HEAD`. If different, note that manifest is stale or query with `force=True`.
+- **Response Structure:**
+  1. Summary of primary languages, AST coverage percentage, and health grade.
+  2. Top architectural hubs (highest fan-in modules).
+  3. Active architecture boundaries and contract status.
+
+### Q6: Pre-Edit Boundary Safeguards / "Bu modülü değiştirmeden önce hangi mimari sınırları korumalıyım?"
+- **Action:** Call `repodna_get_contract(target=".")` to find rules matching this file, and `repodna_change_impact(target=".", changed_files=[file_path])`.
+- **Response Structure:**
+  1. List forbidden import targets governed by `.repodna/architecture.yml`.
+  2. List direct and transitive dependents importing this module.
+  3. Instability rating ($I = Ce / (Ca + Ce)$) to caution against making an abstract module unstable.
 
 ---
 
 ## 3. CLI Fallback Instructions (When MCP is Unavailable)
-If the MCP client cannot establish a connection, stdio transport fails, or you are running in a CLI-only environment:
 
-### A. Targeted Agent Context (`repodna context`)
-Supports three calibrated density modes:
-- `--mode compact`: Executive high-level summary, key architectural hubs, and cycle count (lowest token footprint).
-- `--mode focused`: Keyword/symbol-targeted context focusing on matching files and their immediate dependencies (requires `--query`).
-- `--mode deep`: Full architectural breakdown including module coupling metrics, dependency edges, and complete findings.
-
+### A. Architecture Contract CLI
 ```bash
-# High-level architecture overview
-repodna context --mode compact
+# Initialize starter contract
+repodna contract init
 
-# Feature-targeted context
-repodna context --mode focused --query "auth security"
+# Validate YAML syntax and schema
+repodna contract validate
 
-# Deep comprehensive context with token budget
-repodna context --mode deep --max-tokens 4000
+# Check repository against contract rules
+repodna contract check . --mode enforce --format json
 ```
 
-### B. Architecture Diff (`repodna diff`)
+### B. PR Architecture Guardian CLI
 ```bash
-# Compare last two commits
-repodna diff HEAD~1 HEAD
-
-# Compare working tree against HEAD
-repodna diff HEAD working_tree
+# Evaluate PR between base and head
+repodna guardian check . --base origin/main --head HEAD --format markdown --output guardian-report.md
 ```
 
-### C. Terminal Analysis (`repodna analyze`)
+### C. Repository Passport CLI
 ```bash
-repodna analyze . --format table
-repodna analyze . --format json
-```
+# Generate passport manifest
+repodna passport generate . --max-modules 200
 
-### D. Diagnostic & Repair (`repodna doctor`, `repodna setup`)
-```bash
-# Diagnose environment, grammars, and agent integrations
-repodna doctor
-
-# Repair or refresh missing agent configs idempotently
-repodna setup --repair
+# Validate passport schema
+repodna passport validate .repodna/passport.json
 ```
 
 ---
 
-## 4. Cache Invalidation, Boundaries & Performance
-- **Disk Synchronization:** RepoDNA analyses are indexed against repository state.
-- **When to Refresh:** If you edit, rename, add, or delete files on disk during a session, subsequent queries with `target="."` will automatically re-index modified files.
-- **Deterministic Content Guarantee:** For repositories containing up to 300 files, RepoDNA computes Blake2b content hashes on every file, providing a 100% mathematical guarantee against same-size same-timestamp modifications. For repositories exceeding 300 files, fast incremental stat caching `(size, mtime_ns)` is used; pass `force=True` on any tool to force full cache bypass.
-- **Git Commit Transitions:** After running `git checkout`, `git commit`, or `git rebase`, invoke `repodna_repository_overview` to refresh the cached architecture graph against the new HEAD.
-- **Restricted Local Workspace Boundary:** RepoDNA operates under a strict read-only local boundary. The MCP server rejects access to any directory outside authorized `--allowed-root` paths or unconfigured system roots / home directories with `ROOT_VIOLATION`.
-
----
-
-## 5. Unsupported Languages & N/A Honesty Principle
+## 4. Unsupported Languages & Honesty Principle
 - **Supported Full AST Grammars:** Python, TypeScript, JavaScript, Go, Rust.
 - **Partially Supported / Unsupported Languages (e.g. C#, PHP, Ruby):**
-  - RepoDNA tracks file count and LOC, but does not hallucinate unresolved import graphs.
-  - Architecture health score will report: `N/A (Insufficient dependency coverage)`.
-  - Rules depending on call graphs (`ARCH-001` through `ARCH-004`) are cataloged under `unverified_rules`.
-  - **Never** claim 100/100 health or 0 cycles for codebases with unsupported languages. State clearly: *"Sağlık puanı N/A çünkü bu dilde AST bağımlılık çözümleme desteği mevcut değildir."*
-
----
-
-## 6. Detailed References
-For in-depth mathematical formulations and rules catalogs:
-- [Architecture Rules & Coupling Reference](references/architecture-rules.md)
-- [Practical Agent Workflows](examples/workflows.md)
+  - RepoDNA tracks LOC and file counts, but does NOT guess unparsed imports.
+  - If AST coverage is below 50%, dependency-graph rules report `insufficient_dependency_coverage`.
+  - Guardian reports `INCONCLUSIVE` if AST coverage collapsed.
+  - **Never** give a false positive safety clearance when AST coverage is insufficient.
