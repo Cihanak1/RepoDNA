@@ -7,6 +7,13 @@ import json
 import sys
 from pathlib import Path
 
+from repodna.brain.indexer import SymbolIndexer
+from repodna.brain.models import (
+    EvidenceLedgerResponse,
+    SearchResponse,
+    SymbolQueryResponse,
+)
+from repodna.brain.retrieval import SmartRetrievalEngine
 from repodna.cli.installer import AgentInstaller, run_doctor
 from repodna.context.builder import AgentContextBuilder
 from repodna.contract import (
@@ -40,6 +47,71 @@ def _detect_source_type(target: str) -> SourceType:
     if cleaned.startswith(("http://", "https://", "git://", "ssh://", "file://")):
         return SourceType.GITHUB
     return SourceType.LOCAL
+
+
+def _format_search_table(response: SearchResponse) -> str:
+    lines = [
+        "=" * 76,
+        f"RepoDNA Code Search — Query: '{response.query}' (Intent: {response.query_intent})",
+        "=" * 76,
+        f"Total Matches : {response.total_matches} module(s)",
+        f"Keywords      : {', '.join(response.tokens_evaluated)}",
+        "-" * 76,
+    ]
+    if not response.matches:
+        lines.append("No matching modules found.")
+    for i, m in enumerate(response.matches, 1):
+        hub_flag = " [HUB]" if m.is_hub else ""
+        cycle_flag = " [IN CYCLE]" if m.in_cycle else ""
+        comment_flag = " [COMMENT ONLY]" if m.is_comment_only_match else ""
+        lines.append(f"{i}. {m.file_id} (Score: {m.score:.1f}, Tier: {m.relevance_tier}){hub_flag}{cycle_flag}{comment_flag}")
+        lines.append(f"   Language: {m.language} | LOC: {m.lines_code} | Fan-In: {m.fan_in} | Fan-Out: {m.fan_out}")
+        if m.match_reasons:
+            lines.append(f"   Why: {'; '.join(m.match_reasons)}")
+        if m.matched_symbols:
+            sym_strs = [f"{s.kind.value} {s.name}:{s.line_start}" for s in m.matched_symbols[:4]]
+            lines.append(f"   Symbols: {', '.join(sym_strs)}")
+        if m.snippet:
+            lines.append(f"   Snippet: {m.snippet.splitlines()[0][:70]}")
+        lines.append("-" * 76)
+    lines.append(response.summary_text)
+    lines.append("=" * 76)
+    return "\n".join(lines)
+
+
+def _format_symbols_table(response: SymbolQueryResponse) -> str:
+    lines = [
+        "=" * 76,
+        f"RepoDNA Symbol Index — {response.total_symbols} symbol(s)",
+        "=" * 76,
+        f"{'KIND':<10} | {'NAME':<24} | {'LOCATION':<36}",
+        "-" * 76,
+    ]
+    for s in response.symbols:
+        loc = f"{s.file_path}:{s.line_start}"
+        container = f" ({s.container_name})" if s.container_name else ""
+        name_disp = f"{s.name}{container}"[:24]
+        lines.append(f"{s.kind.value:<10} | {name_disp:<24} | {loc:<36}")
+    lines.append("=" * 76)
+    return "\n".join(lines)
+
+
+def _format_evidence_table(response: EvidenceLedgerResponse) -> str:
+    lines = [
+        "=" * 76,
+        f"RepoDNA Evidence Ledger — {response.total_evidence} Citation(s) ({response.stale_count} Stale)",
+        "=" * 76,
+        f"{'EVIDENCE ID':<14} | {'TYPE':<20} | {'LOCATION':<36}",
+        "-" * 76,
+    ]
+    for ev in response.evidence_items:
+        loc = f"{ev.file_path}:{ev.line_start}-{ev.line_end}"
+        stale = " [STALE]" if ev.is_stale else ""
+        lines.append(f"{ev.evidence_id:<14} | {ev.evidence_type.value:<20} | {loc:<36}{stale}")
+        if ev.confidence_reason:
+            lines.append(f"   Reason: {ev.confidence_reason}")
+    lines.append("=" * 76)
+    return "\n".join(lines)
 
 
 def _format_summary_table(result: AnalysisResult) -> str:
@@ -254,6 +326,36 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     p_val = p_sub.add_parser("validate", help="Validate passport.json schema and integrity.")
     p_val.add_argument("path", nargs="?", default=None, help="Path to passport.json (default: .repodna/passport.json).")
+
+    # 10. search
+    search_p = sub.add_parser("search", help="Smart Context Retrieval across code and architecture.")
+    search_p.add_argument("query", help="Natural language or technical code search query.")
+    search_p.add_argument("target", nargs="?", default=".", help="Target directory (default: .).")
+    search_p.add_argument("--kind", choices=["class", "function", "method", "interface", "type"], default=None, help="Filter by symbol kind.")
+    search_p.add_argument("--limit", type=int, default=10, help="Max results to return (default: 10).")
+    search_p.add_argument("--format", choices=["table", "json"], default="table", help="Output format.")
+    search_p.add_argument("--output", "-o", type=str, default=None, help="Optional output file path.")
+
+    # 11. symbols
+    symbols_p = sub.add_parser("symbols", help="Query Tree-sitter symbol index.")
+    symbols_p.add_argument("target", nargs="?", default=".", help="Target directory (default: .).")
+    symbols_p.add_argument("--name", type=str, default=None, help="Symbol name.")
+    symbols_p.add_argument("--kind", choices=["class", "function", "method", "interface", "type", "struct"], default=None, help="Symbol kind.")
+    symbols_p.add_argument("--file", type=str, default=None, help="Filter by file path.")
+    symbols_p.add_argument("--container", type=str, default=None, help="Filter by container class name.")
+    symbols_p.add_argument("--limit", type=int, default=50, help="Max symbols to return.")
+    symbols_p.add_argument("--format", choices=["table", "json"], default="table", help="Output format.")
+    symbols_p.add_argument("--output", "-o", type=str, default=None, help="Optional output file path.")
+
+    # 12. evidence
+    evidence_p = sub.add_parser("evidence", help="Inspect and verify Evidence Ledger records.")
+    evidence_p.add_argument("target", nargs="?", default=".", help="Target directory (default: .).")
+    evidence_p.add_argument("--id", type=str, default=None, help="Evidence ID.")
+    evidence_p.add_argument("--file", type=str, default=None, help="Filter by file path.")
+    evidence_p.add_argument("--symbol", type=str, default=None, help="Filter by symbol name.")
+    evidence_p.add_argument("--limit", type=int, default=50, help="Max citations to list (default: 50).")
+    evidence_p.add_argument("--format", choices=["table", "json"], default="table", help="Output format.")
+    evidence_p.add_argument("--output", "-o", type=str, default=None, help="Optional output file path.")
 
     return parser
 
@@ -569,6 +671,93 @@ def main(argv: list[str] | None = None) -> int:
             except Exception as exc:
                 print(f"[ERROR] Passport validation failed: {exc}", file=sys.stderr)
                 return 1
+
+    if args.command == "search":
+        target_path = Path(args.target).resolve()
+        stype = _detect_source_type(str(target_path))
+        analysis = run_repository_analysis(ScanRequest(source_type=stype, target=str(target_path)))
+        indexer = SymbolIndexer(root_path=target_path, revision="HEAD", analysis=analysis)
+        indexer.index_all()
+        retrieval = SmartRetrievalEngine(indexer=indexer, analysis=analysis)
+        search_res = retrieval.search(query=args.query, limit=args.limit, kind=args.kind)
+        output_text = search_res.model_dump_json(indent=2) if args.format == "json" else _format_search_table(search_res)
+        if args.output:
+            out_p = Path(args.output).resolve()
+            out_p.parent.mkdir(parents=True, exist_ok=True)
+            out_p.write_text(output_text, encoding="utf-8")
+            print(f"Search results written to {out_p}")
+        else:
+            print(output_text)
+        return 0
+
+    if args.command == "symbols":
+        target_path = Path(args.target).resolve()
+        indexer = SymbolIndexer(root_path=target_path, revision="HEAD")
+        indexer.index_all()
+        if args.name:
+            matched = indexer.find_by_name(args.name, kind=args.kind, file_path=args.file, exact=False)
+            sym_res = SymbolQueryResponse(
+                total_symbols=len(matched),
+                symbols=matched[:args.limit],
+                summary_text=f"Found {len(matched)} symbol(s) matching '{args.name}'.",
+                filter_criteria={"name": args.name, "kind": args.kind, "file": args.file},
+            )
+        else:
+            sym_res = indexer.list_symbols(
+                kind=args.kind,
+                file_path=args.file,
+                container=args.container,
+                limit=args.limit,
+            )
+        output_text = sym_res.model_dump_json(indent=2) if args.format == "json" else _format_symbols_table(sym_res)
+        if args.output:
+            out_p = Path(args.output).resolve()
+            out_p.parent.mkdir(parents=True, exist_ok=True)
+            out_p.write_text(output_text, encoding="utf-8")
+            print(f"Symbols written to {out_p}")
+        else:
+            print(output_text)
+        return 0
+
+    if args.command == "evidence":
+        target_path = Path(args.target).resolve()
+        indexer = SymbolIndexer(root_path=target_path, revision="HEAD")
+        indexer.index_all()
+        ledger = indexer.ledger
+        if args.id:
+            ev = ledger.get_by_id(args.id)
+            ev_list = [ev] if ev else []
+            ev_res = EvidenceLedgerResponse(
+                total_evidence=len(ev_list),
+                evidence_items=ev_list,
+                summary_text=f"Evidence ID '{args.id}': {'Found' if ev else 'Not found'}",
+            )
+        elif args.file:
+            ev_list = ledger.find_by_file(args.file)
+            ev_res = EvidenceLedgerResponse(
+                total_evidence=len(ev_list),
+                evidence_items=ev_list[:args.limit],
+                summary_text=f"Found {len(ev_list)} evidence citation(s) for file '{args.file}'.",
+            )
+        elif args.symbol:
+            ev_list = ledger.find_by_symbol(args.symbol)
+            ev_res = EvidenceLedgerResponse(
+                total_evidence=len(ev_list),
+                evidence_items=ev_list[:args.limit],
+                summary_text=f"Found {len(ev_list)} evidence citation(s) for symbol '{args.symbol}'.",
+            )
+        else:
+            ev_res = ledger.to_response(limit=args.limit)
+
+        output_text = ev_res.model_dump_json(indent=2) if args.format == "json" else _format_evidence_table(ev_res)
+        if args.output:
+            out_p = Path(args.output).resolve()
+            out_p.parent.mkdir(parents=True, exist_ok=True)
+            out_p.write_text(output_text, encoding="utf-8")
+            print(f"Evidence written to {out_p}")
+        else:
+            print(output_text)
+        return 0
 
     return 1
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from repodna.brain.indexer import SymbolIndexer
+from repodna.brain.retrieval import SmartRetrievalEngine
 from repodna.context.models import AgentContextResponse
 from repodna.intelligence.service import RepositoryIntelligenceService
 from repodna.schemas.models import AnalysisResult
@@ -32,6 +34,7 @@ class AgentContextBuilder:
         page: int = 0,
         page_size: int = 15,
         revision: str = "HEAD",
+        indexer: SymbolIndexer | None = None,
     ) -> AgentContextResponse:
         service = RepositoryIntelligenceService(analysis)
         overview = service.get_repository_overview()
@@ -57,6 +60,7 @@ class AgentContextBuilder:
         }
 
         evidence: list[str] = []
+        evidence_records: list[dict[str, Any]] = []
         limitations: list[str] = []
         relevant_modules: list[dict[str, Any]] = []
 
@@ -73,9 +77,11 @@ class AgentContextBuilder:
                 f"Rules {cov.unverified_rules} could not be fully verified due to partial dependency coverage."
             )
 
+        # Raw code tokens calculation across candidate / total codebase
+        total_raw_code_tokens = sum(max(1, f.lines_code * 8) for f in analysis.files)
+
         if mode == "compact":
             summary = overview.summary_text
-            # Top modules: hubs first, then largest
             hubs_and_large = sorted(
                 analysis.files, key=lambda f: (-int(f.is_hub), -f.fan_in, -f.lines_code, f.id)
             )
@@ -97,7 +103,6 @@ class AgentContextBuilder:
                     }
                 )
 
-            # High-level evidence of any critical rule violations
             for finding in analysis.health_report.findings[:3]:
                 evidence.append(
                     f"[{finding.rule_id}] {finding.title} ({finding.severity.value.upper()}): {finding.remediation}"
@@ -107,28 +112,60 @@ class AgentContextBuilder:
 
         elif mode == "focused":
             if query:
-                matches_resp = service.find_relevant_modules(query, limit=page_size * (page + 1))
-                summary = matches_resp.summary_text
-                start_idx = page * page_size
-                paged_matches = matches_resp.matches[start_idx : start_idx + page_size]
-                has_more = (start_idx + page_size) < len(matches_resp.matches)
+                if indexer is not None:
+                    retrieval_engine = SmartRetrievalEngine(indexer=indexer, analysis=analysis)
+                    search_res = retrieval_engine.search(query=query, limit=page_size * (page + 1))
+                    summary = search_res.summary_text
+                    start_idx = page * page_size
+                    paged_matches = search_res.matches[start_idx : start_idx + page_size]
+                    has_more = (start_idx + page_size) < len(search_res.matches)
 
-                for m in paged_matches:
-                    node = service._files_by_id.get(m.file_id)
-                    relevant_modules.append(
-                        {
-                            "id": m.file_id,
-                            "language": m.language,
-                            "lines_code": node.lines_code if node else 0,
-                            "fan_in": m.fan_in,
-                            "fan_out": m.fan_out,
-                            "instability": node.instability if node else 0.0,
-                            "is_hub": m.is_hub,
-                            "in_cycle": m.in_cycle,
-                            "matching_symbols": [s.model_dump() for s in m.matching_symbols],
-                            "match_reasons": m.match_reasons,
-                        }
-                    )
+                    for m in paged_matches:
+                        relevant_modules.append(
+                            {
+                                "id": m.file_id,
+                                "language": m.language,
+                                "lines_code": m.lines_code,
+                                "fan_in": m.fan_in,
+                                "fan_out": m.fan_out,
+                                "is_hub": m.is_hub,
+                                "in_cycle": m.in_cycle,
+                                "relevance_score": m.score,
+                                "relevance_tier": m.relevance_tier,
+                                "match_reasons": m.match_reasons,
+                                "matching_symbols": [s.model_dump() for s in m.matched_symbols],
+                            }
+                        )
+                        for ev_item in m.evidence_items:
+                            evidence_records.append(ev_item.model_dump())
+                            evidence.append(f"[{ev_item.evidence_id}] {ev_item.file_path}:{ev_item.line_start} {ev_item.confidence_reason}")
+                else:
+                    matches_resp = service.find_relevant_modules(query, limit=page_size * (page + 1))
+                    summary = matches_resp.summary_text
+                    start_idx = page * page_size
+                    legacy_matches = matches_resp.matches[start_idx : start_idx + page_size]
+                    has_more = (start_idx + page_size) < len(matches_resp.matches)
+
+                    for lm in legacy_matches:
+                        node = service._files_by_id.get(lm.file_id)
+                        relevant_modules.append(
+                            {
+                                "id": lm.file_id,
+                                "language": lm.language,
+                                "lines_code": node.lines_code if node else 0,
+                                "fan_in": lm.fan_in,
+                                "fan_out": lm.fan_out,
+                                "is_hub": node.is_hub if node else False,
+                                "in_cycle": node.in_cycle if node else False,
+                                "cycle_ids": node.cycle_ids if node else [],
+                                "relevance_score": lm.relevance_score,
+                                "match_reasons": lm.match_reasons,
+                            }
+                        )
+                    for lm in legacy_matches:
+                        for reason in lm.match_reasons:
+                            evidence.append(f"[{lm.file_id}] {reason}")
+
             elif target_files:
                 impact = service.get_change_impact(target_files)
                 summary = impact.summary_text
@@ -190,8 +227,8 @@ class AgentContextBuilder:
                 )
 
             for finding in analysis.health_report.findings:
-                for ev in finding.evidence:
-                    evidence.append(f"[{finding.rule_id}] {ev}")
+                for ev_str in finding.evidence:
+                    evidence.append(f"[{finding.rule_id}] {ev_str}")
 
         continuation_token = f"page={page + 1}" if has_more else None
         truncated = has_more
@@ -204,7 +241,7 @@ class AgentContextBuilder:
                 repository=analysis.repo_name,
                 revision=revision,
                 generated_at=datetime.now(UTC),
-                analysis_version="0.3.0",
+                analysis_version="0.5.0",
                 mode=mode,
                 analysis_coverage=coverage_data,
                 confidence_level=cov.confidence,
@@ -212,16 +249,21 @@ class AgentContextBuilder:
                 summary=summary,
                 relevant_modules=relevant_modules,
                 evidence=evidence,
+                evidence_records=evidence_records,
                 limitations=limitations,
                 truncated=truncated,
                 continuation_token=continuation_token,
             )
             md_text = test_resp.as_markdown()
-            while len(md_text) > char_budget and len(relevant_modules) > 1:
-                relevant_modules.pop()
+            while len(md_text) > char_budget and (len(relevant_modules) > 1 or len(evidence_records) > 1):
+                if len(evidence_records) > 2:
+                    evidence_records.pop()
+                if len(relevant_modules) > 1:
+                    relevant_modules.pop()
                 truncated = True
                 continuation_token = f"page={page + 1}"
                 test_resp.relevant_modules = relevant_modules
+                test_resp.evidence_records = evidence_records
                 test_resp.truncated = truncated
                 test_resp.continuation_token = continuation_token
                 md_text = test_resp.as_markdown()
@@ -230,7 +272,7 @@ class AgentContextBuilder:
             repository=analysis.repo_name,
             revision=revision,
             generated_at=datetime.now(UTC),
-            analysis_version="0.3.0",
+            analysis_version="0.5.0",
             mode=mode,
             analysis_coverage=coverage_data,
             confidence_level=cov.confidence,
@@ -238,18 +280,24 @@ class AgentContextBuilder:
             summary=summary,
             relevant_modules=relevant_modules,
             evidence=evidence,
+            evidence_records=evidence_records,
             limitations=limitations,
             truncated=truncated,
             continuation_token=continuation_token,
         ).as_markdown()
 
         est_tokens = cls.estimate_tokens(final_md)
+        savings = (
+            max(0.0, (1.0 - (est_tokens / max(1, total_raw_code_tokens))) * 100.0)
+            if total_raw_code_tokens > est_tokens
+            else 0.0
+        )
 
         return AgentContextResponse(
             repository=analysis.repo_name,
             revision=revision,
             generated_at=datetime.now(UTC),
-            analysis_version="0.3.0",
+            analysis_version="0.5.0",
             mode=mode,
             analysis_coverage=coverage_data,
             confidence_level=cov.confidence,
@@ -257,8 +305,11 @@ class AgentContextBuilder:
             summary=summary,
             relevant_modules=relevant_modules,
             evidence=evidence,
+            evidence_records=evidence_records,
             limitations=limitations,
             truncated=truncated,
             continuation_token=continuation_token,
             estimated_tokens=est_tokens,
+            raw_tokens_estimate=total_raw_code_tokens,
+            token_savings_pct=round(savings, 1),
         )

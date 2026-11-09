@@ -13,7 +13,7 @@ class AgentContextResponse(BaseModel):
     repository: str
     revision: str
     generated_at: datetime
-    analysis_version: str = "0.3.0"
+    analysis_version: str = "0.5.0"
     mode: str = "compact"  # "compact", "focused", "deep"
     analysis_coverage: dict[str, Any]
     confidence_level: str
@@ -21,10 +21,13 @@ class AgentContextResponse(BaseModel):
     summary: str
     relevant_modules: list[dict[str, Any]] = Field(default_factory=list)
     evidence: list[str] = Field(default_factory=list)
+    evidence_records: list[dict[str, Any]] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
     truncated: bool = False
     continuation_token: str | None = None
     estimated_tokens: int = 0
+    raw_tokens_estimate: int = 0
+    token_savings_pct: float = 0.0
 
     def as_markdown(self) -> str:
         """Renders an agent-friendly, token-efficient Markdown document."""
@@ -32,11 +35,13 @@ class AgentContextResponse(BaseModel):
             f"# RepoDNA Context [{self.mode.upper()}] — {self.repository} ({self.revision})",
             f"**Confidence:** {self.confidence_level.upper()} | **Analysis Version:** v{self.analysis_version}",
             f"**AST Coverage:** {self.analysis_coverage.get('ast_loc_coverage_pct', 0.0):.1f}% LOC | **Languages:** {', '.join(self.analysis_coverage.get('supported_languages', [])) or 'None'}",
-            "",
-            "## Architectural Summary",
-            self.summary,
-            "",
         ]
+        if self.raw_tokens_estimate > 0:
+            lines.append(
+                f"**Token Budget:** ~{self.estimated_tokens:,} tokens "
+                f"({self.token_savings_pct:.1f}% reduction vs {self.raw_tokens_estimate:,} raw code tokens)"
+            )
+        lines.extend(["", "## Architectural Summary", self.summary, ""])
 
         if self.relevant_modules:
             lines.append(f"## Modules ({len(self.relevant_modules)})")
@@ -50,15 +55,33 @@ class AgentContextResponse(BaseModel):
                 if mod.get("is_hub"):
                     lines.append("  * 🏛️ Architectural Hub (high afferent coupling)")
                 if mod.get("matching_symbols"):
-                    sym_names = [str(s.get("name")) for s in mod.get("matching_symbols", []) if isinstance(s, dict) and s.get("name")]
+                    sym_names = [
+                        str(s.get("name")) for s in mod.get("matching_symbols", []) if isinstance(s, dict) and s.get("name")
+                    ]
                     if sym_names:
-                        lines.append(f"  * Symbols: {', '.join(sym_names[:4])}")
+                        lines.append(f"  * Verified Symbols: {', '.join(sym_names[:4])}")
+                if mod.get("match_reasons"):
+                    reasons = mod.get("match_reasons", [])
+                    if reasons:
+                        lines.append(f"  * Why relevant: {'; '.join(reasons[:2])}")
             lines.append("")
 
-        if self.evidence:
+        if self.evidence_records:
+            lines.append(f"## Evidence Citations ({len(self.evidence_records)})")
+            for ev in self.evidence_records:
+                ev_id = ev.get("evidence_id", "")
+                f_path = ev.get("file_path", "")
+                l_start = ev.get("line_start", 1)
+                l_end = ev.get("line_end", 1)
+                sym = ev.get("symbol_name") or ev.get("evidence_type", "")
+                conf = ev.get("confidence_reason", "")
+                stale_mark = " [STALE]" if ev.get("is_stale") else ""
+                lines.append(f"- `[{ev_id}]` `{f_path}:{l_start}-{l_end}` **{sym}**{stale_mark} — {conf}")
+            lines.append("")
+        elif self.evidence:
             lines.append(f"## Evidence & Violations ({len(self.evidence)})")
-            for ev in self.evidence:
-                lines.append(f"- {ev}")
+            for ev_str in self.evidence:
+                lines.append(f"- {ev_str}")
             lines.append("")
 
         if self.limitations:
@@ -69,7 +92,7 @@ class AgentContextResponse(BaseModel):
 
         if self.truncated:
             lines.append(
-                f"> ⚠️ **Response Truncated to fit token/char budget.** "
+                f"> ⚠️ **Response Truncated to fit token budget.** "
                 f"Next page continuation token: `{self.continuation_token}`"
             )
 
