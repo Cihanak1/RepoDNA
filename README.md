@@ -50,6 +50,14 @@ RepoDNA v0.4.0 introduces continuous architectural governance and safety gates f
 - **Precision Workstation UI:** Native Guardian Overview, Contract Inspector, and Passport Viewer tabs with bilingual (TR/EN) support.
 - **GitHub Actions Integration:** Production workflow template for automated PR architecture gating with zero host privilege escalation.
 
+### Architectural Verdict vs CI Exit Code
+
+RepoDNA explicitly decouples **engineering architecture verdict** from **CI process exit code**:
+- **Verdict (`PASS`, `WARNING`, `FAIL`, `INCONCLUSIVE`):** Reflects objective mathematical facts. A newly introduced circular dependency or an unsuppressed contract violation always receives a `FAIL` verdict.
+- **CI Gating Modes:**
+  - **Advisory Mode (`--mode advisory` — Default):** Informs developers of architectural regressions and risk factors in the PR Step Summary without failing the build (`exit 0`). Ensures non-blocking adoption for existing codebases.
+  - **Enforce Mode (`--mode enforce`):** Blocks CI pipelines (`exit 1`) when verified high-severity contract errors or new circular dependency cycles are introduced. Inconclusive coverage drops return exit code `2`.
+
 ---
 
 ## AI-Native Repository Intelligence (v0.3.0 Feature Suite)

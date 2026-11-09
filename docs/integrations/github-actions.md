@@ -23,9 +23,11 @@ When integrating Architecture Guardian into automated CI pipelines, security and
 
 ### 3. Pinned Dependency Installation
 - Always pin the Python version (`python-version: "3.12"`).
-- Prior to official PyPI release, install from the verified Git repository commit/tag:
-  `pip install "git+https://github.com/Cihanak1/RepoDNA.git@feat/v0.4-architecture-guardian#egg=repodna"`
-- Once v0.4.0+ is published to PyPI, you can alternatively use:
+- Prior to official PyPI release, install from the verified immutable commit SHA:
+  `pip install "git+https://github.com/Cihanak1/RepoDNA.git@f4b4b8f4c50803ffac42bec1047916c0d80c80b7#egg=repodna"`
+- Once v0.4.0 is tagged and released, install from the release tag:
+  `pip install "git+https://github.com/Cihanak1/RepoDNA.git@v0.4.0#egg=repodna"`
+- When published to PyPI, you can install the published package:
   `pip install "repodna>=0.4.0"`
 
 ---
@@ -59,12 +61,20 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Ensure Base and Head Commits are Available (Fork Safe)
+        run: |
+          git fetch origin ${{ github.event.pull_request.base.sha }}
+          git fetch origin ${{ github.event.pull_request.head.sha }}
+
       - name: Install RepoDNA
         run: |
           python -m pip install --upgrade pip
-          # Pinned Git distribution for verified pre-release stability:
-          python -m pip install "git+https://github.com/Cihanak1/RepoDNA.git@feat/v0.4-architecture-guardian#egg=repodna"
-          # (Once v0.4.0+ is published to PyPI: python -m pip install "repodna>=0.4.0")
+          # Pre-release installation pinned to verified immutable commit SHA:
+          python -m pip install "git+https://github.com/Cihanak1/RepoDNA.git@f4b4b8f4c50803ffac42bec1047916c0d80c80b7#egg=repodna"
+          # Once v0.4.0 is tagged:
+          # python -m pip install "git+https://github.com/Cihanak1/RepoDNA.git@v0.4.0#egg=repodna"
+          # Once on PyPI:
+          # python -m pip install "repodna>=0.4.0"
 
       - name: Run PR Architecture Guardian
         id: guardian
