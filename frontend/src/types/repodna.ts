@@ -332,6 +332,8 @@ export interface ContractEvaluationReport {
   rules_evaluated: number;
   rules_passed: string[];
   rules_violated: string[];
+  rules_unmatched?: string[];
+  rules_unknown?: string[];
   violations: ContractViolation[];
   new_violations: ContractViolation[];
   baseline_violations: ContractViolation[];
@@ -422,6 +424,8 @@ export interface GuardianReport {
   verdict_reason: string;
   risk_assessment: RiskAssessment;
   mode: ContractMode;
+  should_block_ci?: boolean;
+  exit_code?: number;
   added_modules: string[];
   removed_modules: string[];
   renamed_modules: RenamedModule[];
@@ -519,6 +523,8 @@ export interface RepositoryPassport {
   schema_version: string;
   repo_name: string;
   git_revision: string;
+  provenance_verified?: boolean;
+  revision_status?: string;
   analyzed_at: string;
   repodna_version: string;
   primary_languages: PassportLanguageItem[];

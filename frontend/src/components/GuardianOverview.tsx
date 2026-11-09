@@ -207,6 +207,15 @@ export const GuardianOverview: React.FC<GuardianOverviewProps> = ({
                 </span>
               </div>
               <div className="flex items-center gap-2 text-xs">
+                {report.should_block_ci ? (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase bg-red-500/15 text-red-600 border border-red-500/30">
+                    CI BLOCK (Exit 1)
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase bg-blue-500/15 text-blue-600 border border-blue-500/30">
+                    CI ADVISORY (Exit 0)
+                  </span>
+                )}
                 <span className="text-muted">{t('guardian.riskScore', 'Risk Score')}:</span>
                 <span className="font-bold text-ink">
                   {report.risk_assessment.risk_score} / 100

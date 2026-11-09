@@ -159,7 +159,14 @@ export const PassportViewer: React.FC<PassportViewerProps> = ({
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs border-t border-line/60 pt-3">
               <div>
                 <span className="text-muted">{t('passport.gitRevision', 'Git Revision')}:</span>
-                <div className="font-mono font-medium text-ink truncate mt-0.5">{passport.git_revision}</div>
+                <div className="font-mono font-medium text-ink truncate mt-0.5 flex items-center gap-1.5">
+                  <span className="truncate">{passport.git_revision}</span>
+                  {passport.provenance_verified ? (
+                    <span className="text-[9px] px-1 py-0.5 bg-emerald-500/15 text-emerald-600 rounded shrink-0">SHA</span>
+                  ) : (
+                    <span className="text-[9px] px-1 py-0.5 bg-amber-500/15 text-amber-600 rounded shrink-0">unverified</span>
+                  )}
+                </div>
               </div>
               <div>
                 <span className="text-muted">{t('passport.astCoverage', 'AST Coverage')}:</span>
