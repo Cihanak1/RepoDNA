@@ -21,14 +21,12 @@ When integrating Architecture Guardian into automated CI pipelines, security and
 - The Architecture Guardian action requires **zero secret tokens**. Do not pass personal access tokens (`PAT`) or organization secrets to the analysis runner.
 - Generated artifacts (job summary, Markdown diff, and `.repodna/passport.json`) never contain source code bodies or host environment variables.
 
-### 3. Pinned Dependency Installation
+### 3. Verified Dependency Installation
 - Always pin the Python version (`python-version: "3.12"`).
-- Prior to official PyPI release, install from the verified immutable commit SHA:
-  `pip install "git+https://github.com/Cihanak1/RepoDNA.git@f4b4b8f4c50803ffac42bec1047916c0d80c80b7#egg=repodna"`
-- Once v0.4.0 is tagged and released, install from the release tag:
-  `pip install "git+https://github.com/Cihanak1/RepoDNA.git@v0.4.0#egg=repodna"`
-- When published to PyPI, you can install the published package:
-  `pip install "repodna>=0.4.0"`
+- Install the official `v0.4.0` release directly from the Git tag:
+  `pip install "git+https://github.com/Cihanak1/RepoDNA.git@v0.4.0"`
+- Or install from the compiled release wheel attached to the GitHub Release:
+  `pip install repodna-0.4.0-py3-none-any.whl`
 
 ---
 
@@ -69,12 +67,8 @@ jobs:
       - name: Install RepoDNA
         run: |
           python -m pip install --upgrade pip
-          # Pre-release installation pinned to verified immutable commit SHA:
-          python -m pip install "git+https://github.com/Cihanak1/RepoDNA.git@f4b4b8f4c50803ffac42bec1047916c0d80c80b7#egg=repodna"
-          # Once v0.4.0 is tagged:
-          # python -m pip install "git+https://github.com/Cihanak1/RepoDNA.git@v0.4.0#egg=repodna"
-          # Once on PyPI:
-          # python -m pip install "repodna>=0.4.0"
+          # Official v0.4.0 release installation from Git tag:
+          python -m pip install "git+https://github.com/Cihanak1/RepoDNA.git@v0.4.0"
 
       - name: Run PR Architecture Guardian
         id: guardian
