@@ -19,7 +19,7 @@ from typing import Any
 
 from repodna.brain.indexer import SymbolIndexer
 from repodna.brain.retrieval import SmartRetrievalEngine
-from repodna.brain.tracer import SymbolTracer
+from repodna.brain.tracer import AmbiguousSymbolError, SymbolTracer
 from repodna.context.builder import AgentContextBuilder
 from repodna.contract.evaluator import ContractEvaluator
 from repodna.contract.loader import find_contract_file, load_contract_file
@@ -533,16 +533,34 @@ class RepoDNAMCPServer:
     def tool_trace_symbol(
         self,
         target: str,
-        symbol_name: str,
+        symbol_name: str | None = None,
+        symbol_id: str | None = None,
         file_path: str | None = None,
+        container_name: str | None = None,
         force: bool = False,
     ) -> str:
         resolved, _ = self._resolve_target(target)
         analysis = self.get_analysis(target, force=force)
         indexer = self._get_or_create_indexer(resolved, analysis)
         tracer = SymbolTracer(indexer=indexer, analysis=analysis)
-        res = tracer.trace_symbol(symbol_name=symbol_name, file_path=file_path)
-        return res.model_dump_json(indent=2)
+        try:
+            res = tracer.trace_symbol(
+                symbol_name=symbol_name,
+                symbol_id=symbol_id,
+                file_path=file_path,
+                container_name=container_name,
+                allow_ambiguous=False,
+            )
+            return res.model_dump_json(indent=2)
+        except AmbiguousSymbolError as amb:
+            return json.dumps(
+                {
+                    "error": "AMBIGUOUS_SYMBOL",
+                    "message": str(amb),
+                    "candidates": [c.model_dump() for c in amb.candidates],
+                },
+                indent=2,
+            )
 
     def tool_get_evidence(
         self,
@@ -871,15 +889,17 @@ class RepoDNAMCPServer:
             },
             {
                 "name": "repodna_trace_symbol",
-                "description": "Traces cross-module call sites, importing files, and blast radius of modifying a symbol.",
+                "description": "Traces cross-module call sites, importing files, and blast radius of modifying a symbol. Supports disambiguation via symbol_id, file_path, or container.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "target": {"type": "string", "description": "Local path or 'demo'."},
                         "symbol_name": {"type": "string", "description": "Name of the symbol to trace."},
+                        "symbol_id": {"type": "string", "description": "Deterministic symbol ID for unambiguous lookup."},
                         "file_path": {"type": "string", "description": "Optional file path of symbol definition."},
+                        "container": {"type": "string", "description": "Optional parent class or namespace name."},
                     },
-                    "required": ["target", "symbol_name"],
+                    "required": ["target"],
                 },
             },
             {
@@ -1025,8 +1045,10 @@ class RepoDNAMCPServer:
             elif name in ("repodna_trace_symbol", "repodna_trace"):
                 content = self.tool_trace_symbol(
                     target=target,
-                    symbol_name=arguments.get("symbol_name", ""),
+                    symbol_name=arguments.get("symbol_name"),
+                    symbol_id=arguments.get("symbol_id"),
                     file_path=arguments.get("file_path"),
+                    container_name=arguments.get("container") or arguments.get("container_name"),
                     force=force,
                 )
             elif name in ("repodna_get_evidence", "repodna_evidence"):

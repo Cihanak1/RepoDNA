@@ -13,8 +13,40 @@ from repodna.brain.models import (
     EvidenceLedgerResponse,
     EvidenceReference,
     EvidenceType,
+    StalenessReason,
 )
 from repodna.schemas.models import LanguageSupportLevel
+
+
+def normalize_text_newlines(text: str) -> str:
+    """Normalizes all newline variations (\r\n, \r) to standard \n."""
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def extract_evidence_snippet(
+    content: str,
+    line_start: int,
+    line_end: int,
+    max_lines: int = 10,
+) -> tuple[str, str]:
+    """
+    Canonical evidence snippet extraction and hashing.
+    Given full content and 1-indexed line coordinates, returns:
+        (snippet_text, content_hash)
+
+    Guarantees 100% identical newline normalization, line slicing, and hash calculation
+    across both AST extraction and staleness verification.
+    """
+    norm_content = normalize_text_newlines(content)
+    lines = norm_content.splitlines()
+    if not (1 <= line_start <= len(lines)):
+        return ("", "")
+    actual_end = max(line_start, min(len(lines), line_end))
+    bounded_end = min(actual_end, line_start + max_lines - 1)
+    snippet_lines = lines[line_start - 1 : bounded_end]
+    snippet = "\n".join(snippet_lines)
+    content_hash = hashlib.sha256(snippet.encode("utf-8")).hexdigest()[:16]
+    return snippet, content_hash
 
 
 class EvidenceLedger:
@@ -28,9 +60,36 @@ class EvidenceLedger:
         self._evidence_by_type: dict[EvidenceType, list[EvidenceReference]] = defaultdict(list)
 
     def add_evidence(self, evidence: EvidenceReference) -> None:
-        """Registers a verified evidence reference into the ledger."""
+        """
+        Registers a verified evidence reference into the ledger.
+        Safely updates existing entry if same evidence_id is re-registered,
+        preventing duplicate entries in lookup lists.
+        """
+        norm_path = evidence.file_path.replace("\\", "/").lstrip("/")
+        existing = self._evidence_by_id.get(evidence.evidence_id)
+        if existing is not None:
+            # Update in-place to avoid duplicate list items
+            self._evidence_by_id[evidence.evidence_id] = evidence
+            file_list = self._evidence_by_file[norm_path]
+            for idx, item in enumerate(file_list):
+                if item.evidence_id == evidence.evidence_id:
+                    file_list[idx] = evidence
+                    break
+            if evidence.symbol_name:
+                sym_list = self._evidence_by_symbol[evidence.symbol_name]
+                for idx, item in enumerate(sym_list):
+                    if item.evidence_id == evidence.evidence_id:
+                        sym_list[idx] = evidence
+                        break
+            type_list = self._evidence_by_type[evidence.evidence_type]
+            for idx, item in enumerate(type_list):
+                if item.evidence_id == evidence.evidence_id:
+                    type_list[idx] = evidence
+                    break
+            return
+
         self._evidence_by_id[evidence.evidence_id] = evidence
-        self._evidence_by_file[evidence.file_path].append(evidence)
+        self._evidence_by_file[norm_path].append(evidence)
         if evidence.symbol_name:
             self._evidence_by_symbol[evidence.symbol_name].append(evidence)
         self._evidence_by_type[evidence.evidence_type].append(evidence)
@@ -76,24 +135,86 @@ class EvidenceLedger:
         current_revision: str | None = None,
     ) -> list[EvidenceReference]:
         """
-        Evaluates existing evidence for a file. If current content or Git revision
-        diverges from the recorded evidence hash or revision, marks items as stale.
+        Evaluates existing evidence for a file.
+        Accurately distinguishes:
+        - FRESH: Snippet at recorded line bounds matches content hash exactly under same revision.
+        - REVISION_MISMATCH: Git revision differs.
+        - LINE_SHIFT: Exact code snippet moved elsewhere in the file (detected delta lines).
+                      CRITICAL: Marked as stale because old line coordinates are no longer accurate.
+        - CONTENT_CHANGED: Content at recorded line bounds was modified.
+        - FILE_DELETED: File content is empty or file missing.
         """
         norm_path = file_path.replace("\\", "/").lstrip("/")
         items = self._evidence_by_file.get(norm_path, [])
         for ev in items:
-            if current_revision and current_revision != ev.repository_revision:
+            # 1. Revision mismatch check
+            if current_revision is not None and current_revision != ev.repository_revision:
                 ev.is_stale = True
-            elif current_content is not None and ev.code_snippet:
-                # Check if code snippet is still present at or near the recorded lines
-                lines = current_content.splitlines()
-                if 1 <= ev.line_start <= len(lines):
-                    snippet_now = "\n".join(lines[ev.line_start - 1 : min(len(lines), ev.line_end)])
-                    h_now = hashlib.sha256(snippet_now.encode("utf-8")).hexdigest()[:16]
-                    if ev.content_hash and h_now != ev.content_hash and ev.code_snippet not in current_content:
+                ev.staleness_reason = StalenessReason.REVISION_MISMATCH
+                ev.staleness_details = (
+                    f"Revision mismatch: recorded '{ev.repository_revision}' vs current '{current_revision}'"
+                )
+                continue
+
+            if current_content is None:
+                continue
+
+            norm_current = normalize_text_newlines(current_content)
+            current_lines = norm_current.splitlines()
+
+            if not current_lines:
+                ev.is_stale = True
+                ev.staleness_reason = StalenessReason.FILE_DELETED
+                ev.staleness_details = "File content is empty or file was deleted."
+                continue
+
+            # 2. Check content at recorded coordinates
+            snippet_now, hash_now = extract_evidence_snippet(
+                norm_current, ev.line_start, ev.line_end
+            )
+
+            if ev.content_hash and hash_now == ev.content_hash:
+                # Fresh: exact match at exact coordinates
+                ev.is_stale = False
+                ev.staleness_reason = StalenessReason.FRESH
+                ev.staleness_details = "Verified matching snippet at recorded coordinates."
+                ev.line_shift_delta = 0
+            else:
+                # Content at recorded coordinates does not match!
+                # Check if the exact snippet moved elsewhere in the file (Line Shift)
+                if ev.code_snippet and ev.code_snippet in norm_current:
+                    snippet_first_line = ev.code_snippet.splitlines()[0]
+                    new_line = None
+                    for idx, line in enumerate(current_lines, 1):
+                        if line.strip() == snippet_first_line.strip():
+                            # Verify full snippet from this candidate line
+                            cand_snip, cand_hash = extract_evidence_snippet(
+                                norm_current,
+                                idx,
+                                idx + (ev.line_end - ev.line_start),
+                            )
+                            if cand_hash == ev.content_hash or cand_snip == ev.code_snippet:
+                                new_line = idx
+                                break
+
+                    if new_line is not None and new_line != ev.line_start:
+                        delta = new_line - ev.line_start
                         ev.is_stale = True
+                        ev.staleness_reason = StalenessReason.LINE_SHIFT
+                        ev.line_shift_delta = delta
+                        ev.staleness_details = (
+                            f"Code snippet shifted by {delta:+d} lines (relocated to line {new_line}). "
+                            "Evidence coordinates are stale."
+                        )
+                    else:
+                        ev.is_stale = True
+                        ev.staleness_reason = StalenessReason.CONTENT_CHANGED
+                        ev.staleness_details = "Content at recorded lines has been modified."
                 else:
                     ev.is_stale = True
+                    ev.staleness_reason = StalenessReason.CONTENT_CHANGED
+                    ev.staleness_details = "Content at recorded lines has been modified or removed."
+
         return items
 
     def record_finding_evidence(
@@ -103,22 +224,25 @@ class EvidenceLedger:
         rule_id: str,
         title: str,
         confidence_reason: str,
+        line_end: int | None = None,
     ) -> EvidenceReference:
         """Records an architectural rule violation or cycle finding as verified evidence."""
+        norm_path = file_path.replace("\\", "/").lstrip("/")
+        actual_end = line_end if line_end is not None else line
         ev_id = EvidenceReference.generate_id(
             revision=self.repository_revision,
-            file_path=file_path,
+            file_path=norm_path,
             line_start=line,
-            line_end=line,
+            line_end=actual_end,
             evidence_type=EvidenceType.CONTRACT_VIOLATION,
             symbol_name=rule_id,
         )
         ev = EvidenceReference(
             evidence_id=ev_id,
             repository_revision=self.repository_revision,
-            file_path=file_path,
+            file_path=norm_path,
             line_start=line,
-            line_end=line,
+            line_end=actual_end,
             evidence_type=EvidenceType.CONTRACT_VIOLATION,
             symbol_name=rule_id,
             support_level=LanguageSupportLevel.FULL_AST,

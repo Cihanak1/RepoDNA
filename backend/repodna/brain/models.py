@@ -33,6 +33,20 @@ class ReferenceKind(StrEnum):
     ACCESS = "access"
 
 
+class ResolutionStatus(StrEnum):
+    VERIFIED = "verified"
+    CANDIDATE = "candidate"
+    UNRESOLVED = "unresolved"
+
+
+class StalenessReason(StrEnum):
+    FRESH = "fresh"
+    REVISION_MISMATCH = "revision_mismatch"
+    CONTENT_CHANGED = "content_changed"
+    LINE_SHIFT = "line_shift"
+    FILE_DELETED = "file_deleted"
+
+
 class EvidenceType(StrEnum):
     SYMBOL_DEFINITION = "symbol_definition"
     SYMBOL_REFERENCE = "symbol_reference"
@@ -56,10 +70,29 @@ class SymbolReference(BaseModel):
         default=None, description="Enclosing function or class containing this reference, if any."
     )
     is_verified: bool = Field(
-        default=True, description="True if AST proves this reference links to target definition."
+        default=False, description="True if AST proves this reference links to target definition."
+    )
+    resolution_status: ResolutionStatus = Field(
+        default=ResolutionStatus.UNRESOLVED,
+        description="Resolution certainty: verified, candidate, or unresolved.",
+    )
+    target_symbol_id: str | None = Field(
+        default=None, description="Deterministic ID of resolved target symbol, if any."
+    )
+    target_file_path: str | None = Field(
+        default=None, description="File path of resolved target definition, if any."
+    )
+    alias_name: str | None = Field(
+        default=None, description="Local alias name if imported with alias."
+    )
+    module_specifier: str | None = Field(
+        default=None, description="Import module specifier (e.g. 'utils' or './service')."
+    )
+    qualifier: str | None = Field(
+        default=None, description="Namespace or object qualifier (e.g. 'math' in 'math.sqrt')."
     )
     confidence_reason: str = Field(
-        default="Verified AST reference", description="Explanation of why this reference is verified."
+        default="Unresolved reference", description="Explanation of resolution status."
     )
 
 
@@ -83,6 +116,7 @@ class SymbolDefinition(BaseModel):
     is_exported: bool = Field(default=True, description="Whether symbol is exported or public.")
     evidence_id: str = Field(description="ID of associated EvidenceReference.")
     verified_references: list[SymbolReference] = Field(default_factory=list)
+    candidate_references: list[SymbolReference] = Field(default_factory=list)
 
     @classmethod
     def generate_id(
@@ -115,8 +149,17 @@ class EvidenceReference(BaseModel):
     is_stale: bool = Field(
         default=False, description="Flagged true if underlying file changed since evidence creation."
     )
+    staleness_reason: StalenessReason = Field(
+        default=StalenessReason.FRESH, description="Detailed category of staleness (e.g. line_shift, content_changed, revision_mismatch)."
+    )
+    staleness_details: str | None = Field(
+        default=None, description="Human/agent-readable explanation of why evidence was invalidated."
+    )
+    line_shift_delta: int | None = Field(
+        default=None, description="Number of lines the snippet shifted (+/-) if code moved without modification."
+    )
     content_hash: str | None = Field(
-        default=None, description="Blake2b or SHA256 of the file snippet when evidence was gathered."
+        default=None, description="Blake2b or SHA256 of the normalized file snippet when evidence was gathered."
     )
 
     @classmethod
@@ -185,11 +228,14 @@ class SymbolTraceResult(BaseModel):
     symbol: SymbolDefinition
     definition_evidence: EvidenceReference
     references: list[SymbolReference] = Field(default_factory=list)
+    candidate_references: list[SymbolReference] = Field(default_factory=list)
     importing_modules: list[str] = Field(default_factory=list)
     calling_modules: list[str] = Field(default_factory=list)
     downstream_dependents: list[str] = Field(default_factory=list)
     downstream_impact_count: int = 0
     cycle_warning: str | None = None
+    is_ambiguous: bool = Field(default=False)
+    ambiguity_candidates: list[SymbolDefinition] = Field(default_factory=list)
     summary_text: str
 
 

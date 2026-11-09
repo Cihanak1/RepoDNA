@@ -10,6 +10,8 @@ from repodna.brain.evidence import EvidenceLedger
 from repodna.brain.extractor import DeepSymbolExtractor
 from repodna.brain.models import (
     EvidenceReference,
+    ReferenceKind,
+    ResolutionStatus,
     SymbolDefinition,
     SymbolKind,
     SymbolQueryResponse,
@@ -36,6 +38,7 @@ class SymbolIndexer:
         self._symbols_by_name: dict[str, list[SymbolDefinition]] = defaultdict(list)
         self._symbols_by_name_lower: dict[str, list[SymbolDefinition]] = defaultdict(list)
         self._symbols_by_file: dict[str, list[SymbolDefinition]] = defaultdict(list)
+        self._imports_by_file: dict[str, list[SymbolReference]] = defaultdict(list)
         self._raw_references: list[SymbolReference] = []
 
     def index_all(self, max_files: int = 2500) -> None:
@@ -117,51 +120,272 @@ class SymbolIndexer:
             self._symbols_by_name_lower[sym.name.lower()].append(sym)
             self._symbols_by_file[norm_path].append(sym)
 
-        self._raw_references.extend(references)
+        for ref in references:
+            if ref.reference_kind == ReferenceKind.IMPORT:
+                self._imports_by_file[norm_path].append(ref)
+            self._raw_references.append(ref)
+
+    def _resolve_module_specifier(self, caller_file: str, specifier: str | None) -> str | None:
+        """Resolves an import module specifier to a repo-relative file path."""
+        if not specifier:
+            return None
+
+        caller_dir = Path(caller_file).parent.as_posix()
+        norm_caller_dir = "" if caller_dir == "." else caller_dir
+
+        # 1. Relative import (e.g. "./utils", "../pkg/service", ".service")
+        if specifier.startswith("."):
+            dots = len(specifier) - len(specifier.lstrip("."))
+            spec_rest = specifier.lstrip(".")
+            curr = Path(caller_file).parent
+            # In Python, from . import x (dots=1) means current dir; from .. import x (dots=2) means parent dir
+            for _ in range(max(0, dots - 1)):
+                curr = curr.parent
+            base_rel = curr.as_posix()
+            if base_rel == ".":
+                base_rel = ""
+
+            cand_base = f"{base_rel}/{spec_rest}".strip("/") if base_rel else spec_rest.strip("/")
+            candidates = [
+                f"{cand_base}.py",
+                f"{cand_base}/__init__.py",
+                f"{cand_base}.ts",
+                f"{cand_base}.tsx",
+                f"{cand_base}.js",
+                f"{cand_base}/index.ts",
+                f"{cand_base}/index.js",
+            ]
+            for cand in candidates:
+                norm_c = cand.lstrip("/")
+                if norm_c in self._symbols_by_file:
+                    return norm_c
+
+        # 2. Package-style or absolute import (e.g. "service", "app.models", "utils")
+        spec_slash = specifier.replace(".", "/").strip("/")
+        direct_candidates = [
+            f"{spec_slash}.py",
+            f"{spec_slash}/__init__.py",
+            f"{spec_slash}.ts",
+            f"{spec_slash}.tsx",
+            f"{spec_slash}.js",
+            f"{spec_slash}/index.ts",
+            f"{spec_slash}/index.js",
+        ]
+        # Also relative to caller dir
+        if norm_caller_dir:
+            direct_candidates.extend([
+                f"{norm_caller_dir}/{spec_slash}.py",
+                f"{norm_caller_dir}/{spec_slash}/__init__.py",
+                f"{norm_caller_dir}/{spec_slash}.ts",
+                f"{norm_caller_dir}/{spec_slash}.tsx",
+                f"{norm_caller_dir}/{spec_slash}.js",
+            ])
+
+        for cand in direct_candidates:
+            if cand in self._symbols_by_file:
+                return cand
+
+        # Match by filename suffix in known files
+        target_name = spec_slash.split("/")[-1]
+        for f in self._symbols_by_file:
+            stem = Path(f).stem
+            if stem == target_name or f.endswith(f"/{target_name}.py"):
+                return f
+
+        return None
 
     def _resolve_cross_references(self) -> None:
         """
         Cross-references raw AST calls and imports against known internal symbol definitions.
-        Ensures only mathematically verified references are added to symbol definitions.
+        Applies strict 3-state resolution:
+        - VERIFIED: Statically proven target definition (local definition, explicit import, or qualified namespace).
+        - CANDIDATE: Plausible target (e.g. imported module exports it, or unique repo symbol without import proof).
+        - UNRESOLVED: Insufficient evidence, shadowed identifier, or foreign/unimported symbol.
         """
         for ref in self._raw_references:
-            target_name = ref.symbol_name
-            candidates = self._symbols_by_name.get(target_name, [])
-            if not candidates:
+            # 1. Imports resolution
+            if ref.reference_kind == ReferenceKind.IMPORT:
+                target_file = self._resolve_module_specifier(ref.file_path, ref.module_specifier)
+                if target_file and target_file in self._symbols_by_file:
+                    tgt_syms = self._symbols_by_file[target_file]
+                    matched = next((s for s in tgt_syms if s.name == ref.symbol_name), None)
+                    if matched is not None:
+                        ref.is_verified = True
+                        ref.resolution_status = ResolutionStatus.VERIFIED
+                        ref.target_symbol_id = matched.id
+                        ref.target_file_path = matched.file_path
+                        ref.confidence_reason = (
+                            f"Verified import from '{target_file}' (definition at line {matched.line_start})"
+                        )
+                        matched.verified_references.append(ref)
+                    else:
+                        ref.is_verified = False
+                        ref.resolution_status = ResolutionStatus.UNRESOLVED
+                        ref.confidence_reason = (
+                            f"Unresolved import: symbol '{ref.symbol_name}' not defined in '{target_file}'"
+                        )
+                else:
+                    ref.is_verified = False
+                    ref.resolution_status = ResolutionStatus.UNRESOLVED
+                    ref.confidence_reason = (
+                        f"Unresolved import: module '{ref.module_specifier}' could not be resolved internally"
+                    )
                 continue
 
-            # If reference occurs in a file that directly imports candidates or lives in the same file
-            matched_candidate = None
-            for cand in candidates:
-                if cand.file_path == ref.file_path:
-                    matched_candidate = cand
-                    break
+            # 2. Calls resolution
+            if ref.reference_kind == ReferenceKind.CALL:
+                # A. Local Shadowing Check
+                if "shadows symbol" in ref.confidence_reason:
+                    ref.is_verified = False
+                    ref.resolution_status = ResolutionStatus.UNRESOLVED
+                    continue
 
-            if not matched_candidate and len(candidates) == 1:
-                # Unambiguous single symbol in the codebase
-                matched_candidate = candidates[0]
-            elif not matched_candidate and self.analysis is not None:
-                # Check internal dependency edges between ref file and candidate file
-                ref_node = next((f for f in self.analysis.files if f.id == ref.file_path), None)
-                if ref_node:
-                    for cand in candidates:
-                        if cand.file_path in ref_node.imports_internal:
-                            matched_candidate = cand
-                            break
+                # B. Local definition in same file
+                if ref.qualifier is None:
+                    local_cands = [s for s in self._symbols_by_file[ref.file_path] if s.name == ref.symbol_name]
+                    top_level = next((s for s in local_cands if s.container_name is None), None)
+                    if top_level is not None:
+                        ref.is_verified = True
+                        ref.resolution_status = ResolutionStatus.VERIFIED
+                        ref.target_symbol_id = top_level.id
+                        ref.target_file_path = top_level.file_path
+                        ref.confidence_reason = f"Statically verified local call within '{ref.file_path}'"
+                        top_level.verified_references.append(ref)
+                        continue
+                elif ref.qualifier in ("self", "cls"):
+                    local_methods = [
+                        s for s in self._symbols_by_file[ref.file_path]
+                        if s.name == ref.symbol_name and s.container_name == ref.source_symbol_name
+                    ]
+                    if local_methods:
+                        m = local_methods[0]
+                        ref.is_verified = True
+                        ref.resolution_status = ResolutionStatus.VERIFIED
+                        ref.target_symbol_id = m.id
+                        ref.target_file_path = m.file_path
+                        ref.confidence_reason = f"Statically verified member call 'self.{ref.symbol_name}' in '{ref.source_symbol_name}'"
+                        m.verified_references.append(ref)
+                        continue
 
-            if matched_candidate is not None:
-                ref.is_verified = True
-                ref.confidence_reason = (
-                    f"AST verified reference from '{ref.file_path}' "
-                    f"to '{matched_candidate.file_path}:{matched_candidate.name}'"
-                )
-                matched_candidate.verified_references.append(ref)
+                # C. Explicit Imports in caller file
+                file_imports = self._imports_by_file[ref.file_path]
+
+                # C1: Call by alias (e.g. from service import Engine as CoreEngine; e = CoreEngine())
+                aliased_imp = next((imp for imp in file_imports if imp.alias_name == ref.symbol_name), None)
+                if aliased_imp is not None:
+                    tgt_file = self._resolve_module_specifier(ref.file_path, aliased_imp.module_specifier)
+                    if tgt_file and tgt_file in self._symbols_by_file:
+                        orig_sym = next((s for s in self._symbols_by_file[tgt_file] if s.name == aliased_imp.symbol_name), None)
+                        if orig_sym is not None:
+                            ref.is_verified = True
+                            ref.resolution_status = ResolutionStatus.VERIFIED
+                            ref.target_symbol_id = orig_sym.id
+                            ref.target_file_path = orig_sym.file_path
+                            ref.confidence_reason = (
+                                f"Statically verified aliased import ('{ref.symbol_name}' -> '{orig_sym.name}') from '{tgt_file}'"
+                            )
+                            orig_sym.verified_references.append(ref)
+                            continue
+
+                # C2: Direct import (e.g. from service import Engine; e = Engine())
+                direct_imp = next((imp for imp in file_imports if imp.symbol_name == ref.symbol_name and not imp.alias_name), None)
+                if direct_imp is not None:
+                    tgt_file = self._resolve_module_specifier(ref.file_path, direct_imp.module_specifier)
+                    if tgt_file and tgt_file in self._symbols_by_file:
+                        tgt_sym = next((s for s in self._symbols_by_file[tgt_file] if s.name == ref.symbol_name), None)
+                        if tgt_sym is not None:
+                            ref.is_verified = True
+                            ref.resolution_status = ResolutionStatus.VERIFIED
+                            ref.target_symbol_id = tgt_sym.id
+                            ref.target_file_path = tgt_sym.file_path
+                            ref.confidence_reason = f"Statically verified explicit import of '{ref.symbol_name}' from '{tgt_file}'"
+                            tgt_sym.verified_references.append(ref)
+                            continue
+
+                # C3: Qualified namespace call: obj.method() where obj was imported as module
+                if ref.qualifier:
+                    qual_imp = next((imp for imp in file_imports if (imp.alias_name or imp.symbol_name) == ref.qualifier), None)
+                    if qual_imp is not None:
+                        tgt_file = self._resolve_module_specifier(ref.file_path, qual_imp.module_specifier or qual_imp.symbol_name)
+                        if tgt_file and tgt_file in self._symbols_by_file:
+                            tgt_sym = next((s for s in self._symbols_by_file[tgt_file] if s.name == ref.symbol_name), None)
+                            if tgt_sym is not None:
+                                ref.is_verified = True
+                                ref.resolution_status = ResolutionStatus.VERIFIED
+                                ref.target_symbol_id = tgt_sym.id
+                                ref.target_file_path = tgt_sym.file_path
+                                ref.confidence_reason = f"Statically verified qualified call '{ref.qualifier}.{ref.symbol_name}' from '{tgt_file}'"
+                                tgt_sym.verified_references.append(ref)
+                                continue
+
+                # D. Dependency Graph / Candidate Resolution
+                candidates = self._symbols_by_name.get(ref.symbol_name, [])
+                if not candidates:
+                    ref.is_verified = False
+                    ref.resolution_status = ResolutionStatus.UNRESOLVED
+                    ref.confidence_reason = f"Unresolved: symbol '{ref.symbol_name}' not defined in repository"
+                    continue
+
+                if self.analysis is not None:
+                    ref_node = next((f for f in self.analysis.files if f.id == ref.file_path), None)
+                    if ref_node:
+                        imported_cands = [c for c in candidates if c.file_path in ref_node.imports_internal]
+                        if len(imported_cands) == 1:
+                            c = imported_cands[0]
+                            ref.is_verified = False
+                            ref.resolution_status = ResolutionStatus.CANDIDATE
+                            ref.target_symbol_id = c.id
+                            ref.target_file_path = c.file_path
+                            ref.confidence_reason = (
+                                f"Candidate: module '{ref.file_path}' imports '{c.file_path}' which defines '{ref.symbol_name}', but call is unqualified"
+                            )
+                            c.candidate_references.append(ref)
+                        elif len(imported_cands) > 1:
+                            ref.is_verified = False
+                            ref.resolution_status = ResolutionStatus.CANDIDATE
+                            ref.confidence_reason = f"Ambiguous candidate: multiple imported modules define '{ref.symbol_name}'"
+                            for c in imported_cands:
+                                c.candidate_references.append(ref)
+                        else:
+                            # Not imported in dependency graph -> UNRESOLVED (Never assume verified just because unique!)
+                            ref.is_verified = False
+                            ref.resolution_status = ResolutionStatus.UNRESOLVED
+                            ref.confidence_reason = (
+                                f"Unresolved: module '{ref.file_path}' has no import or dependency link to '{candidates[0].file_path}' defining '{ref.symbol_name}'"
+                            )
+                    else:
+                        ref.is_verified = False
+                        ref.resolution_status = ResolutionStatus.UNRESOLVED
+                        ref.confidence_reason = f"Unresolved: module '{ref.file_path}' not found in dependency graph"
+                else:
+                    # Without dependency graph, single candidate is at best CANDIDATE, never VERIFIED
+                    if len(candidates) == 1:
+                        c = candidates[0]
+                        ref.is_verified = False
+                        ref.resolution_status = ResolutionStatus.CANDIDATE
+                        ref.target_symbol_id = c.id
+                        ref.target_file_path = c.file_path
+                        ref.confidence_reason = (
+                            f"Candidate: unique repository symbol '{ref.symbol_name}' in '{c.file_path}', but no explicit import verified"
+                        )
+                        c.candidate_references.append(ref)
+                    else:
+                        ref.is_verified = False
+                        ref.resolution_status = ResolutionStatus.UNRESOLVED
+                        ref.confidence_reason = (
+                            f"Ambiguous: {len(candidates)} definitions of '{ref.symbol_name}' exist without import linking"
+                        )
+
+    def get_by_id(self, symbol_id: str) -> SymbolDefinition | None:
+        """Retrieves an exact symbol definition by its deterministic ID."""
+        return self._symbols_by_id.get(symbol_id)
 
     def find_by_name(
         self,
         name: str,
         kind: SymbolKind | str | None = None,
         file_path: str | None = None,
+        container: str | None = None,
         exact: bool = True,
     ) -> list[SymbolDefinition]:
         """Finds symbols matching name with optional filters."""
@@ -173,7 +397,6 @@ class SymbolIndexer:
         else:
             candidates = self._symbols_by_name_lower.get(name.lower(), [])
             if not candidates:
-                # Substring search
                 n_low = name.lower()
                 candidates = [s for s in self._symbols_by_id.values() if n_low in s.name.lower()]
 
@@ -182,6 +405,8 @@ class SymbolIndexer:
             if kind_str and sym.kind.value != kind_str:
                 continue
             if norm_path and not (sym.file_path == norm_path or sym.file_path.endswith(norm_path)):
+                continue
+            if container and sym.container_name != container:
                 continue
             results.append(sym)
         return results

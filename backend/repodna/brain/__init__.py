@@ -11,7 +11,9 @@ from repodna.brain.models import (
     EvidenceReference,
     EvidenceType,
     ReferenceKind,
+    ResolutionStatus,
     SearchResponse,
+    StalenessReason,
     SymbolDefinition,
     SymbolKind,
     SymbolQueryResponse,
@@ -19,9 +21,10 @@ from repodna.brain.models import (
     SymbolTraceResult,
 )
 from repodna.brain.retrieval import SmartRetrievalEngine
-from repodna.brain.tracer import SymbolTracer
+from repodna.brain.tracer import AmbiguousSymbolError, SymbolTracer
 
 __all__ = [
+    "AmbiguousSymbolError",
     "CodeSearchResult",
     "DeepSymbolExtractor",
     "EvidenceLedger",
@@ -29,8 +32,10 @@ __all__ = [
     "EvidenceReference",
     "EvidenceType",
     "ReferenceKind",
+    "ResolutionStatus",
     "SearchResponse",
     "SmartRetrievalEngine",
+    "StalenessReason",
     "SymbolDefinition",
     "SymbolIndexer",
     "SymbolKind",

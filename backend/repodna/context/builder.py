@@ -15,12 +15,27 @@ from repodna.schemas.models import AnalysisResult
 class AgentContextBuilder:
     """Builds controlled, token-budgeted architectural context for LLM agents."""
 
-    @staticmethod
-    def estimate_tokens(text: str) -> int:
-        """Approximates tokens assuming ~4 characters per token on average for English/code."""
+    @classmethod
+    def count_tokens(cls, text: str) -> tuple[int, str]:
+        """
+        Counts tokens using a real tokenizer (tiktoken) if available, or deterministic heuristic.
+        Returns (token_count, method_name).
+        """
         if not text:
-            return 0
-        return max(1, len(text) // 4)
+            return 0, "empty"
+        try:
+            import tiktoken
+
+            enc = tiktoken.get_encoding("cl100k_base")
+            return len(enc.encode(text)), "tiktoken_cl100k"
+        except Exception:
+            return max(1, len(text) // 4), "heuristic_chars"
+
+    @classmethod
+    def estimate_tokens(cls, text: str) -> int:
+        """Approximates tokens assuming ~4 characters per token on average for English/code."""
+        count, _ = cls.count_tokens(text)
+        return count
 
     @classmethod
     def build_context(
@@ -79,6 +94,35 @@ class AgentContextBuilder:
 
         # Raw code tokens calculation across candidate / total codebase
         total_raw_code_tokens = sum(max(1, f.lines_code * 8) for f in analysis.files)
+
+        # Zero or negative token budget: return safe minimal truncated response
+        if max_tokens is not None and max_tokens <= 0:
+            limitations.append(
+                f"Requested token budget ({max_tokens}) is zero or negative. Returned minimal truncated response."
+            )
+            return AgentContextResponse(
+                repository=analysis.repo_name,
+                revision=revision,
+                generated_at=datetime.now(UTC),
+                analysis_version="0.5.0",
+                mode=mode,
+                analysis_coverage=coverage_data,
+                confidence_level=cov.confidence,
+                requested_scope=requested_scope,
+                summary="Requested token budget is zero or negative.",
+                relevant_modules=[],
+                evidence=[],
+                evidence_records=[],
+                limitations=limitations,
+                truncated=True,
+                continuation_token=f"page={page}",
+                estimated_tokens=0,
+                raw_tokens_estimate=total_raw_code_tokens,
+                token_savings_pct=100.0,
+                estimated_savings_pct=100.0,
+                is_savings_estimated=True,
+                token_counting_method="heuristic_zero_budget",
+            )
 
         if mode == "compact":
             summary = overview.summary_text
@@ -235,8 +279,9 @@ class AgentContextBuilder:
 
         # Check character and token budget limits
         char_budget = max_chars or (max_tokens * 4 if max_tokens else None)
-        if char_budget:
-            # Deterministically trim modules if markdown exceeds budget
+        target_tokens = max_tokens or (char_budget // 4 if char_budget else None)
+
+        if char_budget or target_tokens:
             test_resp = AgentContextResponse(
                 repository=analysis.repo_name,
                 revision=revision,
@@ -255,20 +300,47 @@ class AgentContextBuilder:
                 continuation_token=continuation_token,
             )
             md_text = test_resp.as_markdown()
-            while len(md_text) > char_budget and (len(relevant_modules) > 1 or len(evidence_records) > 1):
-                if len(evidence_records) > 2:
-                    evidence_records.pop()
-                if len(relevant_modules) > 1:
-                    relevant_modules.pop()
+            curr_tokens, method_used = cls.count_tokens(md_text)
+
+            max_prune_steps = len(evidence_records) + len(evidence) + len(relevant_modules) + 10
+            step = 0
+            while step < max_prune_steps:
+                step += 1
+                exceeds_chars = bool(char_budget and len(md_text) > char_budget)
+                exceeds_tokens = bool(target_tokens and curr_tokens > target_tokens)
+                if not (exceeds_chars or exceeds_tokens):
+                    break
+
                 truncated = True
                 continuation_token = f"page={page + 1}"
+
+                # Pruning hierarchy: evidence_records -> evidence -> relevant_modules -> summary
+                if evidence_records:
+                    evidence_records.pop()
+                elif evidence:
+                    evidence.pop()
+                elif relevant_modules:
+                    relevant_modules.pop()
+                elif len(summary) > 30 and not summary.endswith("[TRUNCATED DUE TO BUDGET]"):
+                    summary = summary[:30] + "... [TRUNCATED DUE TO BUDGET]"
+                else:
+                    # Minimal metadata alone exceeds budget
+                    msg = f"Header metadata alone exceeds requested budget of {target_tokens} tokens."
+                    if msg not in limitations:
+                        limitations.append(msg)
+                    break
+
+                test_resp.summary = summary
                 test_resp.relevant_modules = relevant_modules
+                test_resp.evidence = evidence
                 test_resp.evidence_records = evidence_records
+                test_resp.limitations = limitations
                 test_resp.truncated = truncated
                 test_resp.continuation_token = continuation_token
                 md_text = test_resp.as_markdown()
+                curr_tokens, method_used = cls.count_tokens(md_text)
 
-        final_md = AgentContextResponse(
+        final_resp = AgentContextResponse(
             repository=analysis.repo_name,
             revision=revision,
             generated_at=datetime.now(UTC),
@@ -284,32 +356,18 @@ class AgentContextBuilder:
             limitations=limitations,
             truncated=truncated,
             continuation_token=continuation_token,
-        ).as_markdown()
-
-        est_tokens = cls.estimate_tokens(final_md)
+        )
+        final_md = final_resp.as_markdown()
+        final_tokens, method = cls.count_tokens(final_md)
         savings = (
-            max(0.0, (1.0 - (est_tokens / max(1, total_raw_code_tokens))) * 100.0)
-            if total_raw_code_tokens > est_tokens
+            max(0.0, (1.0 - (final_tokens / max(1, total_raw_code_tokens))) * 100.0)
+            if total_raw_code_tokens > final_tokens
             else 0.0
         )
-
-        return AgentContextResponse(
-            repository=analysis.repo_name,
-            revision=revision,
-            generated_at=datetime.now(UTC),
-            analysis_version="0.5.0",
-            mode=mode,
-            analysis_coverage=coverage_data,
-            confidence_level=cov.confidence,
-            requested_scope=requested_scope,
-            summary=summary,
-            relevant_modules=relevant_modules,
-            evidence=evidence,
-            evidence_records=evidence_records,
-            limitations=limitations,
-            truncated=truncated,
-            continuation_token=continuation_token,
-            estimated_tokens=est_tokens,
-            raw_tokens_estimate=total_raw_code_tokens,
-            token_savings_pct=round(savings, 1),
-        )
+        final_resp.estimated_tokens = final_tokens
+        final_resp.raw_tokens_estimate = total_raw_code_tokens
+        final_resp.token_savings_pct = round(savings, 1)
+        final_resp.estimated_savings_pct = round(savings, 1)
+        final_resp.is_savings_estimated = (method != "tiktoken_cl100k")
+        final_resp.token_counting_method = method
+        return final_resp

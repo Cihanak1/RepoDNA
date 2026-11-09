@@ -695,12 +695,12 @@ def main(argv: list[str] | None = None) -> int:
         indexer = SymbolIndexer(root_path=target_path, revision="HEAD")
         indexer.index_all()
         if args.name:
-            matched = indexer.find_by_name(args.name, kind=args.kind, file_path=args.file, exact=False)
+            matched = indexer.find_by_name(args.name, kind=args.kind, file_path=args.file, container=args.container, exact=False)
             sym_res = SymbolQueryResponse(
                 total_symbols=len(matched),
                 symbols=matched[:args.limit],
                 summary_text=f"Found {len(matched)} symbol(s) matching '{args.name}'.",
-                filter_criteria={"name": args.name, "kind": args.kind, "file": args.file},
+                filter_criteria={"name": args.name, "kind": args.kind, "file": args.file, "container": args.container},
             )
         else:
             sym_res = indexer.list_symbols(

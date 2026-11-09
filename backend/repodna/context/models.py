@@ -28,6 +28,9 @@ class AgentContextResponse(BaseModel):
     estimated_tokens: int = 0
     raw_tokens_estimate: int = 0
     token_savings_pct: float = 0.0
+    estimated_savings_pct: float = 0.0
+    is_savings_estimated: bool = True
+    token_counting_method: str = "heuristic_chars"
 
     def as_markdown(self) -> str:
         """Renders an agent-friendly, token-efficient Markdown document."""
@@ -37,9 +40,10 @@ class AgentContextResponse(BaseModel):
             f"**AST Coverage:** {self.analysis_coverage.get('ast_loc_coverage_pct', 0.0):.1f}% LOC | **Languages:** {', '.join(self.analysis_coverage.get('supported_languages', [])) or 'None'}",
         ]
         if self.raw_tokens_estimate > 0:
+            savings_val = self.estimated_savings_pct or self.token_savings_pct
             lines.append(
                 f"**Token Budget:** ~{self.estimated_tokens:,} tokens "
-                f"({self.token_savings_pct:.1f}% reduction vs {self.raw_tokens_estimate:,} raw code tokens)"
+                f"({savings_val:.1f}% estimated reduction vs {self.raw_tokens_estimate:,} raw code tokens [method: {self.token_counting_method}])"
             )
         lines.extend(["", "## Architectural Summary", self.summary, ""])
 
