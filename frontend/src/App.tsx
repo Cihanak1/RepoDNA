@@ -13,13 +13,16 @@ import {
   startAsyncScanJob,
 } from './api/client';
 import { CommandPaletteDialog } from './components/CommandPaletteDialog';
+import { ContractInspector } from './components/ContractInspector';
 import { ExplorerSidebar } from './components/ExplorerSidebar';
 import { FolderBrowserDialog } from './components/FolderBrowserDialog';
+import { GuardianOverview } from './components/GuardianOverview';
 import { HeaderBar } from './components/HeaderBar';
 import { InspectorPanel } from './components/InspectorPanel';
 import { Launchpad } from './components/Launchpad';
 import { OnboardingTour } from './components/OnboardingTour';
 import { PanelResizer } from './components/PanelResizer';
+import { PassportViewer } from './components/PassportViewer';
 import { readPreference, savePreference, type WorkstationMode } from './utils/preferences';
 import { SummaryStrip } from './components/SummaryStrip';
 import type {
@@ -67,7 +70,7 @@ export const App: React.FC = () => {
   );
   useEffect(() => { savePreference('mode', workstationMode); }, [workstationMode]);
 
-  const [activeTab, setActiveTab] = useState<'studio' | 'report'>('studio');
+  const [activeTab, setActiveTab] = useState<'studio' | 'report' | 'guardian' | 'contract' | 'passport'>('studio');
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [layoutMode, setLayoutMode] = useState(() => readPreference<LayoutMode>('layout', 'layered', (v): v is LayoutMode => v === 'layered' || v === 'cluster' || v === 'radial'));
   const [densityMode, setDensityMode] = useState(() => readPreference<GraphDensityMode>('density', 'balanced', (v): v is GraphDensityMode => v === 'compact' || v === 'balanced' || v === 'spacious'));
@@ -618,7 +621,7 @@ export const App: React.FC = () => {
               />
             </div>
           </>
-        ) : (
+        ) : activeTab === 'report' ? (
           <Suspense fallback={<p role="status" className="p-6 text-xs text-muted">{t('report.loading')}</p>}>
             <HealthReportView
               result={result}
@@ -626,6 +629,24 @@ export const App: React.FC = () => {
               workstationMode={workstationMode}
             />
           </Suspense>
+        ) : activeTab === 'guardian' ? (
+          <GuardianOverview
+            result={result}
+            defaultWorkspacePath={defaultWorkspacePath}
+            workstationMode={workstationMode}
+          />
+        ) : activeTab === 'contract' ? (
+          <ContractInspector
+            result={result}
+            defaultWorkspacePath={defaultWorkspacePath}
+            workstationMode={workstationMode}
+          />
+        ) : (
+          <PassportViewer
+            result={result}
+            defaultWorkspacePath={defaultWorkspacePath}
+            workstationMode={workstationMode}
+          />
         )}
       </main>
 

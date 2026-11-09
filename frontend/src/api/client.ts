@@ -1,7 +1,10 @@
 import type {
   AnalysisResult,
+  ArchitectureContract,
   DirectoryBrowseResponse,
+  GuardianReport,
   HealthCheckResponse,
+  RepositoryPassport,
   ScanProgress,
   ScanRequest,
 } from '../types/repodna';
@@ -115,4 +118,39 @@ export async function browseDirectories(path?: string): Promise<DirectoryBrowseR
 
 export function getExportUrl(analysisId: string, format: 'json' | 'html'): string {
   return `${API_BASE}/analyses/${encodeURIComponent(analysisId)}/export/${format}`;
+}
+
+export async function fetchRepositoryPassport(
+  analysisId: string,
+  maxModules: number = 150
+): Promise<RepositoryPassport> {
+  const resp = await fetch(
+    `${API_BASE}/analyses/${encodeURIComponent(analysisId)}/passport?max_modules=${maxModules}`
+  );
+  return handleResponse<RepositoryPassport>(resp);
+}
+
+export async function fetchArchitectureContract(path: string = '.'): Promise<ArchitectureContract | null> {
+  try {
+    const resp = await fetch(`${API_BASE}/contract?path=${encodeURIComponent(path)}`);
+    if (resp.status === 404) return null;
+    return await handleResponse<ArchitectureContract>(resp);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
+export async function assessPRGuardian(params: {
+  target: string;
+  base_ref: string;
+  head_ref: string;
+  mode?: string;
+}): Promise<GuardianReport> {
+  const resp = await fetch(`${API_BASE}/guardian/assess`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  return handleResponse<GuardianReport>(resp);
 }

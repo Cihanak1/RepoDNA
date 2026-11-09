@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Activity,
+  BookOpen,
   Command,
   Compass,
   Download,
@@ -9,9 +10,11 @@ import {
   FolderOpen,
   GitBranch,
   Github,
+  Globe,
   Moon,
   Play,
   Settings2,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   Square,
@@ -37,8 +40,8 @@ interface HeaderBarProps {
   activeJob: ScanProgress | null;
   onCancelJob: () => void;
   result: AnalysisResult | null;
-  activeTab: 'studio' | 'report';
-  onTabChange: (tab: 'studio' | 'report') => void;
+  activeTab: 'studio' | 'report' | 'guardian' | 'contract' | 'passport';
+  onTabChange: (tab: 'studio' | 'report' | 'guardian' | 'contract' | 'passport') => void;
   defaultWorkspacePath: string;
   onOpenCommandPalette: () => void;
   workstationMode?: WorkstationMode;
@@ -316,27 +319,66 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
               type="button"
               onClick={() => onTabChange('studio')}
               aria-pressed={activeTab === 'studio'}
-              className={`px-3 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
+              className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
                 activeTab === 'studio'
-                  ? 'bg-accent-solid text-white shadow-sm'
+                  ? 'bg-accent-solid text-white shadow-xs'
                   : 'text-muted hover:text-ink'
               }`}
             >
               <FileCode2 className="w-3.5 h-3.5" aria-hidden="true" />
-              {t('header.studioTab')}
+              <span className="hidden md:inline">{t('header.studioTab')}</span>
             </button>
             <button
               type="button"
               onClick={() => onTabChange('report')}
               aria-pressed={activeTab === 'report'}
-              className={`px-3 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
+              className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
                 activeTab === 'report'
-                  ? 'bg-accent-solid text-white shadow-sm'
+                  ? 'bg-accent-solid text-white shadow-xs'
                   : 'text-muted hover:text-ink'
               }`}
             >
               <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
-              {t('header.reportTab')}
+              <span className="hidden md:inline">{t('header.reportTab')}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onTabChange('guardian')}
+              aria-pressed={activeTab === 'guardian'}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
+                activeTab === 'guardian'
+                  ? 'bg-accent-solid text-white shadow-xs'
+                  : 'text-muted hover:text-ink'
+              }`}
+            >
+              <ShieldAlert className="w-3.5 h-3.5 text-accent" aria-hidden="true" />
+              <span className="hidden md:inline">{t('header.guardianTab', 'Guardian')}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onTabChange('contract')}
+              aria-pressed={activeTab === 'contract'}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
+                activeTab === 'contract'
+                  ? 'bg-accent-solid text-white shadow-xs'
+                  : 'text-muted hover:text-ink'
+              }`}
+            >
+              <BookOpen className="w-3.5 h-3.5" aria-hidden="true" />
+              <span className="hidden md:inline">{t('header.contractTab', 'Contract')}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onTabChange('passport')}
+              aria-pressed={activeTab === 'passport'}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
+                activeTab === 'passport'
+                  ? 'bg-accent-solid text-white shadow-xs'
+                  : 'text-muted hover:text-ink'
+              }`}
+            >
+              <Globe className="w-3.5 h-3.5" aria-hidden="true" />
+              <span className="hidden md:inline">{t('header.passportTab', 'Passport')}</span>
             </button>
           </nav>
 
