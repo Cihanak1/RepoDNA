@@ -4,6 +4,45 @@ All notable changes to **RepoDNA** are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-11-09
+
+### Added
+- **PR Architecture Guardian (`repodna.guardian`)**:
+  - Continuous git revision comparison engine evaluating architectural drift across PR branches via `repodna guardian check <path> --base <ref> --head <ref>`.
+  - Strict separation of **newly introduced** circular dependencies (`new_cycles`) from existing baseline cycles and resolved cycles (`resolved_cycles`).
+  - Coverage-aware verdict engine producing unambiguous outcomes (`PASS`, `WARNING`, `FAIL`, `INCONCLUSIVE`).
+  - Deterministic risk assessment scoring ($0$–$100$) and risk tier classification (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`) based on verified cycles, contract violations, coupling spikes, and changed hub centrality.
+  - Native GitHub Actions Job Summary output (`--format markdown`) and machine-readable JSON output (`--format json`).
+- **Architecture Contract Engine (`repodna.contract`)**:
+  - Versioned YAML architecture policy specification (`.repodna/architecture.yml`).
+  - Typed Pydantic schema validation for contract rules, constraints (`disallow_imports`, `allow_imports`), and severities (`error`, `warning`, `info`).
+  - Deterministic, ReDoS-safe path pattern matching implementing gitignore semantics via `pathspec`.
+  - Dual policy execution modes: `advisory` (audit-only) and `enforce` (fails check on verified high-confidence violations).
+  - Existing violation suppression via baseline file (`--baseline <path>`).
+  - Unsupported language and unresolved import honesty disclosure with configurable `unknown_behavior` (`warn`, `ignore`, `fail`).
+  - Complete CLI suite: `repodna contract init`, `repodna contract validate`, and `repodna contract check`.
+- **Repository Passport (`repodna.passport`)**:
+  - Portable, deterministic architectural identity manifest (`.repodna/passport.json`).
+  - Verifiable structural metadata: Git commit SHA, Tree-sitter AST coverage percentage, and confidence grade.
+  - Architectural hub inventory, module centrality metrics, identified boundaries, and verified findings.
+  - Strict security and privacy boundaries: zero source code bodies, zero credentials/tokens, and normalized relative repository paths.
+  - Complete CLI suite: `repodna passport generate` and `repodna passport validate`.
+- **Extended MCP Architecture Suite (`repodna.mcp`)**:
+  - Expanded official MCP SDK server from 8 to 12 read-only tools:
+    - `repodna_get_passport`: Retrieve deterministic repository passport manifest.
+    - `repodna_get_contract`: Inspect active architecture contract rules and policy.
+    - `repodna_check_contract`: Evaluate target workspace against architectural contract rules.
+    - `repodna_pr_guardian`: Assess pull request architecture drift, cycle delta, and verdict.
+- **Precision Workstation UI (v0.4.0 Experience)**:
+  - **Guardian Overview**: Interactive PR revision comparator, verdict badge, risk score meter, cycle delta breakdown, and markdown summary preview.
+  - **Contract Inspector**: Live architectural policy rule viewer, pattern matching inspectors, and severity indicators.
+  - **Passport Viewer**: Repository identity card, structural hub analysis, module inventory, and passport JSON export.
+  - Full bilingual localization (English & Türkçe) across all new views and metrics.
+- **GitHub Actions Integration & Automation**:
+  - Production GitHub Actions workflow template (`examples/github-actions/architecture-guardian.yml`) running under least-privilege permissions (`contents: read`).
+  - Enterprise integration guide (`docs/integrations/github-actions.md`).
+  - Updated internal CI (`.github/workflows/ci.yml`) testing contract validation, passport generation, and guardian assessment.
+
 ## [0.3.0] - 2026-11-09
 
 ### Added

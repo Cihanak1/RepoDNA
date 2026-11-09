@@ -1,7 +1,7 @@
 # RepoDNA — Developer Repository Intelligence Platform
 
 [![CI](https://github.com/Cihanak1/RepoDNA/actions/workflows/ci.yml/badge.svg)](https://github.com/Cihanak1/RepoDNA/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.0-38bdf8)](https://github.com/Cihanak1/RepoDNA/releases)
+[![Release](https://img.shields.io/badge/release-v0.4.0-38bdf8)](https://github.com/Cihanak1/RepoDNA/releases)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776ab?logo=python&logoColor=white)](https://www.python.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-10b981.svg)](./LICENSE)
@@ -36,7 +36,19 @@ support dragging, arrow keys, Home and End. Select a node and use **Zoom to sele
 for readable detail; **Fit & Reset** restores the deterministic overview.
 
 [Design audit, before/after captures, validation and performance evidence](docs/design/DELIVERY.md).
-RepoDNA Workstation version: **v0.3.0**.
+RepoDNA Workstation version: **v0.4.0**.
+
+---
+
+## Architecture Guardian & Governance (v0.4.0 Feature Suite)
+
+RepoDNA v0.4.0 introduces continuous architectural governance and safety gates for pull requests and CI/CD pipelines:
+- **PR Architecture Guardian (`repodna guardian`):** Assesses branch architectural drift across commits. Isolates newly introduced cycles from pre-existing ones, flags contract regressions, and issues clear safety verdicts (`PASS`, `WARNING`, `FAIL`, `INCONCLUSIVE`).
+- **Architecture Contract Engine (`repodna contract`):** Enforces declarative module dependency boundary rules (`.repodna/architecture.yml`) with support for POSIX pattern matching, severities, baselines, and `advisory` vs `enforce` modes.
+- **Repository Passport (`repodna passport`):** Generates portable, deterministic architectural manifests (`.repodna/passport.json`) providing verifiable structural facts (hubs, boundaries, AST coverage) for AI coding agents.
+- **Extended MCP Architecture Suite (12 Tools):** Adds `repodna_get_passport`, `repodna_get_contract`, `repodna_check_contract`, and `repodna_pr_guardian` to the official MCP SDK server.
+- **Precision Workstation UI:** Native Guardian Overview, Contract Inspector, and Passport Viewer tabs with bilingual (TR/EN) support.
+- **GitHub Actions Integration:** Production workflow template for automated PR architecture gating with zero host privilege escalation.
 
 ---
 
@@ -381,7 +393,7 @@ Measured on **Windows 11 (Python 3.12.10, Tree-sitter 0.25.2, Microsoft Edge Hea
 ### Backend Verification
 
 ```bash
-# Run pytest unit & integration suite (53 tests)
+# Run pytest unit & integration suite (103 tests)
 python -m pytest -v
 
 # Run Ruff linter
@@ -399,7 +411,7 @@ cd frontend
 # Run TypeScript compiler typecheck
 npm run typecheck
 
-# Run Vitest unit tests
+# Run Vitest unit tests (19 tests)
 npm test
 
 # Build production bundle
