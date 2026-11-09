@@ -22,7 +22,11 @@ When integrating Architecture Guardian into automated CI pipelines, security and
 - Generated artifacts (job summary, Markdown diff, and `.repodna/passport.json`) never contain source code bodies or host environment variables.
 
 ### 3. Pinned Dependency Installation
-- Always pin the Python version (`python-version: "3.12"`) and RepoDNA version (`pip install "repodna>=0.4.0"` or `-e .`) to avoid dependency confusion.
+- Always pin the Python version (`python-version: "3.12"`).
+- Prior to official PyPI release, install from the verified Git repository commit/tag:
+  `pip install "git+https://github.com/Cihanak1/RepoDNA.git@feat/v0.4-architecture-guardian#egg=repodna"`
+- Once v0.4.0+ is published to PyPI, you can alternatively use:
+  `pip install "repodna>=0.4.0"`
 
 ---
 
@@ -58,17 +62,21 @@ jobs:
       - name: Install RepoDNA
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "repodna>=0.4.0"
+          # Pinned Git distribution for verified pre-release stability:
+          python -m pip install "git+https://github.com/Cihanak1/RepoDNA.git@feat/v0.4-architecture-guardian#egg=repodna"
+          # (Once v0.4.0+ is published to PyPI: python -m pip install "repodna>=0.4.0")
 
       - name: Run PR Architecture Guardian
         id: guardian
         run: |
+          # Use immutable commit SHAs from GitHub pull_request event context
           repodna guardian check . \
-            --base "origin/${{ github.base_ref }}" \
-            --head HEAD \
-            --mode enforce \
+            --base "${{ github.event.pull_request.base.sha }}" \
+            --head "${{ github.event.pull_request.head.sha }}" \
+            --mode advisory \
             --format markdown \
             --output guardian-report.md
+          # To block CI on verified regressions, switch '--mode advisory' to '--mode enforce'.
 
       - name: Publish Job Summary
         if: always()
@@ -123,9 +131,9 @@ jobs:
 
 ## Interpreting Verdicts
 
-| Verdict | Meaning | Exit Code | Action |
-| :--- | :--- | :--- | :--- |
-| **`PASS`** | Clean architecture; zero new circular loops; contract compliant. | 0 | Ready to merge. |
-| **`WARNING`** | Advisory contract violations or coupling degradation detected. | 0 | Review warnings; fix recommended before merge. |
-| **`FAIL`** | New circular dependencies or enforced contract violations detected. | 1 | CI blocked; developer must resolve regressions. |
-| **`INCONCLUSIVE`** | Scan exceeded bounds or AST coverage collapsed severely. | 2 | Check parser coverage or limits configuration. |
+| Verdict | Meaning | Exit Code (Enforce) | Exit Code (Advisory) | Action |
+| :--- | :--- | :--- | :--- | :--- |
+| **`PASS`** | Clean architecture; zero new circular loops; contract compliant. | 0 | 0 | Ready to merge. |
+| **`WARNING`** | Advisory contract violations or coupling degradation detected. | 0 | 0 | Review warnings; fix recommended before merge. |
+| **`FAIL`** | New circular dependencies or enforced contract violations detected. | 1 | 0 | In enforce mode CI is blocked; in advisory mode informational only. |
+| **`INCONCLUSIVE`** | Scan exceeded bounds or AST coverage collapsed severely. | 2 | 0 | Check parser coverage or limits configuration. |
