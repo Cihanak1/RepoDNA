@@ -101,6 +101,14 @@ class RepositoryPassport(BaseModel):
     schema_version: str = PASSPORT_SCHEMA_VERSION
     repo_name: str
     git_revision: str
+    provenance_verified: bool = Field(
+        default=False,
+        description="Whether git_revision was verified as an immutable hexadecimal commit SHA.",
+    )
+    revision_status: str = Field(
+        default="unresolved_ref",
+        description="'verified_commit_sha' or 'unresolved_symbolic_ref'.",
+    )
     analyzed_at: datetime
     repodna_version: str = "0.4.0"
     primary_languages: list[PassportLanguageItem] = Field(default_factory=list)

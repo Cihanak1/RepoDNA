@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import re
+import subprocess
+from pathlib import Path
+from typing import Any
+
 from repodna.contract.evaluator import ContractEvaluator
 from repodna.contract.models import ArchitectureContract
 from repodna.passport.models import (
@@ -17,6 +22,27 @@ from repodna.passport.models import (
     RepositoryPassport,
 )
 from repodna.schemas.models import AnalysisResult
+from repodna.security.validators import sanitize_url_for_display
+
+HEX_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")
+
+
+def sanitize_passport_target(target: str, repo_name: str) -> str:
+    """Sanitizes target_display for passport manifest so absolute user/home paths and tokens are never leaked."""
+    cleaned = sanitize_url_for_display(target) if ("://" in target) else target
+    # If absolute Windows or Unix path, normalize to project relative identifier
+    if (
+        cleaned.startswith("/")
+        or (len(cleaned) >= 2 and cleaned[1] == ":")
+        or "\\Users\\" in cleaned
+        or "/Users/" in cleaned
+        or "\\home\\" in cleaned
+        or "/home/" in cleaned
+        or "/tmp" in cleaned
+        or "\\Temp\\" in cleaned
+    ):
+        return f"./{repo_name}"
+    return cleaned
 
 
 def generate_repository_passport(
@@ -161,10 +187,49 @@ def generate_repository_passport(
         if fnd.evidence:
             evidence_refs.append(f"Finding [{fnd.rule_id}]: {fnd.evidence[0]}")
 
+    # 11. Git revision provenance check & resolution
+    resolved_sha = git_revision.strip()
+    provenance_verified = False
+    revision_status = "unresolved_symbolic_ref"
+
+    if HEX_COMMIT_SHA_PATTERN.match(resolved_sha):
+        provenance_verified = True
+        revision_status = "verified_commit_sha"
+        resolved_sha = resolved_sha.lower()
+    else:
+        # Try resolving symbolic ref via git if analysis points to a local git directory
+        try:
+            target_p = Path(analysis.target_display).resolve()
+            if target_p.exists() and (target_p / ".git").exists():
+                res = subprocess.run(
+                    ["git", "rev-parse", resolved_sha],
+                    cwd=target_p,
+                    capture_output=True,
+                    text=True,
+                    timeout=3,
+                    check=False,
+                )
+                if res.returncode == 0 and HEX_COMMIT_SHA_PATTERN.match(res.stdout.strip()):
+                    resolved_sha = res.stdout.strip().lower()
+                    provenance_verified = True
+                    revision_status = "verified_commit_sha"
+        except Exception:
+            pass
+
+    passport_metadata: dict[str, Any] = {
+        "target_display": sanitize_passport_target(analysis.target_display, analysis.repo_name),
+    }
+    if not provenance_verified:
+        passport_metadata["provenance_warning"] = (
+            f"Git revision '{git_revision}' was not resolved to an immutable commit SHA; provenance is unverified."
+        )
+
     return RepositoryPassport(
         schema_version=PASSPORT_SCHEMA_VERSION,
         repo_name=analysis.repo_name,
-        git_revision=git_revision,
+        git_revision=resolved_sha,
+        provenance_verified=provenance_verified,
+        revision_status=revision_status,
         analyzed_at=analysis.analyzed_at,
         repodna_version="0.4.0",
         primary_languages=lang_items,
@@ -180,7 +245,7 @@ def generate_repository_passport(
         contract_status=contract_status,
         evidence_references=evidence_refs,
         truncation_metadata=truncation,
-        metadata={"target_display": analysis.target_display},
+        metadata=passport_metadata,
     )
 
 
