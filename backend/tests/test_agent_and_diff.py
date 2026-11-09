@@ -131,7 +131,11 @@ def test_mcp_server_protocol_and_tools() -> None:
     assert "repodna_architecture_diff" in tool_names
     assert "repodna_change_impact" in tool_names
     assert "repodna_analysis_coverage" in tool_names
-    assert len(tools) == 8
+    assert "repodna_get_passport" in tool_names
+    assert "repodna_get_contract" in tool_names
+    assert "repodna_check_contract" in tool_names
+    assert "repodna_pr_guardian" in tool_names
+    assert len(tools) == 12
 
     # 4. Tool calls
     r1 = server.call_tool("repodna_repository_overview", {"target": "demo"})
@@ -220,12 +224,21 @@ async def test_official_mcp_sdk_client_integration() -> None:
             assert "repodna_architecture_diff" in tool_names
             assert "repodna_change_impact" in tool_names
             assert "repodna_analysis_coverage" in tool_names
-            assert len(tool_names) == 8
+            assert "repodna_get_passport" in tool_names
+            assert "repodna_get_contract" in tool_names
+            assert "repodna_check_contract" in tool_names
+            assert "repodna_pr_guardian" in tool_names
+            assert len(tool_names) == 12
 
             # Call repodna_repository_overview
             res1 = await session.call_tool("repodna_repository_overview", {"target": "demo"})
             first_block = res1.content[0]
             assert getattr(first_block, "text", None) and "acme-commerce-platform" in getattr(first_block, "text", "")
+
+            # Call repodna_get_passport
+            res_pass = await session.call_tool("repodna_get_passport", {"target": "demo"})
+            pass_block = res_pass.content[0]
+            assert getattr(pass_block, "text", None) and "schema_version" in getattr(pass_block, "text", "")
 
             # Call repodna_find_modules
             res2 = await session.call_tool("repodna_find_modules", {"target": "demo", "query": "service"})

@@ -16,12 +16,19 @@ from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
 from repodna import __version__
+from repodna.contract.loader import find_contract_file, load_contract_file
+from repodna.contract.models import ArchitectureContract, ContractMode
 from repodna.core.analyzer import (
     ScanCancelledError,
     ScanTimeoutError,
     run_repository_analysis,
 )
+from repodna.diff.snapshot import SnapshotManager
+from repodna.guardian.engine import PRArchitectureGuardian
+from repodna.guardian.models import GuardianReport
 from repodna.parsers.treesitter_parser import get_parser_engine_summary
+from repodna.passport.generator import generate_repository_passport
+from repodna.passport.models import RepositoryPassport
 from repodna.reports.exporter import export_analysis_to_html, export_analysis_to_json
 from repodna.schemas.models import (
     AnalysisResult,
@@ -400,4 +407,107 @@ def browse_local_directories(
         current_path=str(resolved),
         parent_path=parent_path,
         directories=dirs[:100],
+    )
+
+
+class GuardianAssessRequest(BaseModel):
+    target: str = "."
+    base_ref: str = "HEAD~1"
+    head_ref: str = "HEAD"
+    mode: str | None = None
+
+
+@app.get("/api/analyses/{analysis_id}/passport", response_model=RepositoryPassport)
+def get_analysis_passport(
+    analysis_id: str,
+    max_modules: int = Query(default=150, ge=10, le=2000),
+) -> RepositoryPassport:
+    """Returns the portable Repository Passport manifest for an existing analysis."""
+    with _LOCK:
+        res = _RESULTS_BY_ID.get(analysis_id)
+    if not res:
+        raise HTTPException(status_code=404, detail={"code": "ANALYSIS_NOT_FOUND", "message": "Analysis not found."})
+
+    contract = None
+    target_path = Path(res.target_display)
+    if target_path.exists() and target_path.is_dir():
+        c_file = find_contract_file(target_path)
+        if c_file:
+            try:
+                contract = load_contract_file(c_file)
+            except Exception:
+                pass
+
+    return generate_repository_passport(
+        analysis=res,
+        git_revision=res.git_insights.default_branch or "HEAD",
+        contract=contract,
+        max_modules=max_modules,
+    )
+
+
+@app.get("/api/contract", response_model=ArchitectureContract)
+def get_architecture_contract(
+    path: str = Query(default=".", description="Target repository path to locate .repodna/architecture.yml"),
+) -> ArchitectureContract:
+    """Returns the parsed ArchitectureContract if .repodna/architecture.yml exists."""
+    try:
+        resolved = validate_local_directory(path)
+    except SecurityValidationError as exc:
+        raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message}) from exc
+
+    c_file = find_contract_file(resolved)
+    if not c_file:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "CONTRACT_NOT_FOUND", "message": "No architecture contract found in repository."},
+        )
+
+    try:
+        return load_contract_file(c_file)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "CONTRACT_INVALID", "message": f"Failed to parse contract: {exc}"},
+        ) from exc
+
+
+@app.post("/api/guardian/assess", response_model=GuardianReport)
+def assess_architecture_guardian(request: GuardianAssessRequest) -> GuardianReport:
+    """Evaluates architectural drift and contract policies between two Git revisions."""
+    try:
+        resolved = validate_local_directory(request.target)
+    except SecurityValidationError as exc:
+        raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message}) from exc
+
+    try:
+        snap_mgr = SnapshotManager(resolved)
+        base_analysis, base_sha, base_is_wt = snap_mgr.create_snapshot(request.base_ref)
+        head_analysis, head_sha, head_is_wt = snap_mgr.create_snapshot(request.head_ref)
+        git_renames = snap_mgr.find_git_renames(request.base_ref, request.head_ref)
+    except SecurityValidationError as exc:
+        raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message}) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail={"code": "GIT_SNAPSHOT_ERROR", "message": str(exc)}) from exc
+
+    contract = None
+    c_file = find_contract_file(resolved)
+    if c_file and c_file.exists():
+        try:
+            contract = load_contract_file(c_file)
+        except Exception:
+            pass
+
+    mode_override = ContractMode(request.mode) if request.mode else None
+    guardian = PRArchitectureGuardian(contract=contract, mode_override=mode_override)
+    return guardian.assess(
+        base_analysis=base_analysis,
+        head_analysis=head_analysis,
+        base_ref=request.base_ref,
+        head_ref=request.head_ref,
+        base_commit_sha=base_sha,
+        head_commit_sha=head_sha,
+        base_is_working_tree=base_is_wt,
+        head_is_working_tree=head_is_wt,
+        git_renames=git_renames,
     )
