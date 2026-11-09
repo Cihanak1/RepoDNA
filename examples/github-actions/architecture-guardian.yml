@@ -1,0 +1,60 @@
+name: RepoDNA Architecture Guardian
+
+on:
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  guardian:
+    name: Architecture Guardian
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install RepoDNA
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "repodna>=0.4.0"
+
+      - name: Evaluate Pull Request Architecture
+        id: guardian
+        run: |
+          repodna guardian check . \
+            --base "origin/${{ github.base_ref }}" \
+            --head HEAD \
+            --mode enforce \
+            --format markdown \
+            --output guardian-report.md
+
+      - name: Publish Step Summary
+        if: always()
+        run: |
+          if [ -f guardian-report.md ]; then
+            cat guardian-report.md >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Generate Repository Passport
+        if: always()
+        run: |
+          repodna passport generate . --max-modules 200
+
+      - name: Upload Architecture Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: repodna-architecture-artifacts
+          path: |
+            guardian-report.md
+            .repodna/passport.json
+          retention-days: 14

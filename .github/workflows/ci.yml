@@ -37,6 +37,12 @@ jobs:
       - name: Verify CLI Standalone Scanner
         run: python -m repodna.cli.main analyze . --format json --output /tmp/repodna-self.json
 
+      - name: Verify CLI Architecture Guardian and Passport
+        run: |
+          python -m repodna.cli.main passport generate . --format json --output /tmp/repodna-passport.json
+          python -m repodna.cli.main passport validate /tmp/repodna-passport.json
+          python -m repodna.cli.main guardian check . --base HEAD --head HEAD --format markdown
+
   frontend:
     name: Frontend (TypeScript, Vitest, Vite Build)
     runs-on: ubuntu-latest
