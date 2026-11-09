@@ -9,9 +9,10 @@ from typing import Any
 import yaml
 
 from repodna.contract.models import ArchitectureContract
-from repodna.security.validators import SecurityValidationError
+from repodna.security.validators import SecurityValidationError, is_safe_subpath
 
 MAX_CONTRACT_SIZE_BYTES = 524_288  # 512 KB
+MAX_BASELINE_SIZE_BYTES = 5_242_880  # 5 MB
 DEFAULT_CONTRACT_FILENAME = "architecture.yml"
 DEFAULT_CONTRACT_PATH = Path(".repodna") / DEFAULT_CONTRACT_FILENAME
 
@@ -116,30 +117,112 @@ def init_starter_contract(repo_path: Path | str, overwrite: bool = False) -> Pat
     return target_file
 
 
-def load_baseline_file(path: Path | str) -> set[tuple[str, str, str]]:
-    """Loads a set of (rule_id, source_file, target_file) baseline entries from JSON file."""
-    file_path = Path(path).resolve()
-    if not file_path.exists():
+def load_baseline_file(
+    path: Path | str | None,
+    repo_root: Path | str | None = None,
+) -> set[tuple[str, str, str]]:
+    """Loads a set of (rule_id, source_file, target_file) baseline entries from JSON file.
+
+    Fail-safe policy:
+    - If path is None or empty: returns empty set (baseline is optional).
+    - If path is specified but does not exist: raises FileNotFoundError.
+    - If path escapes repository root: raises SecurityValidationError.
+    - If path exceeds size limit: raises SecurityValidationError.
+    - If JSON is malformed or invalid schema: raises ValueError.
+    - If valid and empty: returns empty set.
+    - If valid and populated: returns validated set of violations.
+    """
+    if path is None or (isinstance(path, str) and not path.strip()):
         return set()
 
+    file_path = Path(path).resolve()
+
+    if repo_root is not None:
+        safe_root = Path(repo_root).resolve()
+        if not is_safe_subpath(safe_root, file_path):
+            raise SecurityValidationError(
+                "PATH_TRAVERSAL_DETECTED",
+                f"Baseline file path '{file_path}' escapes repository root '{safe_root}'.",
+            )
+
+    if not file_path.exists():
+        raise FileNotFoundError(f"Baseline file explicitly specified but does not exist: {file_path}")
+
+    if not file_path.is_file():
+        raise ValueError(f"Baseline path is not a regular file: {file_path}")
+
+    size = file_path.stat().st_size
+    if size > MAX_BASELINE_SIZE_BYTES:
+        raise SecurityValidationError(
+            "BASELINE_SIZE_EXCEEDED",
+            f"Baseline file '{file_path.name}' exceeds limit ({size} > {MAX_BASELINE_SIZE_BYTES} bytes).",
+        )
+
     try:
-        data = json.loads(file_path.read_text(encoding="utf-8"))
-        if isinstance(data, list):
-            items: set[tuple[str, str, str]] = set()
-            for entry in data:
-                if isinstance(entry, dict):
-                    rid = entry.get("rule_id", "")
-                    src = entry.get("source_file", "")
-                    tgt = entry.get("target_file", "")
-                    if rid and src and tgt:
-                        items.add((rid, src, tgt))
-            return items
-        if isinstance(data, dict) and "baseline_violations" in data:
-            return {
-                (v["rule_id"], v["source_file"], v["target_file"])
-                for v in data["baseline_violations"]
-                if "rule_id" in v and "source_file" in v and "target_file" in v
-            }
-        return set()
-    except Exception:
-        return set()
+        content = file_path.read_text(encoding="utf-8")
+        data = json.loads(content)
+    except Exception as exc:
+        raise ValueError(f"Corrupted or invalid JSON in baseline file '{file_path}': {exc}") from exc
+
+    if isinstance(data, list):
+        items: set[tuple[str, str, str]] = set()
+        for idx, entry in enumerate(data):
+            if not isinstance(entry, dict):
+                raise ValueError(
+                    f"Corrupted baseline entry at index {idx} in '{file_path}': expected object/dict, got {type(entry).__name__}."
+                )
+            rid = entry.get("rule_id")
+            src = entry.get("source_file")
+            tgt = entry.get("target_file")
+            if not (
+                isinstance(rid, str)
+                and isinstance(src, str)
+                and isinstance(tgt, str)
+                and rid.strip()
+                and src.strip()
+                and tgt.strip()
+            ):
+                raise ValueError(
+                    f"Corrupted baseline entry at index {idx} in '{file_path}': "
+                    f"must contain non-empty 'rule_id', 'source_file', and 'target_file'. Got: {entry}"
+                )
+            items.add((rid.strip(), src.strip(), tgt.strip()))
+        return items
+
+    if isinstance(data, dict):
+        if "baseline_violations" not in data:
+            raise ValueError(
+                f"Invalid baseline format in '{file_path}': root object must contain 'baseline_violations' array."
+            )
+        violations = data["baseline_violations"]
+        if not isinstance(violations, list):
+            raise ValueError(
+                f"Invalid baseline format in '{file_path}': 'baseline_violations' must be a list."
+            )
+        items = set()
+        for idx, entry in enumerate(violations):
+            if not isinstance(entry, dict):
+                raise ValueError(
+                    f"Corrupted baseline violation at index {idx} in '{file_path}': expected object/dict."
+                )
+            rid = entry.get("rule_id")
+            src = entry.get("source_file")
+            tgt = entry.get("target_file")
+            if not (
+                isinstance(rid, str)
+                and isinstance(src, str)
+                and isinstance(tgt, str)
+                and rid.strip()
+                and src.strip()
+                and tgt.strip()
+            ):
+                raise ValueError(
+                    f"Corrupted baseline violation at index {idx} in '{file_path}': "
+                    f"must contain non-empty 'rule_id', 'source_file', and 'target_file'. Got: {entry}"
+                )
+            items.add((rid.strip(), src.strip(), tgt.strip()))
+        return items
+
+    raise ValueError(
+        f"Invalid baseline schema in '{file_path}': root must be a list of violation objects or a dict with 'baseline_violations'."
+    )

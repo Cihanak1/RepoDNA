@@ -168,6 +168,14 @@ class ContractEvaluationReport(BaseModel):
     rules_evaluated: int
     rules_passed: list[str] = Field(default_factory=list)
     rules_violated: list[str] = Field(default_factory=list)
+    rules_unmatched: list[str] = Field(
+        default_factory=list,
+        description="Rules whose 'from' pattern matched 0 files in repository.",
+    )
+    rules_unknown: list[str] = Field(
+        default_factory=list,
+        description="Rules matching files with unsupported language or unresolvable imports leaving evaluation inconclusive.",
+    )
     violations: list[ContractViolation] = Field(default_factory=list)
     new_violations: list[ContractViolation] = Field(default_factory=list)
     baseline_violations: list[ContractViolation] = Field(default_factory=list)

@@ -40,7 +40,6 @@ class ContractEvaluator:
             self.baseline_set = set()
 
     def evaluate(self, analysis: AnalysisResult) -> ContractEvaluationReport:
-        node_map: dict[str, FileNode] = {f.id: f for f in analysis.files}
         # Outgoing edges grouped by source
         edges_by_source: dict[str, list[DependencyEdge]] = {}
         for edge in analysis.edges:
@@ -50,14 +49,29 @@ class ContractEvaluator:
         unknowns: list[ContractUnknown] = []
         rules_violated_set: set[str] = set()
         rules_passed_set: set[str] = set()
+        rules_unmatched_set: set[str] = set()
+        rules_unknown_set: set[str] = set()
         rules_evaluated_count = 0
+
+        # Pre-compile specs for all rules
+        compiled_from_specs: dict[str, pathspec.PathSpec] = {
+            rule.id: pathspec.PathSpec.from_lines("gitignore", rule.from_patterns)
+            for rule in self.contract.rules
+        }
+
+        # Track all files in repo matched by at least one rule
+        all_matched_files: list[FileNode] = [
+            f for f in analysis.files
+            if any(spec.match_file(f.id) for spec in compiled_from_specs.values())
+        ]
 
         for rule in self.contract.rules:
             rules_evaluated_count += 1
             rule_has_violation = False
+            rule_has_unknown = False
+            rule_has_full_ast = False
 
-            # Compile gitignore specs
-            from_spec = pathspec.PathSpec.from_lines("gitignore", rule.from_patterns)
+            from_spec = compiled_from_specs[rule.id]
             disallow_spec = (
                 pathspec.PathSpec.from_lines("gitignore", rule.disallow_imports)
                 if rule.disallow_imports
@@ -74,9 +88,14 @@ class ContractEvaluator:
                 f for f in analysis.files if from_spec.match_file(f.id)
             ]
 
+            if not matching_files:
+                rules_unmatched_set.add(rule.id)
+                continue
+
             for file_node in matching_files:
                 # 1. Check support level limitations for the source file
                 if file_node.support_level == LanguageSupportLevel.UNSUPPORTED:
+                    rule_has_unknown = True
                     unknowns.append(
                         ContractUnknown(
                             rule_id=rule.id,
@@ -91,6 +110,7 @@ class ContractEvaluator:
                     continue
 
                 if file_node.support_level == LanguageSupportLevel.PARTIAL_STATIC:
+                    rule_has_unknown = True
                     unknowns.append(
                         ContractUnknown(
                             rule_id=rule.id,
@@ -102,6 +122,8 @@ class ContractEvaluator:
                             detail=f"Source file '{file_node.id}' uses regex pattern extraction; complete internal dependency graph is not guaranteed.",
                         )
                     )
+                else:
+                    rule_has_full_ast = True
 
                 # 2. Check unresolved imports in source file
                 for unresolved in file_node.unresolved_imports:
@@ -111,6 +133,7 @@ class ContractEvaluator:
                         is_suspicious = True
 
                     if is_suspicious or unresolved.reason not in ("external_package", "standard_library"):
+                        rule_has_unknown = True
                         unknowns.append(
                             ContractUnknown(
                                 rule_id=rule.id,
@@ -166,7 +189,14 @@ class ContractEvaluator:
                             )
                         )
 
-            if not rule_has_violation:
+            if rule_has_violation:
+                rules_violated_set.add(rule.id)
+            elif not rule_has_full_ast:
+                # Rule only matched unsupported or partial static files
+                rules_unknown_set.add(rule.id)
+            elif rule_has_unknown and self.unknown_behavior != UnknownBehavior.IGNORE:
+                rules_unknown_set.add(rule.id)
+            else:
                 rules_passed_set.add(rule.id)
 
         # Partition violations into new vs baseline
@@ -174,9 +204,33 @@ class ContractEvaluator:
         baseline_violations = [v for v in violations if v.is_baseline]
 
         # Determine overall verdict
-        # Coverage check: if AST coverage is below 50% and repo has files
         ast_cov = analysis.transparency.ast_loc_coverage_pct
-        if analysis.total_files > 0 and ast_cov < 40.0 and len(matching_files if 'matching_files' in locals() else []) > 0:
+        all_matched_are_non_full_ast = (
+            len(all_matched_files) > 0
+            and all(f.support_level != LanguageSupportLevel.FULL_AST for f in all_matched_files)
+        )
+
+        if all_matched_are_non_full_ast and not new_violations:
+            if self.mode == ContractMode.ENFORCE and self.unknown_behavior == UnknownBehavior.FAIL:
+                verdict = "FAIL"
+                is_compliant = False
+            elif self.unknown_behavior == UnknownBehavior.WARN:
+                verdict = "WARNING"
+                is_compliant = True
+            elif self.unknown_behavior == UnknownBehavior.IGNORE:
+                verdict = "PASS"
+                is_compliant = True
+            else:
+                verdict = "INCONCLUSIVE"
+                is_compliant = False
+        elif (
+            analysis.total_files > 0
+            and ast_cov < 40.0
+            and len(all_matched_files) > 0
+            and len(rules_passed_set) == 0
+            and len(rules_violated_set) == 0
+            and self.unknown_behavior != UnknownBehavior.WARN
+        ):
             verdict = "INCONCLUSIVE"
             is_compliant = False
         elif self.mode == ContractMode.ENFORCE:
@@ -191,6 +245,9 @@ class ContractEvaluator:
             elif unknowns and self.unknown_behavior == UnknownBehavior.WARN:
                 verdict = "WARNING"
                 is_compliant = True
+            elif not rules_passed_set and rules_unknown_set and not new_violations:
+                verdict = "INCONCLUSIVE" if self.unknown_behavior != UnknownBehavior.IGNORE else "PASS"
+                is_compliant = False if verdict == "INCONCLUSIVE" else True
             elif new_violations:
                 verdict = "WARNING"
                 is_compliant = True
@@ -205,6 +262,12 @@ class ContractEvaluator:
             elif unknowns and self.unknown_behavior == UnknownBehavior.WARN:
                 verdict = "WARNING"
                 is_compliant = True
+            elif unknowns and self.unknown_behavior == UnknownBehavior.FAIL:
+                verdict = "WARNING"
+                is_compliant = False
+            elif not rules_passed_set and rules_unknown_set and not new_violations:
+                verdict = "INCONCLUSIVE" if self.unknown_behavior != UnknownBehavior.IGNORE else "PASS"
+                is_compliant = False if verdict == "INCONCLUSIVE" else True
             else:
                 verdict = "PASS"
                 is_compliant = True
@@ -213,10 +276,15 @@ class ContractEvaluator:
         summary_lines = [
             f"RepoDNA Architecture Contract Evaluation (Mode: {self.mode.value.upper()})",
             f"Verdict: {verdict}",
-            f"Rules Evaluated: {rules_evaluated_count} ({len(rules_passed_set)} passed, {len(rules_violated_set)} triggered)",
+            f"Rules Evaluated: {rules_evaluated_count} ({len(rules_passed_set)} passed, {len(rules_violated_set)} triggered, {len(rules_unmatched_set)} unmatched, {len(rules_unknown_set)} inconclusive)",
             f"Violations: {len(new_violations)} new, {len(baseline_violations)} existing baseline",
             f"Unknowns / Unverified Evaluations: {len(unknowns)}",
         ]
+        if rules_unmatched_set:
+            summary_lines.append(f"Unmatched Rules (0 files matched): {', '.join(sorted(rules_unmatched_set))}")
+        if rules_unknown_set:
+            summary_lines.append(f"Inconclusive / Unknown Rules: {', '.join(sorted(rules_unknown_set))}")
+
         if new_violations:
             summary_lines.append("\nTop New Violations:")
             for v in new_violations[:5]:
@@ -238,6 +306,8 @@ class ContractEvaluator:
             rules_evaluated=rules_evaluated_count,
             rules_passed=sorted(rules_passed_set),
             rules_violated=sorted(rules_violated_set),
+            rules_unmatched=sorted(rules_unmatched_set),
+            rules_unknown=sorted(rules_unknown_set),
             violations=violations,
             new_violations=new_violations,
             baseline_violations=baseline_violations,
