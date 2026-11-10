@@ -4,6 +4,48 @@ All notable changes to **RepoDNA** are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-11-11
+
+### Added
+- **Repository Brain Core (`repodna.brain`)**:
+  - Tree-sitter AST symbol extractor (`DeepSymbolExtractor`) extracting functions, classes, methods, interfaces, types, parameters, return types, signatures, and container hierarchies across Python, TypeScript/TSX, JavaScript/JSX, Go, and Rust.
+  - Multi-factor deterministic smart context retrieval engine (`SmartRetrievalEngine`) scoring query intent, exact symbol matching, identifier tokenization, semantic synonyms, and graph coupling hubs.
+  - Anti-hallucination and misleading comment guards demoting comments with explainable relevance scoring.
+  - Hierarchical reference resolution separating symbol usages into `VERIFIED` (statically proven import and call chains), `CANDIDATE` (syntactically plausible matches), and `UNRESOLVED` (dynamic invocations).
+  - Symbol impact and blast radius tracer (`SymbolTracer`) identifying direct callers, upstream dependent modules, and cycle warnings.
+  - Cryptographic evidence ledger (`EvidenceLedger`) generating immutable citations (`ev_<sha256>`) tied to file path and Git commit SHA with active staleness verification.
+- **Repository Passport v2 (`repodna.passport`)**:
+  - Upgraded schema v2.0.0 supporting structural entrypoints, cross-module dependency links, verified findings, and strict privacy guards.
+  - Two-way migration engine (`PassportMigrator`) maintaining full backward-compatibility with v1.0.0 manifests.
+- **Token-Budgeted Context Engine (`repodna.context`)**:
+  - Context generator enforcing strict token budgets across `compact`, `focused`, and `deep` presets, plus minimal contract mode.
+  - Empirical token savings tracking and continuation pagination.
+- **Intelligence Workstation UI**:
+  - Precision Workstation tab with 4 dedicated workspaces: Smart Code Explorer, Symbol Relationships, Evidence Ledger, and Agent Context Generator.
+  - Real-time AST previews, caller/callee inspection, staleness checking, and token budget meters.
+  - Bilingual localization (TR/EN) and responsive viewports (Desktop, Tablet, Mobile).
+- **Extended MCP Architecture Suite (17 Tools Total)**:
+  - 5 new agent tools: `repodna_search_code`, `repodna_find_symbol`, `repodna_trace_symbol`, `repodna_get_evidence`, `repodna_build_context`.
+- **CLI Commands**:
+  - `repodna search <query> [target]`
+  - `repodna symbols [target] [--name ...] [--kind ...] [--container ...]`
+  - `repodna evidence [target] [--id ...] [--file ...] [--symbol ...]`
+- **Production CI / E2E Automation**:
+  - Integrated Playwright Chromium E2E test job in `.github/workflows/ci.yml` with real backend/frontend daemons and artifact uploads.
+
+### Fixed & Hardened
+- **Path Boundary & TOCTOU Security (`repodna.security`)**:
+  - Replaced path-only checks with descriptor-based atomic opening (`os.open`) with `O_RDONLY | O_BINARY` and POSIX `O_NOFOLLOW`.
+  - Open file descriptor containment verification (`_verify_fd_containment_and_type`) asserting regular files (`S_ISREG`) and size limits.
+  - Windows NT handle path verification via `kernel32.GetFinalPathNameByHandleW` and `msvcrt.get_osfhandle(fd)` blocking symlink races.
+- **Git Revision Provenance & Dirty Invalidation**:
+  - Dynamic `git rev-parse HEAD` resolution replacing unverified symbolic branch names.
+  - Deterministic snapshot identity (`git:{sha}+dirty.{hash}`) combining porcelain status, file sizes, mtime, and fast SHA-256 content hashes (for files <= 512KB).
+- **Non-Git Fixture Symbol Extraction**:
+  - Resolved Pydantic validation issue on `EvidenceReference.repository_revision` for non-git directories, defaulting safely to `"WORKING_TREE"` and fixing the 0-symbol issue in PayFlow.
+- **Large Repository Reference Resolution Performance**:
+  - Optimized `_resolve_cross_references` from $O(N)$ scanning to $O(1)$ set lookups across 55,000+ references.
+
 ## [0.4.0] - 2026-11-10
 
 ### Added

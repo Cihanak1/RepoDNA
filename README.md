@@ -1,26 +1,98 @@
 # RepoDNA — Developer Repository Intelligence Platform
 
 [![CI](https://github.com/Cihanak1/RepoDNA/actions/workflows/ci.yml/badge.svg)](https://github.com/Cihanak1/RepoDNA/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.4.0-38bdf8)](https://github.com/Cihanak1/RepoDNA/releases)
+[![Release](https://img.shields.io/badge/release-v0.5.0-38bdf8)](https://github.com/Cihanak1/RepoDNA/releases)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776ab?logo=python&logoColor=white)](https://www.python.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-10b981.svg)](./LICENSE)
 
-**RepoDNA** is a static architectural analysis, module dependency graph, circular dependency detector, and explainable code health platform for local source directories and public GitHub repositories.
+**RepoDNA** is an evidence-based repository intelligence and code architecture platform for local source directories and public GitHub repositories.
 
-Built for software architects, staff engineers, and open-source maintainers, RepoDNA parses source repositories using **Tree-sitter CST/AST parsers** without executing a single line of target code. It maps internal module relationships, identifies strongly connected circular dependency chains via **Tarjan's SCC algorithm**, calculates **Robert C. Martin's Instability ($I$) and Fan-In/Fan-Out coupling metrics**, inspects Git commit churn hotspots, and produces a **100% deterministic, rule-based Architecture Health Report**.
+Built for AI coding agents, software architects, and engineering teams, RepoDNA combines deep Tree-sitter AST symbol indexing, deterministic cross-module reference tracing, architectural guardrails, and cryptographic evidence citations with a precision intelligence workstation.
 
 ---
 
-## Screenshots (Real Browser Verification)
+## Intelligence Workstation (v0.5.0 Browser Verification)
 
-| Architecture Studio (Dark Theme) | Architecture Studio (Light Theme) |
+| Intelligence Workstation (Desktop 1366px) | Symbol Trace & Downstream Impact |
 | :---: | :---: |
-| ![Architecture Studio Dark](./docs/design/after/studio-dark.png) | ![Architecture Studio Light](./docs/design/after/studio-light.png) |
+| ![Intelligence Workstation](./docs/design/after/intelligence-workstation-1366.png) | ![Studio Live](./docs/design/after/intelligence-workstation-studio.png) |
 
-| Command Palette (`Ctrl+K`) | Explainable Health & Transparency Report | Responsive Mobile View |
+| Command Palette (`Ctrl+K`) | Explainable Health Report | Responsive Mobile View |
 | :---: | :---: | :---: |
-| ![Command Palette](./docs/design/after/commands.png) | ![Health Report](./docs/design/after/report.png) | ![Mobile Responsive](./docs/design/after/viewport-390.png) |
+| ![Command Palette](./docs/design/after/commands.png) | ![Health Report](./docs/design/after/report.png) | ![Mobile Responsive](./docs/design/after/intelligence-workstation-390.png) |
+
+---
+
+## Repository Brain & Code Intelligence (v0.5.0 Release)
+
+RepoDNA v0.5.0 introduces the **Repository Brain** — a zero-execution, evidence-based code intelligence engine designed specifically for AI agents and engineering teams:
+
+### 1. Smart Context Retrieval (`repodna search`)
+- **Deterministic Multi-Factor Scoring**: Evaluates query intent, exact symbol matching, identifier tokenization (camelCase, PascalCase, snake_case), semantic synonyms (`auth` ↔ `authentication`/`token`, `database` ↔ `storage`/`sql`), and graph coupling (architectural hubs and cycle risk).
+- **Anti-Hallucination & Misleading Comments Guard**: Distinguishes authentic AST code symbols from comments/docstrings; demotes misleading comments with transparent score explanations.
+- **Explainable Relevance Tiers**: Groups matches into `HIGH`, `MEDIUM`, and `LOW` tiers with agent-readable match rationales.
+
+### 2. Deep Symbol Intelligence & Cross-Module Tracing (`repodna symbols`)
+- **Tree-sitter AST Extraction**: Extracts functions, classes, methods, interfaces, types, signatures, and container hierarchies across Python, TypeScript, JavaScript, Go, and Rust.
+- **Reference Resolution Status**: Explicitly classifies every symbol usage into:
+  - `VERIFIED`: Statically proven import and call chains.
+  - `CANDIDATE`: Syntactically plausible matches without verified import linkage.
+  - `UNRESOLVED`: Dynamic invocations or unsupported language constructs.
+- **Blast Radius & Impact Tracer**: Calculates upstream callers, direct caller modules, downstream blast radius, and cycle warnings.
+
+### 3. Cryptographic Evidence Ledger (`repodna evidence`)
+- **Deterministic Citations (`ev_<sha256>`)**: Every structural fact and symbol definition is linked to an immutable evidence citation tied to file path and Git revision.
+- **Staleness Verification**: Detects file drift and revision changes, preventing AI agents from reasoning on outdated or modified code.
+- **Honest Language Disclosure**: Distinguishes `full_ast`, `partial_static`, and `unsupported` language capabilities; prevents false certainty.
+
+### 4. Repository Passport v2 (`repodna passport`)
+- Portable, deterministic architectural identity manifest (`.repodna/passport.json`).
+- Schema v2.0.0 adds structural entrypoints, cross-module dependency links, verified findings, and strict privacy guards.
+- Fully backward-compatible with v1.0.0 manifests.
+
+### 5. Intelligence Workstation UI
+- Dedicated **Intelligence Workstation** tab with 4 live interactive sub-workspaces:
+  - **Smart Code Explorer**: Natural language and symbol search with instant AST result previews.
+  - **Symbol Relationships**: Interactive call graph, caller/callee inspection, and blast radius viewer.
+  - **Evidence Ledger**: Cryptographic citation inspector with live staleness verification.
+  - **Agent Context Generator**: Preset token budgeting (500 tokens, 2000 tokens, and minimal contract mode).
+- Full bilingual localization (English & Türkçe) and responsive viewports (Desktop, Tablet, Mobile).
+
+### 6. Extended MCP Architecture Suite (17 Tools Total)
+The official Model Context Protocol (MCP) server expands to 17 tools:
+- Architecture Core: `repodna_repository_overview`, `repodna_architecture_map`, `repodna_find_modules`, `repodna_module_dependencies`, `repodna_module_findings`, `repodna_architecture_diff`, `repodna_change_impact`, `repodna_analysis_coverage`.
+- Governance: `repodna_get_passport`, `repodna_get_contract`, `repodna_check_contract`, `repodna_pr_guardian`.
+- Repository Brain: `repodna_search_code`, `repodna_find_symbol`, `repodna_trace_symbol`, `repodna_get_evidence`, `repodna_build_context`.
+
+---
+
+## Benchmark Metrics & Evaluation Integrity
+
+RepoDNA v0.5.0 has been rigorously benchmarked against independent real-world production codebases without executing untrusted repository code:
+
+| Metric | `psf/requests` (Python) | `colinhacks/zod` (TypeScript) |
+| :--- | :--- | :--- |
+| **Commit SHA** | `3c7baaa` | `19c40d2` |
+| **License** | Apache-2.0 | MIT |
+| **Files / LOC** | 123 / 14,660 | 641 / 124,857 |
+| **AST Coverage** | 100.0% | 100.0% |
+| **Indexed Symbols** | 942 | 3,696 |
+| **Total References** | 3,262 | 55,287 |
+| **Verified References** | 679 | 2,178 |
+| **Indexing Time** | **1.056 s** | **198.38 s** |
+| **Memory Footprint (RSS)**| 52.39 MB | 152.04 MB |
+| **Search Latency P50** | **6.87 ms** | **66.29 ms** |
+| **Evidence Citations** | 942 fresh | 3,696 fresh |
+| **Passport v2 Status** | Valid (0 leaks) | Valid (0 leaks) |
+| **Context Budget Compliance**| 489 / 500 tokens | 479 / 500 tokens |
+
+### Known Limitations & Performance Boundaries
+- **Large TypeScript Repositories**: Repositories with over 100,000 LOC and 50,000+ cross-references (such as `colinhacks/zod`) require ~198 seconds for complete cold-start AST symbol extraction and internal reference resolution. An $O(1)$ set-lookup optimization was introduced in v0.5.0; incremental indexing and background indexing workers are slated for subsequent releases.
+- **Dynamic Invocations**: Reflective, dynamic `eval()`, or computed calls remain classified as `UNRESOLVED` to preserve zero-hallucination guarantees.
+- **Static Analysis Only**: RepoDNA does not run package managers, scripts, or build steps.
+
+---
 
 ---
 
