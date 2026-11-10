@@ -361,19 +361,22 @@ def _verify_fd_containment_and_type(
         try:
             import msvcrt
 
-            handle = msvcrt.get_osfhandle(fd)
-            buf = ctypes.create_unicode_buffer(1024)
-            res = ctypes.windll.kernel32.GetFinalPathNameByHandleW(handle, buf, 1024, 0)
-            if res > 0:
-                raw_p = buf.value
-                if raw_p.startswith("\\\\?\\"):
-                    raw_p = raw_p[4:]
-                opened_path = Path(raw_p).resolve()
-                if not opened_path.is_relative_to(root_resolved) or opened_path == root_resolved:
-                    raise SecurityValidationError(
-                        "TOCTOU_SYMLINK_ESCAPE",
-                        "Opened file descriptor resolved outside repository root.",
-                    )
+            get_osfhandle = getattr(msvcrt, "get_osfhandle", None)
+            windll = getattr(ctypes, "windll", None)
+            if get_osfhandle is not None and windll is not None:
+                handle = get_osfhandle(fd)
+                buf = ctypes.create_unicode_buffer(1024)
+                res = windll.kernel32.GetFinalPathNameByHandleW(handle, buf, 1024, 0)
+                if res > 0:
+                    raw_p = buf.value
+                    if raw_p.startswith("\\\\?\\"):
+                        raw_p = raw_p[4:]
+                    opened_path = Path(raw_p).resolve()
+                    if not opened_path.is_relative_to(root_resolved) or opened_path == root_resolved:
+                        raise SecurityValidationError(
+                            "TOCTOU_SYMLINK_ESCAPE",
+                            "Opened file descriptor resolved outside repository root.",
+                        )
         except SecurityValidationError:
             raise
         except Exception:
