@@ -229,3 +229,48 @@ def test_untrusted_prompt_injection_sanitization() -> None:
     assert "SYSTEM INSTRUCTION" not in sanitized
     assert "Ignore all previous instructions" not in sanitized
     assert "[REDACTED_INJECTION_KEYWORD]" in sanitized
+
+
+def test_symbol_indexing_on_fixture_with_none_revision() -> None:
+    """Verifies that non-git repositories or None revision still indexes symbols without zeroing out."""
+    fixture_dir = Path("benchmarks/fixtures/payflow").resolve()
+    assert fixture_dir.exists()
+
+    indexer = SymbolIndexer(fixture_dir, revision=None)
+    indexer.index_all()
+
+    assert len(indexer._symbols_by_id) > 0
+    assert len(indexer._symbols_by_file) > 0
+    assert indexer.revision == "WORKING_TREE"
+
+
+def test_dirty_working_tree_cache_identity_changes_with_tree_changes(tmp_path: Path) -> None:
+    """Verifies that two different dirty modifications in a git repo yield distinct snapshot identities."""
+    import subprocess
+    git_repo = tmp_path / "git_repo"
+    git_repo.mkdir()
+    subprocess.run(["git", "init"], cwd=git_repo, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=git_repo, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=git_repo, check=True, capture_output=True)
+
+    f1 = git_repo / "main.py"
+    f1.write_text("print(1)\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=git_repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=git_repo, check=True, capture_output=True)
+
+    # First dirty modification
+    f1.write_text("print(2)\n", encoding="utf-8")
+    info1 = analyze_git_history(git_repo, files=[])
+    assert info1.verification_status == "VERIFIED_DIRTY"
+    assert "+dirty." in (info1.snapshot_identity or "")
+
+    # Second distinct dirty modification (add another file)
+    f2 = git_repo / "secondary.py"
+    f2.write_text("print('second')\n", encoding="utf-8")
+    info2 = analyze_git_history(git_repo, files=[])
+    assert info2.verification_status == "VERIFIED_DIRTY"
+    assert "+dirty." in (info2.snapshot_identity or "")
+
+    # Crucial assertion: Two different dirty states must NOT share the same snapshot identity
+    assert info1.snapshot_identity != info2.snapshot_identity
+

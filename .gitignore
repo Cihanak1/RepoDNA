@@ -34,3 +34,6 @@ Thumbs.db
 # Local agent workspace directories
 .codex/
 .claude/
+
+# External cloned benchmark fixtures
+benchmarks/fixtures/external/

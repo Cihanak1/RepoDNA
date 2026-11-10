@@ -154,3 +154,17 @@ def test_evidence_api_endpoint_path_boundary_security(repo_sandbox: Path) -> Non
     assert resp4.status_code == 200
     data = resp4.json()
     assert "evidence_items" in data
+
+
+def test_safe_read_evidence_file_success_and_toctou_containment(repo_sandbox: Path) -> None:
+    content, posix_rel, exists = safe_read_evidence_file(repo_sandbox, "src/app.py")
+    assert exists is True
+    assert posix_rel == "src/app.py"
+    assert "def run" in content
+
+
+def test_safe_read_directory_path_fails_validation(repo_sandbox: Path) -> None:
+    with pytest.raises(SecurityValidationError) as exc:
+        safe_read_evidence_file(repo_sandbox, "src")
+    assert exc.value.code == "NOT_A_FILE"
+

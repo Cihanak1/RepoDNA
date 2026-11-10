@@ -101,6 +101,10 @@ class EvidenceLedger:
     def get_by_id(self, evidence_id: str) -> EvidenceReference | None:
         return self._evidence_by_id.get(evidence_id)
 
+    def get_all(self) -> list[EvidenceReference]:
+        """Returns all evidence references currently recorded in the ledger."""
+        return list(self._evidence_by_id.values())
+
     def find_by_file(
         self,
         file_path: str,

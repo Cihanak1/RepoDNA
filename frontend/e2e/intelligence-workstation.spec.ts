@@ -14,9 +14,8 @@ test.describe('RepoDNA v0.5.0 — Intelligence Workstation, Passport v2 & Produc
 
     // Ensure English initially
     const enBtn = page.getByTestId('lang-en-btn');
-    if (await enBtn.isVisible()) {
-      await enBtn.click();
-    }
+    await expect(enBtn).toBeVisible();
+    await enBtn.click();
 
     // 2. Run real live workspace scan on RepoDNA
     const scanBtn = page.getByTestId('launchpad-scan-workspace-btn');
@@ -33,7 +32,7 @@ test.describe('RepoDNA v0.5.0 — Intelligence Workstation, Passport v2 & Produc
 
     // 4. Test Smart Code Explorer Search
     await expect(page.getByTestId('smart-search-input')).toBeVisible();
-    await page.getByTestId('smart-search-input').fill('analyzer');
+    await page.getByTestId('smart-search-input').fill('run_repository_analysis');
     await page.getByTestId('smart-search-submit-btn').click();
 
     // Verify search results populate with scoring & rationale
@@ -42,12 +41,12 @@ test.describe('RepoDNA v0.5.0 — Intelligence Workstation, Passport v2 & Produc
 
     // 5. Click Matched Symbol to trigger Symbol Relationship Trace
     const traceBtn = page.getByTestId('trace-symbol-btn').first();
-    if (await traceBtn.isVisible()) {
-      await traceBtn.click();
-      // Verifies auto-switch to symbol relations subtab
-      await expect(page.getByText(/Definition/i).first()).toBeVisible({ timeout: 10000 });
-      await expect(page.getByText(/Callers|Callees|Container Hierarchy|Blast Radius/i).first()).toBeVisible();
-    }
+    await expect(traceBtn).toBeVisible({ timeout: 15000 });
+    await traceBtn.click();
+    // Verifies auto-switch to symbol relations subtab
+    await expect(page.getByText(/File Location/i).first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/Downstream Impact/i).first()).toBeVisible();
+    await expect(page.getByText(/Verified Usages & Callers|direct caller module/i).first()).toBeVisible();
 
     // 6. Navigate to Evidence Ledger Subtab
     await page.getByTestId('subtab-evidence-btn').click();
@@ -60,11 +59,10 @@ test.describe('RepoDNA v0.5.0 — Intelligence Workstation, Passport v2 & Produc
 
     // Select an evidence item to inspect details
     const firstEvItem = page.getByTestId('evidence-item-btn').first();
-    if (await firstEvItem.isVisible()) {
-      await firstEvItem.click();
-      await expect(page.getByText(/Git Revision:/i)).toBeVisible();
-      await expect(page.getByText(/Code Snippet/i)).toBeVisible();
-    }
+    await expect(firstEvItem).toBeVisible({ timeout: 15000 });
+    await firstEvItem.click();
+    await expect(page.getByText(/Git Revision:/i)).toBeVisible();
+    await expect(page.getByText(/Code Snippet/i)).toBeVisible();
 
     // 7. Navigate to Agent Context Subtab & Test Presets (500, 2000, minimal contract)
     await page.getByTestId('subtab-context-btn').click();
@@ -104,15 +102,16 @@ test.describe('RepoDNA v0.5.0 — Intelligence Workstation, Passport v2 & Produc
 
     // 9. Test Localization: Switch to Turkish and back to English
     const trBtn = page.getByTestId('lang-tr-btn');
-    if (await trBtn.isVisible()) {
-      await trBtn.click();
-      expect(await page.evaluate(() => document.documentElement.lang)).toBe('tr');
-      await page.waitForTimeout(300);
+    await expect(trBtn).toBeVisible();
+    await trBtn.click();
+    expect(await page.evaluate(() => document.documentElement.lang)).toBe('tr');
+    await page.waitForTimeout(300);
 
-      // Switch back to English
-      await page.getByTestId('lang-en-btn').click();
-      expect(await page.evaluate(() => document.documentElement.lang)).toBe('en');
-    }
+    // Switch back to English
+    const enBtnBack = page.getByTestId('lang-en-btn');
+    await expect(enBtnBack).toBeVisible();
+    await enBtnBack.click();
+    expect(await page.evaluate(() => document.documentElement.lang)).toBe('en');
 
     // 10. Switch back to Intelligence tab for responsive screenshots
     await page.getByTestId('tab-intelligence-btn').click();
@@ -133,14 +132,13 @@ test.describe('RepoDNA v0.5.0 — Intelligence Workstation, Passport v2 & Produc
     await page.waitForTimeout(250);
     await page.screenshot({ path: `${ARTIFACT_DIR}/intelligence-workstation-390.png` });
 
-    // Reset to standard studio desktop (1440x900) and capture studio view
+    // Reset to standard studio desktop (1440x900) and capture studio view with theme toggle
     await page.setViewportSize({ width: 1440, height: 900 });
     const themeBtn = page.getByTestId('theme-toggle-btn');
-    if (await themeBtn.isVisible()) {
-      await themeBtn.click();
-      await page.waitForTimeout(200);
-      await themeBtn.click();
-    }
+    await expect(themeBtn).toBeVisible();
+    await themeBtn.click();
+    await page.waitForTimeout(200);
+    await themeBtn.click();
     await page.screenshot({ path: `${ARTIFACT_DIR}/intelligence-workstation-studio.png` });
   });
 });

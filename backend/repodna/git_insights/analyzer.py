@@ -28,7 +28,10 @@ def analyze_git_history(
     """
     git_dir = repo_root / ".git"
     if not git_dir.exists():
-        path_hash = hashlib.sha256(repo_root.as_posix().encode("utf-8")).hexdigest()[:12]
+        dir_parts = [repo_root.as_posix()]
+        for f in files[:200]:
+            dir_parts.append(f"{f.id}:{f.lines_code}")
+        path_hash = hashlib.sha256("\n".join(dir_parts).encode("utf-8")).hexdigest()[:12]
         return GitInsights(
             is_git_repo=False,
             commit_sha=None,
@@ -92,9 +95,26 @@ def analyze_git_history(
 
     if commit_sha:
         verification_status = "VERIFIED_DIRTY" if is_dirty else "VERIFIED_CLEAN"
-        snapshot_identity = f"git:{commit_sha}{'+dirty' if is_dirty else ''}"
+        if is_dirty:
+            dirty_parts = [status_raw or ""]
+            for line in dirty_lines:
+                parts = line[3:].strip().split(" -> ")
+                target_rel = parts[-1].strip().strip('"')
+                p = repo_root / target_rel
+                try:
+                    st = p.stat()
+                    dirty_parts.append(f"{target_rel}:{st.st_mtime_ns}:{st.st_size}")
+                except OSError:
+                    dirty_parts.append(f"{target_rel}:missing")
+            dirty_hash = hashlib.sha256("\n".join(dirty_parts).encode("utf-8")).hexdigest()[:12]
+            snapshot_identity = f"git:{commit_sha}+dirty.{dirty_hash}"
+        else:
+            snapshot_identity = f"git:{commit_sha}"
     else:
-        path_hash = hashlib.sha256(repo_root.as_posix().encode("utf-8")).hexdigest()[:12]
+        dir_parts = [repo_root.as_posix()]
+        for f in files[:200]:
+            dir_parts.append(f"{f.id}:{f.lines_code}")
+        path_hash = hashlib.sha256("\n".join(dir_parts).encode("utf-8")).hexdigest()[:12]
         verification_status = "UNVERIFIED_NON_GIT"
         snapshot_identity = f"directory:{path_hash}"
 

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import ctypes
 import ipaddress
 import os
 import re
+import stat as stat_module
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -338,6 +340,46 @@ def validate_and_resolve_evidence_path(
     return candidate, posix_rel
 
 
+def _verify_fd_containment_and_type(
+    fd: int,
+    root_resolved: Path,
+    posix_rel: str,
+    max_file_bytes: int,
+) -> None:
+    """Verifies that the opened file descriptor is a regular file within repository bounds and within size limits."""
+    st = os.fstat(fd)
+    if not stat_module.S_ISREG(st.st_mode):
+        raise SecurityValidationError("SPECIAL_FILE_BLOCKED", f"Target path '{posix_rel}' is not a regular file.")
+    if st.st_size > max_file_bytes:
+        raise SecurityValidationError(
+            "FILE_TOO_LARGE",
+            f"File size ({st.st_size} bytes) exceeds maximum limit ({max_file_bytes} bytes).",
+        )
+
+    # Platform-specific descriptor containment verification (TOCTOU guard)
+    if os.name == "nt":
+        try:
+            import msvcrt
+
+            handle = msvcrt.get_osfhandle(fd)
+            buf = ctypes.create_unicode_buffer(1024)
+            res = ctypes.windll.kernel32.GetFinalPathNameByHandleW(handle, buf, 1024, 0)
+            if res > 0:
+                raw_p = buf.value
+                if raw_p.startswith("\\\\?\\"):
+                    raw_p = raw_p[4:]
+                opened_path = Path(raw_p).resolve()
+                if not opened_path.is_relative_to(root_resolved) or opened_path == root_resolved:
+                    raise SecurityValidationError(
+                        "TOCTOU_SYMLINK_ESCAPE",
+                        "Opened file descriptor resolved outside repository root.",
+                    )
+        except SecurityValidationError:
+            raise
+        except Exception:
+            pass
+
+
 def safe_read_evidence_file(
     root_path: Path,
     relative_path: str,
@@ -345,6 +387,7 @@ def safe_read_evidence_file(
 ) -> tuple[str, str, bool]:
     """
     Safely reads text content of a repository-relative evidence file within strict bounds.
+    Employs descriptor-level validation and platform-specific containment to guard against TOCTOU races.
 
     Returns:
         (text_content, canonical_posix_path, file_exists_flag)
@@ -357,37 +400,56 @@ def safe_read_evidence_file(
         max_file_bytes=max_file_bytes,
     )
 
-    if not target_path.exists():
-        return "", posix_rel, False
+    root_resolved = root_path.resolve()
+    flags = os.O_RDONLY
+    if hasattr(os, "O_BINARY"):
+        flags |= os.O_BINARY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
 
     try:
-        stat_res = target_path.stat()
-        if stat_res.st_size > max_file_bytes:
-            raise SecurityValidationError(
-                "FILE_TOO_LARGE",
-                f"File size ({stat_res.st_size} bytes) exceeds maximum limit ({max_file_bytes} bytes).",
-            )
+        fd = os.open(target_path, flags)
+    except FileNotFoundError:
+        return "", posix_rel, False
+    except PermissionError as exc:
+        raise SecurityValidationError("FILE_PERMISSION_DENIED", "Permission denied reading evidence file.") from exc
+    except OSError as exc:
+        # On POSIX with O_NOFOLLOW, opening symlink raises ELOOP or EINVAL
+        if getattr(exc, "errno", None) in (22, 40):
+            raise SecurityValidationError("SYMLINK_ESCAPE", f"Symbolic link cannot be followed for evidence read: {type(exc).__name__}") from exc
+        raise SecurityValidationError("FILE_READ_ERROR", f"Cannot open evidence file '{posix_rel}': {type(exc).__name__}") from exc
 
-        with open(target_path, "rb") as f:
-            chunk = f.read(1024)
-            if b"\x00" in chunk:
-                raise SecurityValidationError("BINARY_FILE_BLOCKED", "Binary files cannot be read for evidence inspection.")
-            rest = f.read(max_file_bytes - len(chunk) + 1)
-            raw_data = chunk + rest
+    try:
+        _verify_fd_containment_and_type(fd, root_resolved, posix_rel, max_file_bytes)
 
-        if len(raw_data) > max_file_bytes:
+        # Bounded read using file descriptor
+        chunks: list[bytes] = []
+        total_read = 0
+        first_chunk = os.read(fd, min(1024, max_file_bytes + 1))
+        if b"\x00" in first_chunk:
+            raise SecurityValidationError("BINARY_FILE_BLOCKED", "Binary files cannot be read for evidence inspection.")
+        chunks.append(first_chunk)
+        total_read += len(first_chunk)
+
+        while total_read <= max_file_bytes:
+            to_read = min(8192, max_file_bytes - total_read + 1)
+            chunk = os.read(fd, to_read)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total_read += len(chunk)
+
+        if total_read > max_file_bytes:
             raise SecurityValidationError(
                 "FILE_TOO_LARGE",
                 f"File size exceeds maximum limit ({max_file_bytes} bytes).",
             )
 
+        raw_data = b"".join(chunks)
         text_content = raw_data.decode("utf-8", errors="replace")
         return text_content, posix_rel, True
-    except SecurityValidationError:
-        raise
-    except OSError as exc:
-        # Avoid leaking full OS filesystem path in exception message
-        raise SecurityValidationError("FILE_READ_ERROR", f"Cannot read evidence file '{posix_rel}': {type(exc).__name__}") from exc
+    finally:
+        os.close(fd)
 
 
 def scan_line_for_secrets(line: str, line_number: int) -> list[str]:

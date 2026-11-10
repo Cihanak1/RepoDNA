@@ -133,7 +133,8 @@ class EvidenceReference(BaseModel):
 
     evidence_id: str = Field(description="Deterministic unique evidence identifier (e.g. ev_<hash>).")
     repository_revision: str = Field(
-        description="Git commit SHA or 'WORKING_TREE' for uncommitted workspace."
+        default="WORKING_TREE",
+        description="Git commit SHA or 'WORKING_TREE' for uncommitted workspace.",
     )
     file_path: str = Field(description="Repository-relative normalized POSIX path.")
     line_start: int = Field(ge=1, description="1-indexed starting line.")
@@ -166,14 +167,15 @@ class EvidenceReference(BaseModel):
     @classmethod
     def generate_id(
         cls,
-        revision: str,
+        revision: str | None,
         file_path: str,
         line_start: int,
         line_end: int,
         evidence_type: str,
         symbol_name: str | None = None,
     ) -> str:
-        raw = f"{revision}:{file_path}:{line_start}:{line_end}:{evidence_type}:{symbol_name or ''}"
+        rev_str = revision or "WORKING_TREE"
+        raw = f"{rev_str}:{file_path}:{line_start}:{line_end}:{evidence_type}:{symbol_name or ''}"
         h = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
         return f"ev_{h}"
 

@@ -61,13 +61,14 @@ class DeepSymbolExtractor:
         cls,
         file_path: str,
         content: str,
-        revision: str = "WORKING_TREE",
+        revision: str | None = "WORKING_TREE",
     ) -> tuple[list[SymbolDefinition], list[SymbolReference], list[EvidenceReference]]:
         """
         Extracts verified symbols, calls, imports, and evidence references for a single file.
         Returns:
             (symbols, references, evidence_items)
         """
+        rev = revision or "WORKING_TREE"
         norm_path = file_path.replace("\\", "/").lstrip("/")
         source_bytes = content.encode("utf-8")
         filename = norm_path.rsplit("/", 1)[-1]
@@ -77,7 +78,7 @@ class DeepSymbolExtractor:
         _init_treesitter_parsers()
 
         if lang == "Python":
-            return cls._extract_python(norm_path, content, source_bytes, revision, support_lvl)
+            return cls._extract_python(norm_path, content, source_bytes, rev, support_lvl)
         elif lang in ("TypeScript", "TypeScript (TSX)", "JavaScript", "JavaScript (JSX)"):
             parser_key = (
                 "tsx"
@@ -86,13 +87,13 @@ class DeepSymbolExtractor:
                 if "TypeScript" in lang
                 else "javascript"
             )
-            return cls._extract_js_ts(norm_path, content, source_bytes, revision, lang, parser_key, support_lvl)
+            return cls._extract_js_ts(norm_path, content, source_bytes, rev, lang, parser_key, support_lvl)
         elif lang == "Go":
-            return cls._extract_go(norm_path, content, source_bytes, revision, support_lvl)
+            return cls._extract_go(norm_path, content, source_bytes, rev, support_lvl)
         elif lang == "Rust":
-            return cls._extract_rust(norm_path, content, source_bytes, revision, support_lvl)
+            return cls._extract_rust(norm_path, content, source_bytes, rev, support_lvl)
         else:
-            return cls._extract_generic(norm_path, content, revision, lang, support_lvl)
+            return cls._extract_generic(norm_path, content, rev, lang, support_lvl)
 
     @classmethod
     def _extract_python(

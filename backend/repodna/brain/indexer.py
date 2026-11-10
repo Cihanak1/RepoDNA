@@ -27,14 +27,14 @@ class SymbolIndexer:
     def __init__(
         self,
         root_path: Path | str,
-        revision: str = "WORKING_TREE",
+        revision: str | None = "WORKING_TREE",
         analysis: AnalysisResult | None = None,
     ) -> None:
         self.root_path = Path(root_path).resolve()
-        self.revision = revision
+        self.revision = revision or "WORKING_TREE"
         self.analysis = analysis
 
-        self.ledger = EvidenceLedger(repository_revision=revision)
+        self.ledger = EvidenceLedger(repository_revision=self.revision)
         self._symbols_by_id: dict[str, SymbolDefinition] = {}
         self._symbols_by_name: dict[str, list[SymbolDefinition]] = defaultdict(list)
         self._symbols_by_name_lower: dict[str, list[SymbolDefinition]] = defaultdict(list)
@@ -252,6 +252,11 @@ class SymbolIndexer:
         - CANDIDATE: Plausible target (e.g. imported module exports it, or unique repo symbol without import proof).
         - UNRESOLVED: Insufficient evidence, shadowed identifier, or foreign/unimported symbol.
         """
+        imports_internal_by_file: dict[str, set[str]] = (
+            {f.id: set(f.imports_internal) for f in self.analysis.files}
+            if self.analysis
+            else {}
+        )
         for ref in self._raw_references:
             # 1. Imports resolution
             if ref.reference_kind in (ReferenceKind.IMPORT, ReferenceKind.REEXPORT):
@@ -431,9 +436,9 @@ class SymbolIndexer:
                     continue
 
                 if self.analysis is not None:
-                    ref_node = next((f for f in self.analysis.files if f.id == ref.file_path), None)
-                    if ref_node:
-                        imported_cands = [c for c in candidates if c.file_path in ref_node.imports_internal]
+                    internal_imps = imports_internal_by_file.get(ref.file_path)
+                    if internal_imps is not None:
+                        imported_cands = [c for c in candidates if c.file_path in internal_imps]
                         if len(imported_cands) == 1:
                             c = imported_cands[0]
                             ref.is_verified = False

@@ -14,11 +14,11 @@ Across two real independent open-source repositories:
 from __future__ import annotations
 
 import ctypes
-from ctypes import wintypes
 import json
 import os
-from pathlib import Path
 import time
+from ctypes import wintypes
+from pathlib import Path
 from typing import Any
 
 from repodna.brain.indexer import SymbolIndexer
@@ -69,9 +69,10 @@ def benchmark_repository(
     repo_name: str,
     repo_path: Path,
     search_queries: list[str],
+    workspace_root: Path | None = None,
 ) -> dict[str, Any]:
     print("\n========================================================")
-    print(f"Benchmarking: {repo_name} at {repo_path}")
+    print(f"Benchmarking: {repo_name} at {repo_path.name}")
     print("========================================================")
 
     # 1. Base Analysis
@@ -162,9 +163,28 @@ def benchmark_repository(
     print(f"Context 500 budget:  {ctx_500.estimated_tokens} tokens (truncated={ctx_500.truncated}, compliant={compliant_500})")
     print(f"Context 2000 budget: {ctx_2000.estimated_tokens} tokens (truncated={ctx_2000.truncated}, compliant={compliant_2000})")
 
+    portable_path = "."
+    if workspace_root:
+        try:
+            rel = repo_path.resolve().relative_to(workspace_root.resolve()).as_posix()
+            portable_path = rel if rel != "" else "."
+        except Exception:
+            portable_path = repo_name
+    elif repo_path.name != "RepoDNA":
+        portable_path = f"benchmarks/fixtures/{repo_path.name}"
+
+    commit_sha = analysis_res.git_insights.commit_sha if analysis_res.git_insights else None
+    snapshot_identity = (
+        analysis_res.git_insights.snapshot_identity
+        if analysis_res.git_insights and analysis_res.git_insights.snapshot_identity
+        else "unknown"
+    )
+
     return {
         "repo_name": repo_name,
-        "repo_path": str(repo_path),
+        "repo_path": portable_path,
+        "commit_sha": commit_sha,
+        "snapshot_identity": snapshot_identity,
         "total_files": total_files,
         "total_loc": total_loc,
         "indexed_files": indexed_files,
@@ -245,6 +265,7 @@ def main() -> None:
         repo_name="RepoDNA",
         repo_path=root,
         search_queries=repodna_queries,
+        workspace_root=root,
     )
     results.append(res_repodna)
 
@@ -255,6 +276,7 @@ def main() -> None:
             repo_name="PayFlow",
             repo_path=payflow_path,
             search_queries=payflow_queries,
+            workspace_root=root,
         )
         results.append(res_payflow)
 
