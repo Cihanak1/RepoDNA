@@ -70,6 +70,8 @@ IGNORED_DIRS = {
     "playwright-report",
     "test-results",
     ".repodna_tmp",
+    "fixtures",
+    "results",
 }
 
 BINARY_EXTENSIONS = {
@@ -293,7 +295,11 @@ def _analyze_directory_internal(
                 continue
 
             if is_dir:
-                if entry.name in IGNORED_DIRS or (entry.name.startswith(".") and entry.name not in {".github"}):
+                if (
+                    entry.name in IGNORED_DIRS
+                    or entry.name.endswith(".egg-info")
+                    or (entry.name.startswith(".") and entry.name not in {".github"})
+                ):
                     continue
                 subdirs_to_visit.append(entry_path)
             elif entry.is_file(follow_symlinks=False):

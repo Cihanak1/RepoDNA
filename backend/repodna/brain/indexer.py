@@ -74,7 +74,7 @@ class SymbolIndexer:
         count = 0
         ignored = {
             ".git", "node_modules", ".venv", "venv", "dist", "build",
-            "__pycache__", ".pytest_cache", ".mypy_cache",
+            "__pycache__", ".pytest_cache", ".mypy_cache", "fixtures",
         }
         valid_exts = {
             ".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
