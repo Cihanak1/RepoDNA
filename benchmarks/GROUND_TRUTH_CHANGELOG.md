@@ -6,7 +6,7 @@ An exhaustive, line-by-line ground truth audit was conducted on all 55 queries i
 Every expected file, symbol definition, and evidence string was cross-referenced against actual source files at revision `ab07242`.
 
 - **Original Dataset:** `benchmarks/retrieval-v1-original.jsonl` (SHA-256: `54628b1922d623ac8a183656291a9b9c8064ce4c197aea39ba51ab38180f0770`)
-- **Audited Dataset:** `benchmarks/retrieval-v1.jsonl` (SHA-256: `930247e96295c6bb2344b138b82cbed7156cc640b2009f63e818698d5eb2f25a`)
+- **Audited Dataset:** `benchmarks/retrieval-v1.jsonl` (Canonical LF SHA-256: `ace9fadf075d684cc077ae4e721a6b07c728f96f3c9f78a88abf69056ae42bb2`)
 - **Target Revision SHA:** `ab07242`
 - **Total Queries Audited:** 55
 - **Queries Corrected:** 25 (45.5%)

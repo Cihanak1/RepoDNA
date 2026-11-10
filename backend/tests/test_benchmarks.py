@@ -283,9 +283,9 @@ def test_dataset_ground_truth_audit_integrity():
     dataset_path = Path("benchmarks/retrieval-v1.jsonl")
     assert dataset_path.is_file()
 
-    content_bytes = dataset_path.read_bytes()
+    content_bytes = dataset_path.read_bytes().replace(b"\r\n", b"\n")
     dataset_hash = hashlib.sha256(content_bytes).hexdigest()
-    assert dataset_hash == "930247e96295c6bb2344b138b82cbed7156cc640b2009f63e818698d5eb2f25a"
+    assert dataset_hash == "ace9fadf075d684cc077ae4e721a6b07c728f96f3c9f78a88abf69056ae42bb2"
 
     queries = [json.loads(line) for line in dataset_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert len(queries) == 55
