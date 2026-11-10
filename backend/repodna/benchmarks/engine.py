@@ -259,7 +259,7 @@ class BenchmarkEngine:
         # Step 6: Budget Benchmarks
         budget_results = run_budget_benchmark(analysis) if include_budget else []
         budget_compliance_pct = (
-            round((sum(1.0 for b in budget_results if b.is_compliant) / len(budget_results)) * 100.0, 1)
+            round((sum(1.0 for b in budget_results if b.budget_compliant) / len(budget_results)) * 100.0, 1)
             if budget_results
             else 100.0
         )
@@ -272,12 +272,17 @@ class BenchmarkEngine:
         dev_count = sum(1 for q in queries if q.split == SplitType.DEV)
         holdout_count = sum(1 for q in queries if q.split == SplitType.HOLDOUT)
 
+        try:
+            rel_dataset = Path(self.dataset_path).resolve().relative_to(Path(self.repo_path).resolve()).as_posix()
+        except Exception:
+            rel_dataset = Path(self.dataset_path).name
+
         return BenchmarkRunReport(
             benchmark_version="v1.0",
             timestamp=datetime.now(UTC).isoformat(),
             commit_sha=commit_sha,
             environment=env_meta,
-            dataset_path=str(self.dataset_path),
+            dataset_path=rel_dataset,
             dataset_total=len(queries),
             dataset_dev_count=dev_count,
             dataset_holdout_count=holdout_count,
@@ -353,16 +358,18 @@ class BenchmarkEngine:
             "",
             "## 4. Token Budget Compliance Matrix",
             "",
-            "| Requested `max_tokens` | Counted Tokens | Method | Compliant? | Truncated? | Deterministic? | Duration | Notes |",
-            "| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |",
+            "| Contract | Requested `max_tokens` | Counted Tokens | Method | Compliant? | Overflow? | Truncated? | Deterministic? | Duration | Notes |",
+            "| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |",
         ])
 
         for b in report.budget_benchmarks:
-            comp_flag = "PASS" if b.is_compliant else "FAIL"
-            trunc_flag = "Yes" if b.is_truncated else "No"
+            comp_flag = "PASS" if b.budget_compliant else "FAIL"
+            over_flag = "Yes" if b.metadata_overflow else "No"
+            trunc_flag = "Yes" if b.truncated else "No"
             det_flag = "Yes" if b.is_deterministic else "No"
+            contract_label = getattr(b, "contract", "standard")
             lines.append(
-                f"| `{b.max_tokens}` | {b.counted_tokens} | `{b.counting_method}` | **{comp_flag}** | {trunc_flag} | {det_flag} | {b.duration_ms} ms | {b.notes} |"
+                f"| `{contract_label}` | `{b.max_tokens}` | {b.counted_tokens} | `{b.tokenizer_method}` | **{comp_flag}** | {over_flag} | {trunc_flag} | {det_flag} | {b.duration_ms} ms | {b.notes} |"
             )
 
         lines.extend([

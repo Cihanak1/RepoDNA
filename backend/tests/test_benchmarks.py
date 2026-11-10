@@ -220,3 +220,76 @@ def test_budget_benchmark_matrix():
         assert r.is_deterministic
         assert r.duration_ms >= 0.0
         assert r.iterations <= 100
+
+
+def test_budget_compliance_semantics_separation():
+    """P0: Explicitly verify separation of termination_success, budget_compliant, and metadata_overflow."""
+    req = ScanRequest(source_type=SourceType.LOCAL, target=".", limits=ScanLimits(max_files=15))
+    analysis = run_repository_analysis(req)
+    results = run_budget_benchmark(analysis, include_minimal=True)
+
+    by_budget_std = {r.max_tokens: r for r in results if r.contract == "standard"}
+    by_budget_min = {r.max_tokens: r for r in results if r.contract == "minimal_response"}
+
+    # 10 tokens in standard mode: metadata overflow
+    r10 = by_budget_std[10]
+    assert r10.termination_success is True
+    assert r10.budget_compliant is False
+    assert r10.metadata_overflow is True
+    assert r10.truncated is True
+    assert r10.estimated_token_count > 10
+    assert "heuristic" in r10.tokenizer_method
+    assert "estimated" in r10.tokenizer_method
+
+    # 25 tokens in standard mode: metadata overflow
+    r25 = by_budget_std[25]
+    assert r25.termination_success is True
+    assert r25.budget_compliant is False
+    assert r25.metadata_overflow is True
+
+    # 0 tokens in standard mode: compliant with zero payload
+    r0 = by_budget_std[0]
+    assert r0.termination_success is True
+    assert r0.budget_compliant is True
+    assert r0.metadata_overflow is False
+    assert r0.estimated_token_count == 0
+
+    # 500 tokens in standard mode: fully compliant
+    r500 = by_budget_std[500]
+    assert r500.termination_success is True
+    assert r500.budget_compliant is True
+    assert r500.metadata_overflow is False
+
+    # Minimal-response contract: 10 and 25 tokens strictly compliant
+    r10_min = by_budget_min[10]
+    assert r10_min.termination_success is True
+    assert r10_min.budget_compliant is True
+    assert r10_min.metadata_overflow is False
+    assert r10_min.estimated_token_count <= 10
+
+    r25_min = by_budget_min[25]
+    assert r25_min.termination_success is True
+    assert r25_min.budget_compliant is True
+    assert r25_min.metadata_overflow is False
+    assert r25_min.estimated_token_count <= 25
+
+
+def test_dataset_ground_truth_audit_integrity():
+    """Verify ground-truth dataset integrity: files exist and symbols are verified."""
+    import hashlib
+    import json
+    from pathlib import Path
+
+    dataset_path = Path("benchmarks/retrieval-v1.jsonl")
+    assert dataset_path.is_file()
+
+    content_bytes = dataset_path.read_bytes()
+    dataset_hash = hashlib.sha256(content_bytes).hexdigest()
+    assert dataset_hash == "930247e96295c6bb2344b138b82cbed7156cc640b2009f63e818698d5eb2f25a"
+
+    queries = [json.loads(line) for line in dataset_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(queries) == 55
+
+    for q in queries:
+        for fp in q["expected_files"]:
+            assert Path(fp).exists(), f"Query {q['query_id']} references missing file {fp}"

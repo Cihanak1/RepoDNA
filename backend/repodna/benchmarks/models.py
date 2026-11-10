@@ -136,9 +136,16 @@ class BudgetComplianceResult(BaseModel):
     max_tokens: int
     counted_tokens: int
     counting_method: str
+    termination_success: bool = True
+    budget_compliant: bool
+    metadata_overflow: bool = False
+    truncated: bool
+    estimated_token_count: int
+    tokenizer_method: str
     is_compliant: bool
     is_truncated: bool
-    iterations: int
+    contract: str = "standard"
+    iterations: int = 1
     duration_ms: float
     is_deterministic: bool
     notes: str

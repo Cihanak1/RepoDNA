@@ -50,6 +50,7 @@ class AgentContextBuilder:
         page_size: int = 15,
         revision: str = "HEAD",
         indexer: SymbolIndexer | None = None,
+        minimal_contract: bool = False,
     ) -> AgentContextResponse:
         service = RepositoryIntelligenceService(analysis)
         overview = service.get_repository_overview()
@@ -298,6 +299,7 @@ class AgentContextBuilder:
                 limitations=limitations,
                 truncated=truncated,
                 continuation_token=continuation_token,
+                minimal_contract=minimal_contract,
             )
             md_text = test_resp.as_markdown()
             curr_tokens, method_used = cls.count_tokens(md_text)
@@ -323,6 +325,8 @@ class AgentContextBuilder:
                     relevant_modules.pop()
                 elif len(summary) > 30 and not summary.endswith("[TRUNCATED DUE TO BUDGET]"):
                     summary = summary[:30] + "... [TRUNCATED DUE TO BUDGET]"
+                elif minimal_contract and summary:
+                    summary = ""
                 else:
                     # Minimal metadata alone exceeds budget
                     msg = f"Header metadata alone exceeds requested budget of {target_tokens} tokens."
@@ -356,6 +360,7 @@ class AgentContextBuilder:
             limitations=limitations,
             truncated=truncated,
             continuation_token=continuation_token,
+            minimal_contract=minimal_contract,
         )
         final_md = final_resp.as_markdown()
         final_tokens, method = cls.count_tokens(final_md)

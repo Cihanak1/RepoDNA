@@ -31,9 +31,19 @@ class AgentContextResponse(BaseModel):
     estimated_savings_pct: float = 0.0
     is_savings_estimated: bool = True
     token_counting_method: str = "heuristic_chars"
+    minimal_contract: bool = False
 
     def as_markdown(self) -> str:
         """Renders an agent-friendly, token-efficient Markdown document."""
+        if self.minimal_contract:
+            trunc_tag = " [TRUNCATED]" if self.truncated else ""
+            lines = [f"# {self.repository} ({self.revision}){trunc_tag}"]
+            if self.summary and len(self.summary) <= 60:
+                lines.append(self.summary)
+            if self.relevant_modules:
+                for mod in self.relevant_modules[:3]:
+                    lines.append(f"- `{mod.get('id', '')}`")
+            return "\n".join(lines)
         lines = [
             f"# RepoDNA Context [{self.mode.upper()}] — {self.repository} ({self.revision})",
             f"**Confidence:** {self.confidence_level.upper()} | **Analysis Version:** v{self.analysis_version}",
