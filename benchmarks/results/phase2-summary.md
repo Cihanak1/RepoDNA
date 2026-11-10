@@ -1,10 +1,10 @@
 # RepoDNA Code Intelligence Benchmark — Phase 2 Evaluation Report
 
 - **Benchmark Version:** `v1.0`
-- **Commit SHA:** `507ca83adae4bcc55340ec022fa8346d31f7348a`
-- **Evaluated At:** `2026-11-10T00:19:23.285165+00:00`
+- **Commit SHA:** `ab072421001fd454503f382bf6b69802d21fa4de`
+- **Evaluated At:** `2026-11-10T09:31:01.910017+00:00`
 - **Environment:** Windows (AMD64), Python 3.12.10
-- **Dataset:** `C:\Users\cihan\Desktop\RepoDNA\benchmarks\retrieval-v1.jsonl` (55 queries: 43 dev, 12 holdout)
+- **Dataset:** `benchmarks/retrieval-v1.jsonl` (55 queries: 43 dev, 12 holdout)
 
 ## 1. Executive Summary & Baseline Comparison
 
@@ -12,87 +12,64 @@ Does **Repository Brain** actually outperform naive filename search and substrin
 
 | Method | Hit@1 (%) | Hit@3 (%) | Hit@5 (%) | MRR | Precision@1 | Recall@3 | nDCG@5 | Negative Abstention (%) | P50 Latency (ms) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| filename_only | **29.79** | **48.94** | **53.19** | **0.3936** | 0.2979 | 0.4681 | **0.4152** | 75.0% | 0.16 ms |
-| symbol_only | **12.77** | **27.66** | **38.3** | **0.2092** | 0.1277 | 0.2766 | **0.2516** | 25.0% | 4.41 ms |
-| **Repository Brain (RepoDNA)** | **27.66** | **44.68** | **53.19** | **0.3582** | 0.2766 | 0.4362 | **0.3959** | 25.0% | 17.69 ms |
+| filename_only | **34.04** | **55.32** | **63.83** | **0.4539** | 0.3404 | 0.5319 | **0.4868** | 62.5% | 0.17 ms |
+| symbol_only | **14.89** | **29.79** | **42.55** | **0.2394** | 0.1489 | 0.2979 | **0.2849** | 25.0% | 4.37 ms |
+| **Repository Brain (RepoDNA)** | **63.83** | **80.85** | **80.85** | **0.7128** | 0.6383 | 0.7766 | **0.7157** | 100.0% | 6.91 ms |
 
 ## 2. Dev vs Holdout Generalization
 
 | Split | Method | Hit@1 (%) | Hit@3 (%) | MRR | nDCG@5 | Negative Abstention (%) |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
-| Dev Split | filename_only | 32.5% | 50.0% | 0.4104 | 0.43 | 66.67% |
-| Dev Split | symbol_only | 12.5% | 30.0% | 0.2208 | 0.2707 | 33.33% |
-| Dev Split | repository_brain | 25.0% | 45.0% | 0.3458 | 0.3902 | 33.33% |
-| Holdout Split | filename_only | 14.29% | 42.86% | 0.2976 | 0.3311 | 80.0% |
-| Holdout Split | symbol_only | 14.29% | 14.29% | 0.1429 | 0.1429 | 20.0% |
-| Holdout Split | repository_brain | 42.86% | 42.86% | 0.4286 | 0.4286 | 20.0% |
+| Dev Split | filename_only | 37.5% | 55.0% | 0.4667 | 0.4907 | 33.33% |
+| Dev Split | symbol_only | 15.0% | 30.0% | 0.2437 | 0.2939 | 33.33% |
+| Dev Split | repository_brain | 62.5% | 77.5% | 0.6917 | 0.6973 | 100.0% |
+| Holdout Split | filename_only | 14.29% | 57.14% | 0.381 | 0.464 | 80.0% |
+| Holdout Split | symbol_only | 14.29% | 28.57% | 0.2143 | 0.233 | 20.0% |
+| Holdout Split | repository_brain | 71.43% | 100.0% | 0.8333 | 0.8206 | 100.0% |
 
 ## 3. Symbol Reference Fidelity Audit
 
 - **Verified Reference Precision:** `100.0%`
 - **False Verified Reference Count:** `0`
-- **Unresolved Reference Count:** `7487` (calls correctly left unresolved due to insufficient static AST proof)
-- **Cold Indexing Time:** `18407.04 ms`
-- **Warm Indexing Time:** `1960.88 ms`
-- **Peak Memory Usage:** `20.21 MB`
+- **Unresolved Reference Count:** `8189` (calls correctly left unresolved due to insufficient static AST proof)
+- **Cold Indexing Time:** `28257.02 ms`
+- **Warm Indexing Time:** `2238.6 ms`
+- **Peak Memory Usage:** `21.88 MB`
 
 ## 4. Token Budget Compliance Matrix
 
-| Requested `max_tokens` | Counted Tokens | Method | Compliant? | Truncated? | Deterministic? | Duration | Notes |
-| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| `0` | 0 | `heuristic_zero_budget` | **PASS** | Yes | Yes | 0.27 ms | Zero budget: correctly flagged as truncated with minimal metadata notice. |
-| `10` | 154 | `heuristic_chars` | **PASS** | Yes | Yes | 10.19 ms | Small budget (10 tokens): minimal metadata exceeds target; truncation flagged. |
-| `25` | 154 | `heuristic_chars` | **PASS** | Yes | Yes | 10.62 ms | Small budget (25 tokens): minimal metadata exceeds target; truncation flagged. |
-| `60` | 154 | `heuristic_chars` | **PASS** | Yes | Yes | 9.69 ms | Tight budget (60 tokens): successfully pruned down to essential summary. |
-| `500` | 465 | `heuristic_chars` | **PASS** | Yes | Yes | 8.48 ms | Generous budget (500 tokens): consumed 465 tokens safely. |
-| `2000` | 1305 | `heuristic_chars` | **PASS** | Yes | Yes | 1.8 ms | Generous budget (2000 tokens): consumed 1305 tokens safely. |
+| Contract | Requested `max_tokens` | Counted Tokens | Method | Compliant? | Overflow? | Truncated? | Deterministic? | Duration | Notes |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| `standard` | `0` | 0 | `heuristic_zero_budget (estimated)` | **PASS** | No | Yes | Yes | 0.31 ms | Zero budget: correctly returned empty payload (0 tokens) with truncation flag. |
+| `standard` | `10` | 154 | `heuristic_chars (estimated)` | **FAIL** | Yes | Yes | Yes | 13.18 ms | Small budget (10 tokens): metadata overflow (154 > 10 tokens produced); termination_success=True, budget_compliant=False, metadata_overflow=True. |
+| `standard` | `25` | 154 | `heuristic_chars (estimated)` | **FAIL** | Yes | Yes | Yes | 9.61 ms | Small budget (25 tokens): metadata overflow (154 > 25 tokens produced); termination_success=True, budget_compliant=False, metadata_overflow=True. |
+| `standard` | `60` | 154 | `heuristic_chars (estimated)` | **FAIL** | Yes | Yes | Yes | 9.57 ms | Small budget (60 tokens): metadata overflow (154 > 60 tokens produced); termination_success=True, budget_compliant=False, metadata_overflow=True. |
+| `standard` | `500` | 466 | `heuristic_chars (estimated)` | **PASS** | No | Yes | Yes | 9.0 ms | Generous budget (500 tokens): consumed 466 tokens safely (compliant=True). |
+| `standard` | `2000` | 1382 | `heuristic_chars (estimated)` | **PASS** | No | Yes | Yes | 1.99 ms | Generous budget (2000 tokens): consumed 1382 tokens safely (compliant=True). |
 
 ## 5. Scalability & Stress Benchmark
 
 | Tier | Files | LOC (est) | Symbols | Cold Index | Warm P50 | Warm P95 | Repeat Query | Peak RAM | Mem Growth | Status |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Small (20 files)** | 20 | 500 | 120 | 254.24 ms | 8.79 ms | 12.56 ms | 7.66 ms | 0.5 MB | 0.0 MB | `ok` |
-| **Medium (RepoDNA 148 files)** | 120 | 3000 | 707 | 18018.87 ms | 196.95 ms | 208.17 ms | 188.31 ms | 17.64 MB | 0.0 MB | `ok` |
-| **Large (1,020 files synthetic)** | 1020 | 25500 | 6120 | 15495.74 ms | 501.53 ms | 695.2 ms | 490.24 ms | 23.42 MB | 0.0 MB | `ok` |
+| **Small (20 files)** | 20 | 500 | 120 | 340.22 ms | 9.11 ms | 12.8 ms | 8.36 ms | 0.5 MB | 0.0 MB | `ok` |
+| **Medium (RepoDNA 148 files)** | 135 | 3375 | 725 | 20071.27 ms | 154.12 ms | 193.93 ms | 156.34 ms | 19.93 MB | 0.0 MB | `ok` |
+| **Large (1,020 files synthetic)** | 1020 | 25500 | 6120 | 12935.48 ms | 1053.87 ms | 1689.55 ms | 1282.8 ms | 23.4 MB | 0.0 MB | `ok` |
 
 ## 6. Failure Analysis & Diagnostics
 
-Detected **32** diagnostic failure item(s):
+Detected **9** diagnostic failure item(s):
 
 | Query ID | Category | Query | Root Cause | Proposed Fix |
 | :--- | :--- | :--- | :--- | :--- |
-| `Q01` | `ranking_failure` | Where is repository analysis orchestrated and executed? | Expected files found at rank > 3: ['backend/repodna/mcp/server.py', 'backend/repodna/api/app.py', 'backend/repodna/intelligence/service.py', 'backend/repodna/core/analyzer.py', 'backend/repodna/reports/exporter.py'] | Refine ranking weights or add domain synonyms |
-| `Q02` | `missing_symbol` | Find function run_repository_analysis | Expected ['backend/repodna/core/analyzer.py'] not found in top 5. | Refine ranking weights or add domain synonyms |
-| `Q06` | `missing_symbol` | Where is architecture health score and grading computed? | Expected ['backend/repodna/rules/health.py'] not found in top 5. | Refine ranking weights or add domain synonyms |
-| `Q07` | `missing_symbol` | Find class PRArchitectureGuardian | Expected ['backend/repodna/guardian/pr_guardian.py'] not found in top 5. | Refine ranking weights or add domain synonyms |
 | `Q09` | `missing_symbol` | Where is Architecture Contract evaluation and policy check? | Expected ['backend/repodna/contract/evaluator.py'] not found in top 5. | Refine ranking weights or add domain synonyms |
-| `Q10` | `missing_symbol` | Where is contract schema parsing and yaml loader? | Expected ['backend/repodna/contract/parser.py'] not found in top 5. | Refine ranking weights or add domain synonyms |
-| `Q14` | `ranking_failure` | Where is DeepSymbolExtractor parsing AST definitions and calls? | Expected files found at rank > 3: ['backend/repodna/mcp/server.py', 'backend/repodna/parsers/treesitter_parser.py', 'backend/repodna/brain/models.py', 'backend/repodna/brain/extractor.py', 'backend/repodna/brain/tracer.py'] | Refine ranking weights or add domain synonyms |
 | `Q21` | `missing_symbol` | Where is HTML architecture report generator implemented? | Expected ['backend/repodna/reports/exporter.py'] not found in top 5. | Refine ranking weights or add domain synonyms |
-| `Q22` | `ranking_failure` | Where is FastAPI REST API server routes defined? | Expected files found at rank > 3: ['backend/repodna/mcp/server.py', 'frontend/src/api/client.ts', 'frontend/src/__tests__/setup.ts', 'backend/repodna/api/app.py', 'backend/tests/test_agent_and_diff.py'] | Refine ranking weights or add domain synonyms |
+| `Q22` | `missing_symbol` | Where is FastAPI REST API server routes defined? | Expected ['backend/repodna/api/app.py'] not found in top 5. | Refine ranking weights or add domain synonyms |
 | `Q23` | `missing_symbol` | Where is Martin coupling instability metric calculated? | Expected ['backend/repodna/graph/engine.py'] not found in top 5. | Refine ranking weights or add domain synonyms |
 | `Q25` | `missing_symbol` | Which modules depend on Tree-sitter parser? | Expected ['backend/repodna/core/analyzer.py', 'backend/repodna/brain/extractor.py'] not found in top 5. | Refine ranking weights or add domain synonyms |
 | `Q26` | `missing_symbol` | Where is frontend React main entrypoint application component? | Expected ['frontend/src/App.tsx'] not found in top 5. | Refine ranking weights or add domain synonyms |
-| `Q28` | `missing_symbol` | Where is interactive architecture graph visualizer component? | Expected ['frontend/src/components/DependencyGraph.tsx'] not found in top 5. | Refine ranking weights or add domain synonyms |
-| `Q29` | `missing_symbol` | Where is architecture health score card UI widget? | Expected ['frontend/src/components/HealthReportView.tsx'] not found in top 5. | Refine ranking weights or add domain synonyms |
-| `Q30` | `missing_symbol` | Where is context inspector and agent token modal component? | Expected ['frontend/src/components/InspectorPanel.tsx'] not found in top 5. | Refine ranking weights or add domain synonyms |
 | `Q31` | `missing_symbol` | Where is architectural diff viewer component in frontend? | Expected ['frontend/src/components/GuardianOverview.tsx'] not found in top 5. | Refine ranking weights or add domain synonyms |
-| `Q32` | `missing_symbol` | Where is Repository Passport viewer tab component? | Expected ['frontend/src/components/PassportViewer.tsx'] not found in top 5. | Refine ranking weights or add domain synonyms |
-| `Q33` | `missing_symbol` | Where is architecture contract inspector component? | Expected ['frontend/src/components/ContractInspector.tsx'] not found in top 5. | Refine ranking weights or add domain synonyms |
-| `Q34` | `ranking_failure` | Find frontend TypeScript interfaces for AnalysisResult and FileNode | Expected files found at rank > 3: ['backend/repodna/brain/indexer.py', 'backend/repodna/api/app.py', 'backend/repodna/schemas/models.py', 'frontend/src/types/repodna.ts', 'backend/repodna/brain/models.py'] | Refine ranking weights or add domain synonyms |
 | `Q37` | `missing_symbol` | What could be affected by changing Tarjan cycle detector? | Expected ['backend/repodna/core/analyzer.py', 'backend/repodna/rules/health.py'] not found in top 5. | Refine ranking weights or add domain synonyms |
-| `Q38` | `missing_symbol` | Who imports ArchitectureDiffEngine? | Expected ['backend/repodna/cli/main.py', 'backend/repodna/guardian/pr_guardian.py'] not found in top 5. | Refine ranking weights or add domain synonyms |
 | `Q39` | `missing_symbol` | Find symbol Validator | Expected ['backend/repodna/security/validators.py'] not found in top 5. | Refine ranking weights or add domain synonyms |
-| `Q41` | `missing_symbol` | Where is rule health evaluation and circular dependency check rule defined? | Expected ['backend/repodna/rules/health.py'] not found in top 5. | Refine ranking weights or add domain synonyms |
-| `Q42` | `missing_symbol` | Find function calculate_module_coupling | Expected ['backend/repodna/graph/engine.py'] not found in top 5. | Refine ranking weights or add domain synonyms |
-| `Q46` | `missing_symbol` | Where is PR guardian exit code and severity threshold calculated? | Expected ['backend/repodna/guardian/pr_guardian.py'] not found in top 5. | Refine ranking weights or add domain synonyms |
-| `Q47` | `missing_symbol` | Find symbol Engine | Expected ['backend/repodna/diff/engine.py', 'backend/repodna/brain/retrieval.py'] not found in top 5. | Refine ranking weights or add domain synonyms |
-| `Q49` | `synonym_expansion_error` | Find GraphQL schema federation resolver | Negative query returned non-empty candidates: ['frontend/src/types/repodna.ts', 'frontend/src/utils/graphLayout.ts'] | Refine ranking weights or add domain synonyms |
-| `Q50` | `synonym_expansion_error` | Find Redis cluster sentinel reconnect logic | Negative query returned non-empty candidates: ['backend/repodna/intelligence/models.py', 'backend/tests/test_brain_resolution_and_evidence.py'] | Refine ranking weights or add domain synonyms |
-| `Q51` | `synonym_expansion_error` | Where is Rust PyO3 FFI binding defined? | Negative query returned non-empty candidates: ['backend/repodna/mcp/server.py', 'frontend/src/types/repodna.ts'] | Refine ranking weights or add domain synonyms |
-| `Q53` | `synonym_expansion_error` | Find WebRTC peer connection audio streamer | Negative query returned non-empty candidates: ['frontend/src/types/repodna.ts', 'backend/repodna/passport/models.py'] | Refine ranking weights or add domain synonyms |
-| `Q54` | `synonym_expansion_error` | Where is Celery distributed task worker queue configured? | Negative query returned non-empty candidates: ['backend/repodna/api/app.py'] | Refine ranking weights or add domain synonyms |
-| `Q55` | `synonym_expansion_error` | Find OAuth2 PKCE social login provider | Negative query returned non-empty candidates: ['backend/repodna/context/builder.py', 'backend/tests/test_agent_and_diff.py'] | Refine ranking weights or add domain synonyms |
 
 ## 7. Mathematical Metric Definitions
 
