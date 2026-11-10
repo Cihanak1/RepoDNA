@@ -17,6 +17,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from repodna.brain.indexer import SymbolIndexer
+from repodna.brain.retrieval import SmartRetrievalEngine
+from repodna.brain.tracer import AmbiguousSymbolError, SymbolTracer
+from repodna.context.builder import AgentContextBuilder
 from repodna.contract.evaluator import ContractEvaluator
 from repodna.contract.loader import find_contract_file, load_contract_file
 from repodna.contract.models import ContractMode
@@ -29,9 +33,16 @@ from repodna.passport.generator import (
     export_passport_to_json,
     export_passport_to_markdown,
     generate_repository_passport,
+    generate_repository_passport_v2,
 )
+from repodna.passport.models import RepositoryPassport, RepositoryPassportV2
 from repodna.schemas.models import AnalysisResult, ScanLimits, ScanRequest, SourceType
-from repodna.security.validators import SecurityValidationError, validate_local_directory
+from repodna.security.validators import (
+    SecurityValidationError,
+    safe_read_evidence_file,
+    validate_and_resolve_evidence_path,
+    validate_local_directory,
+)
 
 try:
     from mcp.server.mcpserver import MCPServer
@@ -48,7 +59,7 @@ except Exception:
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "repodna-mcp"
-SERVER_VERSION = "0.4.0"
+SERVER_VERSION = "0.5.0"
 
 RELEVANT_EXTENSIONS = {
     ".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
@@ -103,6 +114,7 @@ class RepoDNAMCPServer:
 
         # Analysis cache: (cache_type, repo_str, git_rev) -> (fingerprint, time_iso, dur_ms, AnalysisResult)
         self._analysis_cache: dict[tuple[str, str, str], tuple[str, str, float, AnalysisResult]] = {}
+        self._indexer_cache: dict[tuple[str, str], SymbolIndexer] = {}
         # Per-repo file stat cache for fast incremental hashing: {repo_str: {norm_rel: (size, mtime_ns, hash)}}
         self._file_stat_cache: dict[str, dict[str, tuple[int, int, str]]] = {}
         self._last_cache_report: dict[str, Any] = {}
@@ -378,6 +390,7 @@ class RepoDNAMCPServer:
         target: str,
         max_modules: int = 150,
         format: str = "json",
+        version: str = "2.0",
         force: bool = False,
     ) -> str:
         resolved, stype = self._resolve_target(target)
@@ -397,15 +410,27 @@ class RepoDNAMCPServer:
             except Exception:
                 git_rev = "working_tree"
 
-        passport = generate_repository_passport(
-            analysis=analysis,
-            git_revision=git_rev,
-            contract=contract,
-            max_modules=max_modules,
-        )
+        passport: RepositoryPassport | RepositoryPassportV2
+        if version == "1.0":
+            passport = generate_repository_passport(
+                analysis=analysis,
+                git_revision=git_rev,
+                contract=contract,
+                max_modules=max_modules,
+            )
+        else:
+            indexer = self._get_or_create_indexer(resolved, analysis)
+            passport = generate_repository_passport_v2(
+                analysis=analysis,
+                git_revision=git_rev,
+                contract=contract,
+                max_modules=max_modules,
+                indexer=indexer,
+            )
         if format.lower() == "markdown":
             return export_passport_to_markdown(passport)
         return export_passport_to_json(passport)
+
 
     def tool_get_contract(self, target: str, format: str = "yaml") -> str:
         resolved, stype = self._resolve_target(target)
@@ -480,6 +505,155 @@ class RepoDNAMCPServer:
             return report.summary_markdown
         return report.model_dump_json(indent=2)
 
+    def _get_or_create_indexer(self, resolved: Path | str, analysis: AnalysisResult) -> SymbolIndexer:
+        repo_str = str(resolved)
+        cache_key = (repo_str, analysis.analyzed_at.isoformat())
+        if cache_key in self._indexer_cache:
+            return self._indexer_cache[cache_key]
+        indexer = SymbolIndexer(root_path=resolved, revision="HEAD", analysis=analysis)
+        indexer.index_all()
+        self._indexer_cache[cache_key] = indexer
+        return indexer
+
+    def tool_search_code(
+        self,
+        target: str,
+        query: str,
+        limit: int = 10,
+        kind: str | None = None,
+        path_filter: str | None = None,
+        force: bool = False,
+    ) -> str:
+        resolved, _ = self._resolve_target(target)
+        analysis = self.get_analysis(target, force=force)
+        indexer = self._get_or_create_indexer(resolved, analysis)
+        retrieval = SmartRetrievalEngine(indexer=indexer, analysis=analysis)
+        res = retrieval.search(query=query, limit=limit, kind=kind, path_filter=path_filter)
+        return res.model_dump_json(indent=2)
+
+    def tool_find_symbol(
+        self,
+        target: str,
+        name: str | None = None,
+        kind: str | None = None,
+        file_path: str | None = None,
+        container: str | None = None,
+        limit: int = 25,
+        force: bool = False,
+    ) -> str:
+        resolved, _ = self._resolve_target(target)
+        analysis = self.get_analysis(target, force=force)
+        indexer = self._get_or_create_indexer(resolved, analysis)
+        if name:
+            syms = indexer.find_by_name(name=name, kind=kind, file_path=file_path, exact=False)
+            return json.dumps([s.model_dump() for s in syms[:limit]], indent=2)
+        resp = indexer.list_symbols(kind=kind, file_path=file_path, container=container, limit=limit)
+        return resp.model_dump_json(indent=2)
+
+    def tool_trace_symbol(
+        self,
+        target: str,
+        symbol_name: str | None = None,
+        symbol_id: str | None = None,
+        file_path: str | None = None,
+        container_name: str | None = None,
+        force: bool = False,
+    ) -> str:
+        resolved, _ = self._resolve_target(target)
+        analysis = self.get_analysis(target, force=force)
+        indexer = self._get_or_create_indexer(resolved, analysis)
+        tracer = SymbolTracer(indexer=indexer, analysis=analysis)
+        try:
+            res = tracer.trace_symbol(
+                symbol_name=symbol_name,
+                symbol_id=symbol_id,
+                file_path=file_path,
+                container_name=container_name,
+                allow_ambiguous=False,
+            )
+            return res.model_dump_json(indent=2)
+        except AmbiguousSymbolError as amb:
+            return json.dumps(
+                {
+                    "error": "AMBIGUOUS_SYMBOL",
+                    "message": str(amb),
+                    "candidates": [c.model_dump() for c in amb.candidates],
+                },
+                indent=2,
+            )
+
+    def tool_get_evidence(
+        self,
+        target: str,
+        evidence_id: str | None = None,
+        file_path: str | None = None,
+        symbol_name: str | None = None,
+        check_staleness: bool = True,
+        limit: int = 25,
+        force: bool = False,
+    ) -> str:
+        resolved, _ = self._resolve_target(target)
+        analysis = self.get_analysis(target, force=force)
+        indexer = self._get_or_create_indexer(resolved, analysis)
+        ledger = indexer.ledger
+        if evidence_id:
+            ev = ledger.get_by_id(evidence_id)
+            if not ev:
+                return json.dumps({"error": f"Evidence '{evidence_id}' not found."})
+            if check_staleness and isinstance(resolved, Path):
+                try:
+                    content, _, file_exists = safe_read_evidence_file(resolved, ev.file_path)
+                    ledger.check_staleness(ev.file_path, current_content=content if file_exists else "", current_revision=indexer.revision)
+                except SecurityValidationError:
+                    pass
+            return ev.model_dump_json(indent=2)
+        if file_path:
+            try:
+                root_target = resolved if isinstance(resolved, Path) else Path(".")
+                _, posix_rel = validate_and_resolve_evidence_path(root_target, file_path)
+            except SecurityValidationError as exc:
+                return json.dumps({"error": f"Invalid evidence file path: {exc.message}"})
+            evs = ledger.find_by_file(posix_rel)
+            if check_staleness and isinstance(resolved, Path):
+                try:
+                    content, _, file_exists = safe_read_evidence_file(resolved, posix_rel)
+                    evs = ledger.check_staleness(posix_rel, current_content=content if file_exists else "", current_revision=indexer.revision)
+                except SecurityValidationError:
+                    pass
+            return json.dumps([e.model_dump() for e in evs[:limit]], indent=2)
+        if symbol_name:
+            evs = ledger.find_by_symbol(symbol_name)
+            return json.dumps([e.model_dump() for e in evs[:limit]], indent=2)
+        return ledger.to_response(limit=limit).model_dump_json(indent=2)
+
+    def tool_build_context(
+        self,
+        target: str,
+        mode: str = "focused",
+        query: str | None = None,
+        target_files: list[str] | None = None,
+        max_tokens: int | None = 2000,
+        minimal_contract: bool = False,
+        format: str = "markdown",
+        force: bool = False,
+    ) -> str:
+        resolved, _ = self._resolve_target(target)
+        analysis = self.get_analysis(target, force=force)
+        indexer = self._get_or_create_indexer(resolved, analysis)
+        ctx = AgentContextBuilder.build_context(
+            analysis=analysis,
+            mode=mode,
+            query=query,
+            target_files=target_files,
+            max_tokens=max_tokens,
+            indexer=indexer,
+            minimal_contract=minimal_contract,
+        )
+        if format.lower() == "json":
+            return ctx.model_dump_json(indent=2)
+        return ctx.as_markdown()
+
+
     # -------------------------------------------------------------------------
     # Official Python MCP SDK Server Setup
     # -------------------------------------------------------------------------
@@ -520,8 +694,9 @@ class RepoDNAMCPServer:
             return self.tool_analysis_coverage(target=target, force=force)
 
         @self._official_server.tool(name="repodna_get_passport", description="Retrieves portable Repository Passport containing structural identity, AST coverage, hubs, and contracts.")
-        def _mcp_passport(target: str, max_modules: int = 150, format: str = "json", force: bool = False) -> str:
-            return self.tool_get_passport(target=target, max_modules=max_modules, format=format, force=force)
+        def _mcp_passport(target: str, max_modules: int = 150, format: str = "json", version: str = "2.0", force: bool = False) -> str:
+            return self.tool_get_passport(target=target, max_modules=max_modules, format=format, version=version, force=force)
+
 
         @self._official_server.tool(name="repodna_get_contract", description="Returns declared repository Architecture Contract rules and boundary policies from .repodna/architecture.yml.")
         def _mcp_get_contract(target: str, format: str = "yaml") -> str:
@@ -534,6 +709,26 @@ class RepoDNAMCPServer:
         @self._official_server.tool(name="repodna_pr_guardian", description="Continuous architectural assessment between base and head Git revisions for PR review with pass/fail verdict.")
         def _mcp_guardian(target: str, base_ref: str = "HEAD~1", head_ref: str = "HEAD", mode: str | None = None, format: str = "json") -> str:
             return self.tool_pr_guardian(target=target, base_ref=base_ref, head_ref=head_ref, mode=mode, format=format)
+        @self._official_server.tool(name="repodna_search_code", description="Smart Context Retrieval across repository code, symbols, and architecture with explainable scoring.")
+        def _mcp_search_code(target: str, query: str, limit: int = 10, kind: str | None = None, path_filter: str | None = None, force: bool = False) -> str:
+            return self.tool_search_code(target=target, query=query, limit=limit, kind=kind, path_filter=path_filter, force=force)
+
+        @self._official_server.tool(name="repodna_find_symbol", description="Queries Tree-sitter symbol index by name, kind, file path, or container class.")
+        def _mcp_find_symbol(target: str, name: str | None = None, kind: str | None = None, file_path: str | None = None, container: str | None = None, limit: int = 25, force: bool = False) -> str:
+            return self.tool_find_symbol(target=target, name=name, kind=kind, file_path=file_path, container=container, limit=limit, force=force)
+
+        @self._official_server.tool(name="repodna_trace_symbol", description="Traces cross-module call sites, importing files, and blast radius of modifying a symbol.")
+        def _mcp_trace_symbol(target: str, symbol_name: str, file_path: str | None = None, force: bool = False) -> str:
+            return self.tool_trace_symbol(target=target, symbol_name=symbol_name, file_path=file_path, force=force)
+
+        @self._official_server.tool(name="repodna_get_evidence", description="Retrieves verified architectural evidence citations with Git revision provenance and staleness status.")
+        def _mcp_get_evidence(target: str, evidence_id: str | None = None, file_path: str | None = None, symbol_name: str | None = None, check_staleness: bool = True, limit: int = 25, force: bool = False) -> str:
+            return self.tool_get_evidence(target=target, evidence_id=evidence_id, file_path=file_path, symbol_name=symbol_name, check_staleness=check_staleness, limit=limit, force=force)
+
+        @self._official_server.tool(name="repodna_build_context", description="Generates budget-aware architectural context (compact/focused/deep) with evidence citations for AI agents.")
+        def _mcp_build_context(target: str, mode: str = "focused", query: str | None = None, target_files: list[str] | None = None, max_tokens: int | None = 2000, minimal_contract: bool = False, format: str = "markdown", force: bool = False) -> str:
+            return self.tool_build_context(target=target, mode=mode, query=query, target_files=target_files, max_tokens=max_tokens, minimal_contract=minimal_contract, format=format, force=force)
+
 
     def run(self, transport: str = "stdio") -> None:
         """Runs the server. Enforces official Python MCP SDK as standard."""
@@ -663,6 +858,7 @@ class RepoDNAMCPServer:
                         "target": {"type": "string", "description": "Local path or 'demo'."},
                         "max_modules": {"type": "integer", "default": 150},
                         "format": {"type": "string", "enum": ["json", "markdown"], "default": "json"},
+                        "version": {"type": "string", "enum": ["1.0", "2.0"], "default": "2.0", "description": "Passport schema version."},
                     },
                     "required": ["target"],
                 },
@@ -703,6 +899,86 @@ class RepoDNAMCPServer:
                         "mode": {"type": "string", "enum": ["advisory", "enforce"]},
                         "format": {"type": "string", "enum": ["json", "markdown"], "default": "json"},
                     },
+                    "required": ["target"],
+                },
+            },
+            {
+                "name": "repodna_search_code",
+                "description": "Smart Context Retrieval across repository code, symbols, and architecture with explainable scoring.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": {"type": "string", "description": "Local path or 'demo'."},
+                        "query": {"type": "string", "description": "Natural or technical code query."},
+                        "limit": {"type": "integer", "default": 10},
+                        "kind": {"type": "string", "enum": ["class", "function", "method", "interface", "type"]},
+                        "path_filter": {"type": "string", "description": "Optional file path filter."},
+                    },
+                    "required": ["target", "query"],
+                },
+            },
+            {
+                "name": "repodna_find_symbol",
+                "description": "Queries Tree-sitter symbol index by name, kind, file path, or container class.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": {"type": "string", "description": "Local path or 'demo'."},
+                        "name": {"type": "string", "description": "Symbol name."},
+                        "kind": {"type": "string", "enum": ["class", "function", "method", "interface", "type", "struct"]},
+                        "file_path": {"type": "string", "description": "File path filter."},
+                        "container": {"type": "string", "description": "Parent class or namespace name."},
+                        "limit": {"type": "integer", "default": 25},
+                    },
+                    "required": ["target"],
+                },
+            },
+            {
+                "name": "repodna_trace_symbol",
+                "description": "Traces cross-module call sites, importing files, and blast radius of modifying a symbol. Supports disambiguation via symbol_id, file_path, or container.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": {"type": "string", "description": "Local path or 'demo'."},
+                        "symbol_name": {"type": "string", "description": "Name of the symbol to trace."},
+                        "symbol_id": {"type": "string", "description": "Deterministic symbol ID for unambiguous lookup."},
+                        "file_path": {"type": "string", "description": "Optional file path of symbol definition."},
+                        "container": {"type": "string", "description": "Optional parent class or namespace name."},
+                    },
+                    "required": ["target"],
+                },
+            },
+            {
+                "name": "repodna_get_evidence",
+                "description": "Retrieves verified architectural evidence citations with Git revision provenance and staleness status.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": {"type": "string", "description": "Local path or 'demo'."},
+                        "evidence_id": {"type": "string", "description": "Specific evidence ID (e.g. ev_<hash>)."},
+                        "file_path": {"type": "string", "description": "Filter evidence by file path."},
+                        "symbol_name": {"type": "string", "description": "Filter evidence by symbol name."},
+                        "check_staleness": {"type": "boolean", "default": True, "description": "Verify evidence staleness against files on disk."},
+                        "limit": {"type": "integer", "default": 25},
+                    },
+                    "required": ["target"],
+                },
+            },
+            {
+                "name": "repodna_build_context",
+                "description": "Generates budget-aware architectural context (compact/focused/deep) with evidence citations for AI agents.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": {"type": "string", "description": "Local path or 'demo'."},
+                        "mode": {"type": "string", "enum": ["compact", "focused", "deep"], "default": "focused"},
+                        "query": {"type": "string", "description": "Search query for focused context mode."},
+                        "target_files": {"type": "array", "items": {"type": "string"}},
+                        "max_tokens": {"type": "integer", "default": 2000},
+                        "minimal_contract": {"type": "boolean", "default": False, "description": "Strict minimal contract mode."},
+                        "format": {"type": "string", "enum": ["markdown", "json"], "default": "markdown"},
+                    },
+
                     "required": ["target"],
                 },
             },
@@ -775,8 +1051,10 @@ class RepoDNAMCPServer:
                     target=target,
                     max_modules=int(arguments.get("max_modules", 150)),
                     format=arguments.get("format", "json"),
+                    version=arguments.get("version", "2.0"),
                     force=force,
                 )
+
             elif name in ("repodna_get_contract", "repodna_contract"):
                 content = self.tool_get_contract(
                     target=target,
@@ -796,6 +1074,56 @@ class RepoDNAMCPServer:
                     mode=arguments.get("mode"),
                     format=arguments.get("format", "json"),
                 )
+            elif name in ("repodna_search_code", "repodna_search"):
+                content = self.tool_search_code(
+                    target=target,
+                    query=arguments.get("query", ""),
+                    limit=int(arguments.get("limit", 10)),
+                    kind=arguments.get("kind"),
+                    path_filter=arguments.get("path_filter"),
+                    force=force,
+                )
+            elif name in ("repodna_find_symbol", "repodna_symbols"):
+                content = self.tool_find_symbol(
+                    target=target,
+                    name=arguments.get("name"),
+                    kind=arguments.get("kind"),
+                    file_path=arguments.get("file_path"),
+                    container=arguments.get("container"),
+                    limit=int(arguments.get("limit", 25)),
+                    force=force,
+                )
+            elif name in ("repodna_trace_symbol", "repodna_trace"):
+                content = self.tool_trace_symbol(
+                    target=target,
+                    symbol_name=arguments.get("symbol_name"),
+                    symbol_id=arguments.get("symbol_id"),
+                    file_path=arguments.get("file_path"),
+                    container_name=arguments.get("container") or arguments.get("container_name"),
+                    force=force,
+                )
+            elif name in ("repodna_get_evidence", "repodna_evidence"):
+                content = self.tool_get_evidence(
+                    target=target,
+                    evidence_id=arguments.get("evidence_id"),
+                    file_path=arguments.get("file_path"),
+                    symbol_name=arguments.get("symbol_name"),
+                    check_staleness=bool(arguments.get("check_staleness", True)),
+                    limit=int(arguments.get("limit", 25)),
+                    force=force,
+                )
+            elif name in ("repodna_build_context", "repodna_context"):
+                content = self.tool_build_context(
+                    target=target,
+                    mode=arguments.get("mode", "focused"),
+                    query=arguments.get("query"),
+                    target_files=arguments.get("target_files"),
+                    max_tokens=arguments.get("max_tokens", 2000),
+                    minimal_contract=bool(arguments.get("minimal_contract", False)),
+                    format=arguments.get("format", "markdown"),
+                    force=force,
+                )
+
             else:
                 return {
                     "isError": True,

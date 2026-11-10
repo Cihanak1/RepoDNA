@@ -191,6 +191,12 @@ class GitHotspot(BaseModel):
 class GitInsights(BaseModel):
     is_git_repo: bool
     default_branch: str | None = None
+    commit_sha: str | None = None
+    is_dirty: bool = False
+    dirty_files_count: int = 0
+    verification_status: str = "UNVERIFIED_NON_GIT"
+    snapshot_identity: str | None = None
+    source_type: str = "git"
     total_commits_scanned: int = 0
     unique_contributors: int = 0
     first_commit_date: str | None = None

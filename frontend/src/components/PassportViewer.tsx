@@ -3,14 +3,27 @@ import { useTranslation } from 'react-i18next';
 import {
   AlertCircle,
   Check,
+  Code2,
   Copy,
+  Cpu,
   Download,
   Globe,
   Layers,
   RotateCcw,
+  Sparkles,
 } from 'lucide-react';
-import { fetchRepositoryPassport } from '../api/client';
-import type { AnalysisResult, RepositoryPassport } from '../types/repodna';
+import {
+  fetchRepositoryPassport,
+  fetchRepositoryPassportV2,
+  migratePassportV1ToV2,
+} from '../api/client';
+import type {
+  AnalysisResult,
+  PassportEntrypoint,
+  PassportModuleRole,
+  RepositoryPassport,
+  RepositoryPassportV2,
+} from '../types/repodna';
 import type { WorkstationMode } from '../utils/preferences';
 
 interface PassportViewerProps {
@@ -23,11 +36,12 @@ export const PassportViewer: React.FC<PassportViewerProps> = ({
   result,
 }) => {
   const { t } = useTranslation();
-  const [passport, setPassport] = useState<RepositoryPassport | null>(null);
+  const [selectedVersion, setSelectedVersion] = useState<'1.0' | '2.0'>('2.0');
+  const [passport, setPassport] = useState<RepositoryPassport | RepositoryPassportV2 | null>(null);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [isMigrating, setIsMigrating] = useState(false);
 
   const analysisId = result?.analysis_id;
 
@@ -36,21 +50,40 @@ export const PassportViewer: React.FC<PassportViewerProps> = ({
     setLoading(true);
     setErrorMsg(null);
     try {
-      const data = await fetchRepositoryPassport(analysisId, 200);
-      setPassport(data);
+      if (selectedVersion === '2.0') {
+        const data = await fetchRepositoryPassportV2(analysisId, 200);
+        setPassport(data);
+      } else {
+        const data = await fetchRepositoryPassport(analysisId, 200);
+        setPassport(data);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setErrorMsg(msg);
     } finally {
       setLoading(false);
     }
-  }, [analysisId]);
+  }, [analysisId, selectedVersion]);
 
   useEffect(() => {
     if (analysisId) {
       void loadPassport();
     }
   }, [analysisId, loadPassport]);
+
+  const handleMigrate = async () => {
+    if (!passport) return;
+    setIsMigrating(true);
+    try {
+      const v2 = await migratePassportV1ToV2(JSON.stringify(passport));
+      setPassport(v2);
+      setSelectedVersion('2.0');
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : 'Migration failed.');
+    } finally {
+      setIsMigrating(false);
+    }
+  };
 
   const handleCopyJson = () => {
     if (!passport) return;
@@ -65,7 +98,7 @@ export const PassportViewer: React.FC<PassportViewerProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `repodna-passport-${passport.repo_name}.json`;
+    link.download = `repodna-passport-${passport.repo_name}-v${passport.schema_version}.json`;
     link.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
@@ -78,9 +111,8 @@ export const PassportViewer: React.FC<PassportViewerProps> = ({
     );
   }
 
-  const filteredInventory = passport?.module_inventory.filter((m) =>
-    m.id.toLowerCase().includes(searchTerm.toLowerCase())
-  ) || [];
+  const isV2 = passport?.schema_version === '2.0.0';
+  const v2Passport = isV2 ? (passport as RepositoryPassportV2) : null;
 
   return (
     <div className="h-full flex flex-col overflow-y-auto bg-canvas text-ink p-4 sm:p-6 space-y-6">
@@ -92,6 +124,9 @@ export const PassportViewer: React.FC<PassportViewerProps> = ({
             <h1 className="text-lg font-bold tracking-tight">
               {t('passport.title', 'Repository Passport')}
             </h1>
+            <span className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-raised border border-line">
+              v{passport?.schema_version ?? selectedVersion}
+            </span>
           </div>
           <p className="text-xs text-muted mt-1">
             {t(
@@ -101,7 +136,49 @@ export const PassportViewer: React.FC<PassportViewerProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Top Controls Bar */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Version Switcher */}
+          <div className="flex rounded-md p-0.5 bg-raised border border-line text-xs">
+            <button
+              type="button"
+              data-testid="passport-v1-btn"
+              onClick={() => setSelectedVersion('1.0')}
+              className={`px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition ${
+                selectedVersion === '1.0'
+                  ? 'bg-panel text-ink shadow-xs font-semibold'
+                  : 'text-muted hover:text-ink'
+              }`}
+            >
+              v1.0 (Legacy)
+            </button>
+            <button
+              type="button"
+              data-testid="passport-v2-btn"
+              onClick={() => setSelectedVersion('2.0')}
+              className={`px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition ${
+                selectedVersion === '2.0'
+                  ? 'bg-accent-solid text-white shadow-xs font-semibold'
+                  : 'text-muted hover:text-ink'
+              }`}
+            >
+              v2.0 (Brain)
+            </button>
+          </div>
+
+          {!isV2 && (
+            <button
+              type="button"
+              data-testid="passport-migrate-btn"
+              onClick={handleMigrate}
+              disabled={isMigrating || !passport}
+              className="px-3 py-1.5 rounded-lg bg-raised hover:bg-panel border border-accent/40 text-xs font-medium text-accent flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>{isMigrating ? 'Migrating…' : 'Migrate to v2'}</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={handleCopyJson}
@@ -205,90 +282,167 @@ export const PassportViewer: React.FC<PassportViewerProps> = ({
             )}
           </div>
 
-          {/* Architectural Hubs Table */}
-          {passport.architectural_hubs.length > 0 && (
-            <div className="p-4 bg-panel border border-line rounded-xl space-y-3">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-muted flex items-center gap-1.5">
+          {/* v2.0 Additions: Symbol Index Summary */}
+          {v2Passport?.symbol_index_summary && (
+            <div className="p-5 bg-panel border border-line rounded-xl space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold text-ink uppercase tracking-wider flex items-center gap-2">
+                  <Code2 className="w-4 h-4 text-accent" />
+                  <span>Symbol Intelligence Summary (Repository Brain)</span>
+                </h3>
+                <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-raised text-muted">
+                  {v2Passport.symbol_index_summary.total_symbols} total symbols
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div className="p-3 rounded bg-canvas border border-line">
+                  <span className="text-muted block text-[10px] uppercase font-semibold">Verified References</span>
+                  <div className="text-base font-mono font-bold text-success mt-0.5">
+                    {v2Passport.symbol_index_summary.total_verified_references}
+                  </div>
+                  <span className="text-[10px] text-muted">Proven AST edges</span>
+                </div>
+                <div className="p-3 rounded bg-canvas border border-line">
+                  <span className="text-muted block text-[10px] uppercase font-semibold">Candidate References</span>
+                  <div className="text-base font-mono font-bold text-warning mt-0.5">
+                    {v2Passport.symbol_index_summary.total_candidate_references}
+                  </div>
+                  <span className="text-[10px] text-muted">Potential call sites</span>
+                </div>
+                <div className="p-3 rounded bg-canvas border border-line">
+                  <span className="text-muted block text-[10px] uppercase font-semibold">Unresolved References</span>
+                  <div className="text-base font-mono font-bold text-muted mt-0.5">
+                    {v2Passport.symbol_index_summary.total_unresolved_references}
+                  </div>
+                  <span className="text-[10px] text-muted">External or dynamic</span>
+                </div>
+              </div>
+
+              {Object.keys(v2Passport.symbol_index_summary.symbols_by_kind).length > 0 && (
+                <div className="flex flex-wrap gap-2 pt-2 border-t border-line/60 text-xs">
+                  <span className="text-muted text-[11px] self-center">Symbols by Kind:</span>
+                  {Object.entries(v2Passport.symbol_index_summary.symbols_by_kind).map(([k, count]) => (
+                    <span key={k} className="px-2 py-0.5 rounded bg-raised border border-line font-mono text-[11px] text-ink">
+                      <span className="text-muted uppercase font-semibold">{k}:</span> {count}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* v2.0 Additions: Architectural Entrypoints */}
+          {v2Passport?.architectural_entrypoints && v2Passport.architectural_entrypoints.length > 0 && (
+            <div className="p-5 bg-panel border border-line rounded-xl space-y-3">
+              <h3 className="text-xs font-bold text-ink uppercase tracking-wider flex items-center gap-2">
                 <Layers className="w-4 h-4 text-accent" />
-                {t('passport.hubsTitle', 'Architectural Hubs (Highest Fan-In / Impact)')} ({passport.architectural_hubs.length})
-              </h2>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="border-b border-line text-muted">
-                      <th className="py-2 px-2 font-medium">{t('passport.modulePath', 'Module Path')}</th>
-                      <th className="py-2 px-2 font-medium">{t('passport.fanIn', 'Fan-In (Dependents)')}</th>
-                      <th className="py-2 px-2 font-medium">{t('passport.fanOut', 'Fan-Out (Imports)')}</th>
-                      <th className="py-2 px-2 font-medium">{t('passport.instability', 'Instability (I)')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {passport.architectural_hubs.map((hub, idx) => (
-                      <tr key={idx} className="border-b border-line/40 hover:bg-raised">
-                        <td className="py-2 px-2 font-mono font-medium text-ink">{hub.file_id}</td>
-                        <td className="py-2 px-2 font-bold text-accent">{hub.fan_in}</td>
-                        <td className="py-2 px-2 text-muted">{hub.fan_out}</td>
-                        <td className="py-2 px-2 font-mono text-muted">{hub.instability.toFixed(2)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <span>Architectural Entrypoints</span>
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                {v2Passport.architectural_entrypoints.map((ep: PassportEntrypoint, i: number) => (
+                  <div key={i} className="p-3 rounded bg-canvas border border-line flex flex-col gap-1 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono uppercase bg-accent/15 text-accent font-bold">
+                        {ep.role}
+                      </span>
+                      {ep.evidence_id && (
+                        <span className="text-[10px] font-mono text-muted">{ep.evidence_id}</span>
+                      )}
+                    </div>
+                    <div className="font-mono text-ink text-xs truncate mt-0.5">{ep.file_path}</div>
+                    {ep.primary_symbol && (
+                      <div className="text-[10px] font-mono text-muted truncate">
+                        Primary: <span className="text-ink font-semibold">{ep.primary_symbol}</span>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
           )}
 
-          {/* Module Inventory */}
-          <div className="p-4 bg-panel border border-line rounded-xl space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-muted">
-                {t('passport.inventoryTitle', 'Indexed Module Inventory')} ({filteredInventory.length})
-              </h2>
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder={t('passport.searchPlaceholder', 'Filter modules…')}
-                className="px-2.5 py-1 rounded-lg bg-raised border border-line text-xs font-mono text-ink placeholder:text-muted focus:outline-none w-48"
-              />
+          {/* v2.0 Additions: Major Module Roles */}
+          {v2Passport?.major_module_roles && v2Passport.major_module_roles.length > 0 && (
+            <div className="p-5 bg-panel border border-line rounded-xl space-y-3">
+              <h3 className="text-xs font-bold text-ink uppercase tracking-wider flex items-center gap-2">
+                <Cpu className="w-4 h-4 text-accent" />
+                <span>Major Module Roles</span>
+              </h3>
+              <div className="space-y-1.5">
+                {v2Passport.major_module_roles.map((mr: PassportModuleRole, i: number) => (
+                  <div key={i} className="p-2.5 rounded bg-canvas border border-line flex items-center justify-between gap-3 text-xs">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono uppercase bg-raised text-muted font-bold shrink-0">
+                        {mr.role}
+                      </span>
+                      <span className="font-mono text-ink font-semibold truncate">{mr.file_path}</span>
+                    </div>
+                    <span className="text-[11px] text-muted shrink-0 max-w-[50%] text-right truncate">
+                      {mr.responsibility}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
+          )}
 
-            <div className="max-h-80 overflow-y-auto">
+          {/* Primary Languages Table */}
+          <div className="p-5 bg-panel border border-line rounded-xl space-y-3">
+            <h3 className="text-xs font-bold text-ink uppercase tracking-wider">
+              {t('passport.languages', 'Primary Languages')}
+            </h3>
+            <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
-                <thead className="sticky top-0 bg-panel border-b border-line text-muted">
-                  <tr>
-                    <th className="py-2 px-2 font-medium">{t('passport.module', 'Module')}</th>
-                    <th className="py-2 px-2 font-medium">{t('passport.language', 'Lang')}</th>
-                    <th className="py-2 px-2 font-medium">{t('passport.loc', 'LOC')}</th>
-                    <th className="py-2 px-2 font-medium">{t('passport.fanIn', 'Fan-In')}</th>
-                    <th className="py-2 px-2 font-medium">{t('passport.fanOut', 'Fan-Out')}</th>
-                    <th className="py-2 px-2 font-medium">{t('passport.status', 'Status')}</th>
+                <thead>
+                  <tr className="border-b border-line text-muted">
+                    <th className="py-2 pr-4">{t('passport.language', 'Language')}</th>
+                    <th className="py-2 pr-4">{t('passport.supportLevel', 'Support Level')}</th>
+                    <th className="py-2 pr-4 text-right">{t('passport.files', 'Files')}</th>
+                    <th className="py-2 pr-4 text-right">{t('passport.loc', 'LOC')}</th>
+                    <th className="py-2 text-right">{t('passport.share', 'Code %')}</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {filteredInventory.slice(0, 100).map((m, idx) => (
-                    <tr key={idx} className="border-b border-line/30 hover:bg-raised">
-                      <td className="py-1.5 px-2 font-mono text-ink truncate max-w-xs">{m.id}</td>
-                      <td className="py-1.5 px-2 text-muted">{m.language}</td>
-                      <td className="py-1.5 px-2 font-mono text-muted">{m.lines_code}</td>
-                      <td className="py-1.5 px-2 font-mono text-muted">{m.fan_in}</td>
-                      <td className="py-1.5 px-2 font-mono text-muted">{m.fan_out}</td>
-                      <td className="py-1.5 px-2">
-                        {m.is_hub && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-accent/15 text-accent font-semibold mr-1">
-                            HUB
-                          </span>
-                        )}
-                        {m.in_cycle && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-red-500/15 text-red-500 font-semibold">
-                            CYCLE
-                          </span>
-                        )}
+                <tbody className="divide-y divide-line/60">
+                  {passport.primary_languages.map((l, i) => (
+                    <tr key={i} className="hover:bg-raised/40">
+                      <td className="py-2 pr-4 font-medium text-ink">{l.language}</td>
+                      <td className="py-2 pr-4">
+                        <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-raised text-muted">
+                          {l.support_level}
+                        </span>
                       </td>
+                      <td className="py-2 pr-4 text-right font-mono text-muted">{l.file_count}</td>
+                      <td className="py-2 pr-4 text-right font-mono text-muted">{l.lines_code.toLocaleString()}</td>
+                      <td className="py-2 text-right font-mono font-medium text-ink">{l.percentage}%</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+          </div>
+
+          {/* Architectural Hubs (High Fan-In) */}
+          <div className="p-5 bg-panel border border-line rounded-xl space-y-3">
+            <h3 className="text-xs font-bold text-ink uppercase tracking-wider">
+              {t('passport.hubs', 'Architectural Hubs (Highest Fan-In / Impact)')}
+            </h3>
+            {passport.architectural_hubs.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                {passport.architectural_hubs.slice(0, 12).map((h, i) => (
+                  <div key={i} className="p-3 bg-canvas border border-line rounded-lg text-xs space-y-1">
+                    <div className="font-mono font-medium text-ink truncate">{h.file_id}</div>
+                    <div className="flex items-center justify-between text-[11px] text-muted">
+                      <span>Fan-In: <strong className="text-ink">{h.fan_in}</strong></span>
+                      <span>Fan-Out: <strong className="text-ink">{h.fan_out}</strong></span>
+                      <span>Instability: <strong className="text-ink">{h.instability.toFixed(2)}</strong></span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted">{t('passport.noHubs', 'No architectural hubs detected.')}</p>
+            )}
           </div>
         </div>
       )}

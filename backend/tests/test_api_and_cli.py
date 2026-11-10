@@ -124,8 +124,8 @@ def test_async_job_completion_is_atomic_under_concurrent_polling(
         if on_progress:
             on_progress(ScanStatus.COMPLETED, "Premature completion callback", 100.0, 2, 2)
         premature_callback_fired.set()
-        # Hold for 80ms to give 8 concurrent polling threads ample window to hit the race if unguarded
-        time.sleep(0.08)
+        # Hold for 250ms to give 8 concurrent polling threads ample window to hit the race if unguarded
+        time.sleep(0.25)
         return res
 
     monkeypatch.setattr(api_app_module, "run_repository_analysis", slow_closing_analyzer)

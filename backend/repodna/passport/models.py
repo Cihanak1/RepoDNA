@@ -8,6 +8,9 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 PASSPORT_SCHEMA_VERSION = "1.0.0"
+PASSPORT_SCHEMA_VERSION_V1 = "1.0.0"
+PASSPORT_SCHEMA_VERSION_V2 = "2.0.0"
+
 
 
 class PassportHubModule(BaseModel):
@@ -125,3 +128,97 @@ class RepositoryPassport(BaseModel):
     evidence_references: list[str] = Field(default_factory=list)
     truncation_metadata: PassportTruncation
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class PassportSymbolSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    total_symbols: int = 0
+    language_counts: dict[str, int] = Field(default_factory=dict)
+    symbols_by_kind: dict[str, int] = Field(default_factory=dict)
+    total_verified_references: int = 0
+    total_candidate_references: int = 0
+    total_unresolved_references: int = 0
+
+
+class PassportEntrypoint(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    file_path: str
+    role: str = Field(description="Role classification: cli, api, main, worker, web, etc.")
+    primary_symbol: str | None = None
+    evidence_id: str | None = None
+    source: str = "ast_verified"
+
+
+class PassportModuleRole(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    file_path: str
+    role: str = Field(description="Role: core, api, brain, cli, guardian, contract, passport, storage, util, etc.")
+    responsibility: str
+    source: str = "ast_verified"
+    evidence_id: str | None = None
+
+
+class PassportEvidenceSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    total_evidence: int = 0
+    fresh_count: int = 0
+    stale_count: int = 0
+    evidence_by_type: dict[str, int] = Field(default_factory=dict)
+
+
+class PassportRetrievalCapabilities(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    supports_semantic_search: bool = True
+    supports_symbol_resolution: bool = True
+    supports_cross_module_trace: bool = True
+    supports_blast_radius: bool = True
+    token_budgeting: bool = True
+
+
+class RepositoryPassportV2(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = PASSPORT_SCHEMA_VERSION_V2
+    repo_name: str
+    git_revision: str
+    provenance_verified: bool = Field(
+        default=False,
+        description="Whether git_revision was verified as an immutable hexadecimal commit SHA.",
+    )
+    revision_status: str = Field(
+        default="unresolved_ref",
+        description="'verified_commit_sha' or 'unresolved_symbolic_ref'.",
+    )
+    analyzed_at: datetime
+    repodna_version: str = "0.5.0"
+    primary_languages: list[PassportLanguageItem] = Field(default_factory=list)
+    ast_coverage: PassportCoverage
+    confidence: str
+    architectural_hubs: list[PassportHubModule] = Field(default_factory=list)
+    module_inventory: list[PassportModuleItem] = Field(default_factory=list)
+    dependency_summary: PassportDependencySummary
+    identified_boundaries: list[str] = Field(default_factory=list)
+    architecture_health: PassportHealth
+    verified_findings: list[str] = Field(default_factory=list)
+    unknown_unverified: list[str] = Field(default_factory=list)
+    contract_status: PassportContractStatus
+    evidence_references: list[str] = Field(default_factory=list)
+    truncation_metadata: PassportTruncation
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    # v2.0 additions
+    symbol_index_summary: PassportSymbolSummary | None = None
+    architectural_entrypoints: list[PassportEntrypoint] = Field(default_factory=list)
+    major_module_roles: list[PassportModuleRole] = Field(default_factory=list)
+    verified_reference_counts: int | None = None
+    candidate_unresolved_counts: dict[str, int] = Field(default_factory=dict)
+    evidence_ledger_summary: PassportEvidenceSummary | None = None
+    retrieval_capabilities: PassportRetrievalCapabilities | None = None
+    analysis_limitations: list[str] = Field(default_factory=list)
+    source_revision: str | None = None
+

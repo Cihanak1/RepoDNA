@@ -1,0 +1,132 @@
+[
+  {
+    "repository_name": "psf/requests",
+    "github_url": "https://github.com/psf/requests",
+    "commit_sha": "3c7baaa05ab4aa49cc819ce3a819d260de19c157",
+    "license": "Apache-2.0",
+    "total_files": 123,
+    "total_loc": 14660,
+    "indexed_files": 123,
+    "ast_file_coverage_pct": 100.0,
+    "ast_loc_coverage_pct": 100.0,
+    "total_symbols": 942,
+    "references": {
+      "total": 3262,
+      "verified": 679,
+      "candidate": 638,
+      "unresolved": 1945
+    },
+    "performance": {
+      "scan_seconds": 0.614,
+      "indexing_seconds": 1.056,
+      "memory_rss_mb": 52.39,
+      "search_p50_ms": 6.87,
+      "search_p95_ms": 8.9,
+      "search_mean_ms": 6.87
+    },
+    "evidence": {
+      "total_citations": 942,
+      "fresh_count": 942,
+      "stale_count": 0
+    },
+    "passport_v2": {
+      "schema_version": "2.0.0",
+      "entrypoints_count": 12,
+      "roles_count": 15,
+      "privacy_violations": []
+    },
+    "context_budget": {
+      "preset_500_tokens": 489,
+      "preset_500_truncated": true,
+      "preset_500_compliant": true,
+      "preset_2000_tokens": 1997,
+      "preset_2000_truncated": true,
+      "preset_2000_compliant": true
+    },
+    "search_samples": [
+      {
+        "query": "Session request send",
+        "top_file": "src/requests/sessions.py",
+        "tier": "HIGH",
+        "score": 132.25
+      },
+      {
+        "query": "HTTPAdapter build_response",
+        "top_file": "src/requests/adapters.py",
+        "tier": "HIGH",
+        "score": 123.0
+      },
+      {
+        "query": "prepare_auth HTTPBasicAuth",
+        "top_file": "src/requests/auth.py",
+        "tier": "HIGH",
+        "score": 136.5
+      }
+    ]
+  },
+  {
+    "repository_name": "colinhacks/zod",
+    "github_url": "https://github.com/colinhacks/zod",
+    "commit_sha": "19c40d2072288b4cafec851e9d056a72a88e5973",
+    "license": "MIT",
+    "total_files": 641,
+    "total_loc": 124857,
+    "indexed_files": 641,
+    "ast_file_coverage_pct": 100.0,
+    "ast_loc_coverage_pct": 100.0,
+    "total_symbols": 3696,
+    "references": {
+      "total": 55287,
+      "verified": 2178,
+      "candidate": 2322,
+      "unresolved": 50787
+    },
+    "performance": {
+      "scan_seconds": 4.566,
+      "indexing_seconds": 198.38,
+      "memory_rss_mb": 152.04,
+      "search_p50_ms": 66.29,
+      "search_p95_ms": 83.5,
+      "search_mean_ms": 64.59
+    },
+    "evidence": {
+      "total_citations": 3696,
+      "fresh_count": 3696,
+      "stale_count": 0
+    },
+    "passport_v2": {
+      "schema_version": "2.0.0",
+      "entrypoints_count": 12,
+      "roles_count": 15,
+      "privacy_violations": []
+    },
+    "context_budget": {
+      "preset_500_tokens": 479,
+      "preset_500_truncated": true,
+      "preset_500_compliant": true,
+      "preset_2000_tokens": 1993,
+      "preset_2000_truncated": true,
+      "preset_2000_compliant": true
+    },
+    "search_samples": [
+      {
+        "query": "ZodString parse regex",
+        "top_file": "packages/zod/src/v4/classic/schemas.ts",
+        "tier": "HIGH",
+        "score": 120.25
+      },
+      {
+        "query": "ZodObject extend shape",
+        "top_file": "packages/zod/src/v4/classic/schemas.ts",
+        "tier": "HIGH",
+        "score": 120.25
+      },
+      {
+        "query": "ZodType safeParse",
+        "top_file": "packages/zod/src/v3/types.ts",
+        "tier": "HIGH",
+        "score": 130.25
+      }
+    ]
+  }
+]

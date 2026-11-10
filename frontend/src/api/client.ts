@@ -1,12 +1,19 @@
 import type {
+  AgentContextResponse,
   AnalysisResult,
   ArchitectureContract,
   DirectoryBrowseResponse,
+  EvidenceLedgerResponse,
+  EvidenceReference,
   GuardianReport,
   HealthCheckResponse,
   RepositoryPassport,
+  RepositoryPassportV2,
   ScanProgress,
   ScanRequest,
+  SearchResponse,
+  SymbolQueryResponse,
+  SymbolTraceResult,
 } from '../types/repodna';
 
 const API_BASE = '/api';
@@ -154,3 +161,160 @@ export async function assessPRGuardian(params: {
   });
   return handleResponse<GuardianReport>(resp);
 }
+
+// ----------------------------------------------------------------------------
+// Repository Brain API Calls (v0.5.0)
+// ----------------------------------------------------------------------------
+
+export async function searchBrainCode(
+  analysisId: string,
+  params: {
+    query: string;
+    limit?: number;
+    kind?: string;
+    path_filter?: string;
+    language?: string;
+  }
+): Promise<SearchResponse> {
+  const resp = await fetch(`${API_BASE}/analyses/${encodeURIComponent(analysisId)}/brain/search`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  return handleResponse<SearchResponse>(resp);
+}
+
+export async function fetchBrainSymbols(
+  analysisId: string,
+  params?: {
+    name?: string;
+    kind?: string;
+    language?: string;
+    file_path?: string;
+    container?: string;
+    limit?: number;
+  }
+): Promise<SymbolQueryResponse> {
+  const qs = new URLSearchParams();
+  if (params?.name) qs.set('name', params.name);
+  if (params?.kind) qs.set('kind', params.kind);
+  if (params?.language) qs.set('language', params.language);
+  if (params?.file_path) qs.set('file_path', params.file_path);
+  if (params?.container) qs.set('container', params.container);
+  if (params?.limit) qs.set('limit', String(params.limit));
+
+  const queryStr = qs.toString() ? `?${qs.toString()}` : '';
+  const resp = await fetch(
+    `${API_BASE}/analyses/${encodeURIComponent(analysisId)}/brain/symbols${queryStr}`
+  );
+  return handleResponse<SymbolQueryResponse>(resp);
+}
+
+export async function traceBrainSymbol(
+  analysisId: string,
+  symbolId: string
+): Promise<SymbolTraceResult> {
+  const resp = await fetch(
+    `${API_BASE}/analyses/${encodeURIComponent(analysisId)}/brain/symbols/${encodeURIComponent(symbolId)}/trace`
+  );
+  return handleResponse<SymbolTraceResult>(resp);
+}
+
+export async function fetchBrainEvidence(
+  analysisId: string,
+  params?: {
+    evidence_id?: string;
+    file_path?: string;
+    symbol_name?: string;
+    evidence_type?: string;
+    check_staleness?: boolean;
+    limit?: number;
+  }
+): Promise<EvidenceLedgerResponse> {
+  const qs = new URLSearchParams();
+  if (params?.evidence_id) qs.set('evidence_id', params.evidence_id);
+  if (params?.file_path) qs.set('file_path', params.file_path);
+  if (params?.symbol_name) qs.set('symbol_name', params.symbol_name);
+  if (params?.evidence_type) qs.set('evidence_type', params.evidence_type);
+  if (params?.check_staleness !== undefined) qs.set('check_staleness', String(params.check_staleness));
+  if (params?.limit) qs.set('limit', String(params.limit));
+
+  const queryStr = qs.toString() ? `?${qs.toString()}` : '';
+  const resp = await fetch(
+    `${API_BASE}/analyses/${encodeURIComponent(analysisId)}/brain/evidence${queryStr}`
+  );
+  return handleResponse<EvidenceLedgerResponse>(resp);
+}
+
+export async function fetchBrainEvidenceItem(
+  analysisId: string,
+  evidenceId: string,
+  checkStaleness: boolean = true
+): Promise<EvidenceReference> {
+  const resp = await fetch(
+    `${API_BASE}/analyses/${encodeURIComponent(analysisId)}/brain/evidence/${encodeURIComponent(evidenceId)}?check_staleness=${checkStaleness}`
+  );
+  return handleResponse<EvidenceReference>(resp);
+}
+
+export async function buildBrainContext(
+  analysisId: string,
+  params: {
+    mode?: string;
+    query?: string;
+    target_files?: string[];
+    max_tokens?: number;
+    max_chars?: number;
+    minimal_contract?: boolean;
+  }
+): Promise<AgentContextResponse> {
+  const resp = await fetch(`${API_BASE}/analyses/${encodeURIComponent(analysisId)}/brain/context`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  return handleResponse<AgentContextResponse>(resp);
+}
+
+export async function fetchRepositoryPassportV2(
+  analysisId: string,
+  maxModules: number = 150
+): Promise<RepositoryPassportV2> {
+  const resp = await fetch(
+    `${API_BASE}/analyses/${encodeURIComponent(analysisId)}/passport/v2?max_modules=${maxModules}`
+  );
+  return handleResponse<RepositoryPassportV2>(resp);
+}
+
+export async function validatePassportJson(manifestJson: string): Promise<{
+  valid: boolean;
+  schema_version: string;
+  repo_name: string;
+  git_revision: string;
+  primary_languages: string[];
+  violations: string[];
+}> {
+  const resp = await fetch(`${API_BASE}/passport/validate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ manifest_json: manifestJson }),
+  });
+  return handleResponse<{
+    valid: boolean;
+    schema_version: string;
+    repo_name: string;
+    git_revision: string;
+    primary_languages: string[];
+    violations: string[];
+  }>(resp);
+}
+
+export async function migratePassportV1ToV2(manifestJson: string): Promise<RepositoryPassportV2> {
+  const resp = await fetch(`${API_BASE}/passport/migrate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ manifest_json: manifestJson }),
+  });
+  return handleResponse<RepositoryPassportV2>(resp);
+}
+

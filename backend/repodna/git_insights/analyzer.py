@@ -2,13 +2,63 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
 import os
 import subprocess
 from collections import Counter, defaultdict
 from pathlib import Path
+from typing import Any
 
 from repodna.schemas.models import FileNode, GitCommitSummary, GitHotspot, GitInsights
+
+
+def compute_snapshot_identity(
+    repo_root: Path,
+    commit_sha: str | None,
+    status_raw: str | None,
+    files: list[Any] | None = None,
+) -> str:
+    """
+    Computes an immutable snapshot identity string for cache invalidation and provenance.
+    - Clean Git repository: git:{commit_sha}
+    - Dirty Git repository: git:{commit_sha}+dirty.{dirty_hash}
+      where dirty_hash incorporates porcelain status, file sizes, mtime_ns, and fast sha256
+      content hashes (for files <= 512KB) to prevent mtime collision or timestamp resolution limits.
+    - Non-Git directory: directory:{path_and_files_hash}
+    """
+    if commit_sha:
+        dirty_lines = [line for line in (status_raw or "").splitlines() if line.strip()]
+        if not dirty_lines:
+            return f"git:{commit_sha}"
+
+        dirty_parts = [status_raw or ""]
+        for line in dirty_lines:
+            parts = line[3:].strip().split(" -> ")
+            target_rel = parts[-1].strip().strip('"')
+            p = repo_root / target_rel
+            try:
+                st = p.stat()
+                # Fast content hash for files <= 512 KB eliminates mtime collision
+                if st.st_size <= 524_288 and p.is_file():
+                    chash = hashlib.sha256(p.read_bytes()).hexdigest()[:8]
+                    dirty_parts.append(f"{target_rel}:{chash}:{st.st_mtime_ns}:{st.st_size}")
+                else:
+                    dirty_parts.append(f"{target_rel}:{st.st_mtime_ns}:{st.st_size}")
+            except OSError:
+                dirty_parts.append(f"{target_rel}:missing")
+
+        dirty_hash = hashlib.sha256("\n".join(dirty_parts).encode("utf-8")).hexdigest()[:12]
+        return f"git:{commit_sha}+dirty.{dirty_hash}"
+    else:
+        dir_parts = [repo_root.as_posix()]
+        if files:
+            for f in files[:200]:
+                f_id = getattr(f, "id", str(f))
+                f_loc = getattr(f, "lines_code", 0)
+                dir_parts.append(f"{f_id}:{f_loc}")
+        path_hash = hashlib.sha256("\n".join(dir_parts).encode("utf-8")).hexdigest()[:12]
+        return f"directory:{path_hash}"
 
 
 def analyze_git_history(
@@ -27,8 +77,18 @@ def analyze_git_history(
     """
     git_dir = repo_root / ".git"
     if not git_dir.exists():
+        dir_parts = [repo_root.as_posix()]
+        for f in files[:200]:
+            dir_parts.append(f"{f.id}:{f.lines_code}")
+        path_hash = hashlib.sha256("\n".join(dir_parts).encode("utf-8")).hexdigest()[:12]
         return GitInsights(
             is_git_repo=False,
+            commit_sha=None,
+            is_dirty=False,
+            dirty_files_count=0,
+            verification_status="UNVERIFIED_NON_GIT",
+            snapshot_identity=f"directory:{path_hash}",
+            source_type="directory",
             note="Directory is not a Git repository (.git folder not present). Git churn metrics skipped.",
         )
 
@@ -68,6 +128,32 @@ def analyze_git_history(
     branch_out = run_git(["rev-parse", "--abbrev-ref", "HEAD"])
     default_branch = branch_out.strip() if branch_out else None
 
+    # Resolve immutable full 40-character commit SHA
+    head_sha_raw = run_git(["rev-parse", "HEAD"])
+    commit_sha: str | None = None
+    if head_sha_raw:
+        sha_cand = head_sha_raw.strip()
+        if len(sha_cand) == 40 and all(c in "0123456789abcdefABCDEF" for c in sha_cand):
+            commit_sha = sha_cand.lower()
+
+    # Detect dirty working tree status safely
+    status_raw = run_git(["status", "--porcelain"])
+    dirty_lines = [line for line in (status_raw or "").splitlines() if line.strip()]
+    is_dirty = len(dirty_lines) > 0
+    dirty_count = len(dirty_lines)
+
+    verification_status = (
+        ("VERIFIED_DIRTY" if is_dirty else "VERIFIED_CLEAN")
+        if commit_sha
+        else "UNVERIFIED_NON_GIT"
+    )
+    snapshot_identity = compute_snapshot_identity(
+        repo_root=repo_root,
+        commit_sha=commit_sha,
+        status_raw=status_raw,
+        files=files,
+    )
+
     # Use ASCII Unit Separator (%x1f) to avoid collisions with '|' in author names or commit subjects
     log_raw = run_git(
         [
@@ -83,6 +169,12 @@ def analyze_git_history(
         return GitInsights(
             is_git_repo=True,
             default_branch=default_branch,
+            commit_sha=commit_sha,
+            is_dirty=is_dirty,
+            dirty_files_count=dirty_count,
+            verification_status=verification_status,
+            snapshot_identity=snapshot_identity,
+            source_type="git",
             note="Git repository initialized, but no commit history found.",
         )
 
@@ -165,6 +257,12 @@ def analyze_git_history(
     return GitInsights(
         is_git_repo=True,
         default_branch=default_branch,
+        commit_sha=commit_sha,
+        is_dirty=is_dirty,
+        dirty_files_count=dirty_count,
+        verification_status=verification_status,
+        snapshot_identity=snapshot_identity,
+        source_type="git",
         total_commits_scanned=total_commits,
         unique_contributors=len(author_commit_counts),
         first_commit_date=first_date,

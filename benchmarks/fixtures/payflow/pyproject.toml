@@ -1,0 +1,7 @@
+[project]
+name = "payflow"
+version = "1.0.0"
+description = "High-throughput financial ledger and payment gateway"
+dependencies = [
+    "pydantic>=2.0.0",
+]

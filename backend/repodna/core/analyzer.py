@@ -70,6 +70,8 @@ IGNORED_DIRS = {
     "playwright-report",
     "test-results",
     ".repodna_tmp",
+    "fixtures",
+    "results",
 }
 
 BINARY_EXTENSIONS = {
@@ -293,7 +295,11 @@ def _analyze_directory_internal(
                 continue
 
             if is_dir:
-                if entry.name in IGNORED_DIRS or (entry.name.startswith(".") and entry.name not in {".github"}):
+                if (
+                    entry.name in IGNORED_DIRS
+                    or entry.name.endswith(".egg-info")
+                    or (entry.name.startswith(".") and entry.name not in {".github"})
+                ):
                     continue
                 subdirs_to_visit.append(entry_path)
             elif entry.is_file(follow_symlinks=False):
@@ -857,6 +863,12 @@ def build_labeled_demo_analysis() -> AnalysisResult:
     git_insights = GitInsights(
         is_git_repo=True,
         default_branch="main",
+        commit_sha="a84f29c0123456789abcdef0123456789abcdef0",
+        is_dirty=False,
+        dirty_files_count=0,
+        verification_status="SYNTHETIC_DEMO",
+        snapshot_identity="demo:v0.5.0",
+        source_type="demo",
         total_commits_scanned=42,
         unique_contributors=3,
         first_commit_date="2026-09-12",
