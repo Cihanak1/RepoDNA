@@ -274,3 +274,34 @@ def test_dirty_working_tree_cache_identity_changes_with_tree_changes(tmp_path: P
     # Crucial assertion: Two different dirty states must NOT share the same snapshot identity
     assert info1.snapshot_identity != info2.snapshot_identity
 
+
+def test_dirty_working_tree_same_size_same_mtime_different_content(tmp_path: Path) -> None:
+    """Verifies that content hashing prevents cache collisions even when file size and mtime are artificially identical."""
+    import os
+    import subprocess
+    git_repo = tmp_path / "git_repo_mtime"
+    git_repo.mkdir()
+    subprocess.run(["git", "init"], cwd=git_repo, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=git_repo, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=git_repo, check=True, capture_output=True)
+
+    f1 = git_repo / "main.py"
+    f1.write_text("print('AAAA')\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=git_repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=git_repo, check=True, capture_output=True)
+
+    fixed_time = 1_700_000_000.0
+
+    # Dirty state 1: same length (14 chars)
+    f1.write_text("print('BBBB')\n", encoding="utf-8")
+    os.utime(f1, (fixed_time, fixed_time))
+    info1 = analyze_git_history(git_repo, files=[])
+
+    # Dirty state 2: same length (14 chars), same artificially forced mtime
+    f1.write_text("print('CCCC')\n", encoding="utf-8")
+    os.utime(f1, (fixed_time, fixed_time))
+    info2 = analyze_git_history(git_repo, files=[])
+
+    assert info1.snapshot_identity != info2.snapshot_identity
+
+

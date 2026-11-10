@@ -8,8 +8,57 @@ import os
 import subprocess
 from collections import Counter, defaultdict
 from pathlib import Path
+from typing import Any
 
 from repodna.schemas.models import FileNode, GitCommitSummary, GitHotspot, GitInsights
+
+
+def compute_snapshot_identity(
+    repo_root: Path,
+    commit_sha: str | None,
+    status_raw: str | None,
+    files: list[Any] | None = None,
+) -> str:
+    """
+    Computes an immutable snapshot identity string for cache invalidation and provenance.
+    - Clean Git repository: git:{commit_sha}
+    - Dirty Git repository: git:{commit_sha}+dirty.{dirty_hash}
+      where dirty_hash incorporates porcelain status, file sizes, mtime_ns, and fast sha256
+      content hashes (for files <= 512KB) to prevent mtime collision or timestamp resolution limits.
+    - Non-Git directory: directory:{path_and_files_hash}
+    """
+    if commit_sha:
+        dirty_lines = [line for line in (status_raw or "").splitlines() if line.strip()]
+        if not dirty_lines:
+            return f"git:{commit_sha}"
+
+        dirty_parts = [status_raw or ""]
+        for line in dirty_lines:
+            parts = line[3:].strip().split(" -> ")
+            target_rel = parts[-1].strip().strip('"')
+            p = repo_root / target_rel
+            try:
+                st = p.stat()
+                # Fast content hash for files <= 512 KB eliminates mtime collision
+                if st.st_size <= 524_288 and p.is_file():
+                    chash = hashlib.sha256(p.read_bytes()).hexdigest()[:8]
+                    dirty_parts.append(f"{target_rel}:{chash}:{st.st_mtime_ns}:{st.st_size}")
+                else:
+                    dirty_parts.append(f"{target_rel}:{st.st_mtime_ns}:{st.st_size}")
+            except OSError:
+                dirty_parts.append(f"{target_rel}:missing")
+
+        dirty_hash = hashlib.sha256("\n".join(dirty_parts).encode("utf-8")).hexdigest()[:12]
+        return f"git:{commit_sha}+dirty.{dirty_hash}"
+    else:
+        dir_parts = [repo_root.as_posix()]
+        if files:
+            for f in files[:200]:
+                f_id = getattr(f, "id", str(f))
+                f_loc = getattr(f, "lines_code", 0)
+                dir_parts.append(f"{f_id}:{f_loc}")
+        path_hash = hashlib.sha256("\n".join(dir_parts).encode("utf-8")).hexdigest()[:12]
+        return f"directory:{path_hash}"
 
 
 def analyze_git_history(
@@ -93,30 +142,17 @@ def analyze_git_history(
     is_dirty = len(dirty_lines) > 0
     dirty_count = len(dirty_lines)
 
-    if commit_sha:
-        verification_status = "VERIFIED_DIRTY" if is_dirty else "VERIFIED_CLEAN"
-        if is_dirty:
-            dirty_parts = [status_raw or ""]
-            for line in dirty_lines:
-                parts = line[3:].strip().split(" -> ")
-                target_rel = parts[-1].strip().strip('"')
-                p = repo_root / target_rel
-                try:
-                    st = p.stat()
-                    dirty_parts.append(f"{target_rel}:{st.st_mtime_ns}:{st.st_size}")
-                except OSError:
-                    dirty_parts.append(f"{target_rel}:missing")
-            dirty_hash = hashlib.sha256("\n".join(dirty_parts).encode("utf-8")).hexdigest()[:12]
-            snapshot_identity = f"git:{commit_sha}+dirty.{dirty_hash}"
-        else:
-            snapshot_identity = f"git:{commit_sha}"
-    else:
-        dir_parts = [repo_root.as_posix()]
-        for f in files[:200]:
-            dir_parts.append(f"{f.id}:{f.lines_code}")
-        path_hash = hashlib.sha256("\n".join(dir_parts).encode("utf-8")).hexdigest()[:12]
-        verification_status = "UNVERIFIED_NON_GIT"
-        snapshot_identity = f"directory:{path_hash}"
+    verification_status = (
+        ("VERIFIED_DIRTY" if is_dirty else "VERIFIED_CLEAN")
+        if commit_sha
+        else "UNVERIFIED_NON_GIT"
+    )
+    snapshot_identity = compute_snapshot_identity(
+        repo_root=repo_root,
+        commit_sha=commit_sha,
+        status_raw=status_raw,
+        files=files,
+    )
 
     # Use ASCII Unit Separator (%x1f) to avoid collisions with '|' in author names or commit subjects
     log_raw = run_git(

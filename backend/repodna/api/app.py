@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import os
 import subprocess
@@ -41,6 +40,7 @@ from repodna.core.analyzer import (
     run_repository_analysis,
 )
 from repodna.diff.snapshot import SnapshotManager
+from repodna.git_insights.analyzer import compute_snapshot_identity
 from repodna.guardian.engine import PRArchitectureGuardian
 from repodna.guardian.models import GuardianReport
 from repodna.parsers.treesitter_parser import get_parser_engine_summary
@@ -214,16 +214,26 @@ def _get_or_create_indexer_for_analysis(analysis_id: str) -> tuple[SymbolIndexer
 
             if res.git_insights.commit_sha:
                 res.git_insights.verification_status = "VERIFIED_DIRTY" if res.git_insights.is_dirty else "VERIFIED_CLEAN"
-                snapshot_id = f"git:{res.git_insights.commit_sha}{'+dirty' if res.git_insights.is_dirty else ''}"
             else:
                 res.git_insights.verification_status = "UNVERIFIED_NON_GIT"
-                snapshot_id = f"directory:{hashlib.sha256(root.as_posix().encode('utf-8')).hexdigest()[:12]}"
+
+            snapshot_id = compute_snapshot_identity(
+                repo_root=root,
+                commit_sha=res.git_insights.commit_sha,
+                status_raw=status_raw,
+                files=res.files if hasattr(res, "files") else None,
+            )
         else:
             res.git_insights.commit_sha = None
             res.git_insights.is_dirty = False
             res.git_insights.dirty_files_count = 0
             res.git_insights.verification_status = "UNVERIFIED_NON_GIT"
-            snapshot_id = f"directory:{hashlib.sha256(root.as_posix().encode('utf-8')).hexdigest()[:12]}"
+            snapshot_id = compute_snapshot_identity(
+                repo_root=root,
+                commit_sha=None,
+                status_raw=None,
+                files=res.files if hasattr(res, "files") else None,
+            )
 
         res.git_insights.snapshot_identity = snapshot_id
 
