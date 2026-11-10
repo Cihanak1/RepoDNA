@@ -675,12 +675,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.passport_action == "validate":
             try:
                 target_p = Path(args.path or (Path.cwd() / ".repodna" / "passport.json")).resolve()
-                passport = validate_passport_file(target_p)
+                validated_passport = validate_passport_file(target_p)
                 print(
-                    f"Valid Repository Passport: '{target_p}' (Schema v{passport.schema_version}, "
-                    f"Repo='{passport.repo_name}', Revision='{passport.git_revision}', "
-                    f"Modules={len(passport.module_inventory)}, Health={passport.architecture_health.score} "
-                    f"Grade {passport.architecture_health.grade})"
+                    f"Valid Repository Passport: '{target_p}' (Schema v{validated_passport.schema_version}, "
+                    f"Repo='{validated_passport.repo_name}', Revision='{validated_passport.git_revision}', "
+                    f"Modules={len(validated_passport.module_inventory)}, Health={validated_passport.architecture_health.score} "
+                    f"Grade {validated_passport.architecture_health.grade})"
                 )
                 return 0
             except Exception as exc:

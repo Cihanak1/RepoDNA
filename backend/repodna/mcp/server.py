@@ -33,7 +33,9 @@ from repodna.passport.generator import (
     export_passport_to_json,
     export_passport_to_markdown,
     generate_repository_passport,
+    generate_repository_passport_v2,
 )
+from repodna.passport.models import RepositoryPassport, RepositoryPassportV2
 from repodna.schemas.models import AnalysisResult, ScanLimits, ScanRequest, SourceType
 from repodna.security.validators import SecurityValidationError, validate_local_directory
 
@@ -383,6 +385,7 @@ class RepoDNAMCPServer:
         target: str,
         max_modules: int = 150,
         format: str = "json",
+        version: str = "2.0",
         force: bool = False,
     ) -> str:
         resolved, stype = self._resolve_target(target)
@@ -402,15 +405,27 @@ class RepoDNAMCPServer:
             except Exception:
                 git_rev = "working_tree"
 
-        passport = generate_repository_passport(
-            analysis=analysis,
-            git_revision=git_rev,
-            contract=contract,
-            max_modules=max_modules,
-        )
+        passport: RepositoryPassport | RepositoryPassportV2
+        if version == "1.0":
+            passport = generate_repository_passport(
+                analysis=analysis,
+                git_revision=git_rev,
+                contract=contract,
+                max_modules=max_modules,
+            )
+        else:
+            indexer = self._get_or_create_indexer(resolved, analysis)
+            passport = generate_repository_passport_v2(
+                analysis=analysis,
+                git_revision=git_rev,
+                contract=contract,
+                max_modules=max_modules,
+                indexer=indexer,
+            )
         if format.lower() == "markdown":
             return export_passport_to_markdown(passport)
         return export_passport_to_json(passport)
+
 
     def tool_get_contract(self, target: str, format: str = "yaml") -> str:
         resolved, stype = self._resolve_target(target)
@@ -568,6 +583,7 @@ class RepoDNAMCPServer:
         evidence_id: str | None = None,
         file_path: str | None = None,
         symbol_name: str | None = None,
+        check_staleness: bool = True,
         limit: int = 25,
         force: bool = False,
     ) -> str:
@@ -577,9 +593,31 @@ class RepoDNAMCPServer:
         ledger = indexer.ledger
         if evidence_id:
             ev = ledger.get_by_id(evidence_id)
-            return ev.model_dump_json(indent=2) if ev else json.dumps({"error": f"Evidence '{evidence_id}' not found."})
+            if not ev:
+                return json.dumps({"error": f"Evidence '{evidence_id}' not found."})
+            if check_staleness and isinstance(resolved, Path):
+                fpath = resolved / ev.file_path
+                if fpath.is_file():
+                    try:
+                        content = fpath.read_text(encoding="utf-8", errors="replace")
+                        ledger.check_staleness(ev.file_path, current_content=content, current_revision=indexer.revision)
+                    except Exception:
+                        pass
+                elif not fpath.exists():
+                    ledger.check_staleness(ev.file_path, current_content="", current_revision=indexer.revision)
+            return ev.model_dump_json(indent=2)
         if file_path:
             evs = ledger.find_by_file(file_path)
+            if check_staleness and isinstance(resolved, Path):
+                fpath = resolved / file_path
+                if fpath.is_file():
+                    try:
+                        content = fpath.read_text(encoding="utf-8", errors="replace")
+                        evs = ledger.check_staleness(file_path, current_content=content, current_revision=indexer.revision)
+                    except Exception:
+                        pass
+                elif not fpath.exists():
+                    evs = ledger.check_staleness(file_path, current_content="", current_revision=indexer.revision)
             return json.dumps([e.model_dump() for e in evs[:limit]], indent=2)
         if symbol_name:
             evs = ledger.find_by_symbol(symbol_name)
@@ -593,6 +631,7 @@ class RepoDNAMCPServer:
         query: str | None = None,
         target_files: list[str] | None = None,
         max_tokens: int | None = 2000,
+        minimal_contract: bool = False,
         format: str = "markdown",
         force: bool = False,
     ) -> str:
@@ -606,10 +645,12 @@ class RepoDNAMCPServer:
             target_files=target_files,
             max_tokens=max_tokens,
             indexer=indexer,
+            minimal_contract=minimal_contract,
         )
         if format.lower() == "json":
             return ctx.model_dump_json(indent=2)
         return ctx.as_markdown()
+
 
     # -------------------------------------------------------------------------
     # Official Python MCP SDK Server Setup
@@ -651,8 +692,9 @@ class RepoDNAMCPServer:
             return self.tool_analysis_coverage(target=target, force=force)
 
         @self._official_server.tool(name="repodna_get_passport", description="Retrieves portable Repository Passport containing structural identity, AST coverage, hubs, and contracts.")
-        def _mcp_passport(target: str, max_modules: int = 150, format: str = "json", force: bool = False) -> str:
-            return self.tool_get_passport(target=target, max_modules=max_modules, format=format, force=force)
+        def _mcp_passport(target: str, max_modules: int = 150, format: str = "json", version: str = "2.0", force: bool = False) -> str:
+            return self.tool_get_passport(target=target, max_modules=max_modules, format=format, version=version, force=force)
+
 
         @self._official_server.tool(name="repodna_get_contract", description="Returns declared repository Architecture Contract rules and boundary policies from .repodna/architecture.yml.")
         def _mcp_get_contract(target: str, format: str = "yaml") -> str:
@@ -678,12 +720,13 @@ class RepoDNAMCPServer:
             return self.tool_trace_symbol(target=target, symbol_name=symbol_name, file_path=file_path, force=force)
 
         @self._official_server.tool(name="repodna_get_evidence", description="Retrieves verified architectural evidence citations with Git revision provenance and staleness status.")
-        def _mcp_get_evidence(target: str, evidence_id: str | None = None, file_path: str | None = None, symbol_name: str | None = None, limit: int = 25, force: bool = False) -> str:
-            return self.tool_get_evidence(target=target, evidence_id=evidence_id, file_path=file_path, symbol_name=symbol_name, limit=limit, force=force)
+        def _mcp_get_evidence(target: str, evidence_id: str | None = None, file_path: str | None = None, symbol_name: str | None = None, check_staleness: bool = True, limit: int = 25, force: bool = False) -> str:
+            return self.tool_get_evidence(target=target, evidence_id=evidence_id, file_path=file_path, symbol_name=symbol_name, check_staleness=check_staleness, limit=limit, force=force)
 
         @self._official_server.tool(name="repodna_build_context", description="Generates budget-aware architectural context (compact/focused/deep) with evidence citations for AI agents.")
-        def _mcp_build_context(target: str, mode: str = "focused", query: str | None = None, target_files: list[str] | None = None, max_tokens: int | None = 2000, format: str = "markdown", force: bool = False) -> str:
-            return self.tool_build_context(target=target, mode=mode, query=query, target_files=target_files, max_tokens=max_tokens, format=format, force=force)
+        def _mcp_build_context(target: str, mode: str = "focused", query: str | None = None, target_files: list[str] | None = None, max_tokens: int | None = 2000, minimal_contract: bool = False, format: str = "markdown", force: bool = False) -> str:
+            return self.tool_build_context(target=target, mode=mode, query=query, target_files=target_files, max_tokens=max_tokens, minimal_contract=minimal_contract, format=format, force=force)
+
 
     def run(self, transport: str = "stdio") -> None:
         """Runs the server. Enforces official Python MCP SDK as standard."""
@@ -813,6 +856,7 @@ class RepoDNAMCPServer:
                         "target": {"type": "string", "description": "Local path or 'demo'."},
                         "max_modules": {"type": "integer", "default": 150},
                         "format": {"type": "string", "enum": ["json", "markdown"], "default": "json"},
+                        "version": {"type": "string", "enum": ["1.0", "2.0"], "default": "2.0", "description": "Passport schema version."},
                     },
                     "required": ["target"],
                 },
@@ -912,6 +956,7 @@ class RepoDNAMCPServer:
                         "evidence_id": {"type": "string", "description": "Specific evidence ID (e.g. ev_<hash>)."},
                         "file_path": {"type": "string", "description": "Filter evidence by file path."},
                         "symbol_name": {"type": "string", "description": "Filter evidence by symbol name."},
+                        "check_staleness": {"type": "boolean", "default": True, "description": "Verify evidence staleness against files on disk."},
                         "limit": {"type": "integer", "default": 25},
                     },
                     "required": ["target"],
@@ -928,8 +973,10 @@ class RepoDNAMCPServer:
                         "query": {"type": "string", "description": "Search query for focused context mode."},
                         "target_files": {"type": "array", "items": {"type": "string"}},
                         "max_tokens": {"type": "integer", "default": 2000},
+                        "minimal_contract": {"type": "boolean", "default": False, "description": "Strict minimal contract mode."},
                         "format": {"type": "string", "enum": ["markdown", "json"], "default": "markdown"},
                     },
+
                     "required": ["target"],
                 },
             },
@@ -1002,8 +1049,10 @@ class RepoDNAMCPServer:
                     target=target,
                     max_modules=int(arguments.get("max_modules", 150)),
                     format=arguments.get("format", "json"),
+                    version=arguments.get("version", "2.0"),
                     force=force,
                 )
+
             elif name in ("repodna_get_contract", "repodna_contract"):
                 content = self.tool_get_contract(
                     target=target,
@@ -1057,6 +1106,7 @@ class RepoDNAMCPServer:
                     evidence_id=arguments.get("evidence_id"),
                     file_path=arguments.get("file_path"),
                     symbol_name=arguments.get("symbol_name"),
+                    check_staleness=bool(arguments.get("check_staleness", True)),
                     limit=int(arguments.get("limit", 25)),
                     force=force,
                 )
@@ -1067,9 +1117,11 @@ class RepoDNAMCPServer:
                     query=arguments.get("query"),
                     target_files=arguments.get("target_files"),
                     max_tokens=arguments.get("max_tokens", 2000),
+                    minimal_contract=bool(arguments.get("minimal_contract", False)),
                     format=arguments.get("format", "markdown"),
                     force=force,
                 )
+
             else:
                 return {
                     "isError": True,

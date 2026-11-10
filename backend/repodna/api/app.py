@@ -16,6 +16,19 @@ from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
 from repodna import __version__
+from repodna.brain.indexer import SymbolIndexer
+from repodna.brain.models import (
+    EvidenceLedgerResponse,
+    EvidenceReference,
+    EvidenceType,
+    SearchResponse,
+    SymbolQueryResponse,
+    SymbolTraceResult,
+)
+from repodna.brain.retrieval import SmartRetrievalEngine
+from repodna.brain.tracer import AmbiguousSymbolError, SymbolTracer
+from repodna.context.builder import AgentContextBuilder
+from repodna.context.models import AgentContextResponse
 from repodna.contract.loader import find_contract_file, load_contract_file
 from repodna.contract.models import ArchitectureContract, ContractMode
 from repodna.core.analyzer import (
@@ -27,8 +40,16 @@ from repodna.diff.snapshot import SnapshotManager
 from repodna.guardian.engine import PRArchitectureGuardian
 from repodna.guardian.models import GuardianReport
 from repodna.parsers.treesitter_parser import get_parser_engine_summary
-from repodna.passport.generator import generate_repository_passport
-from repodna.passport.models import RepositoryPassport
+from repodna.passport.generator import (
+    generate_repository_passport,
+    generate_repository_passport_v2,
+)
+from repodna.passport.migrator import migrate_v1_to_v2
+from repodna.passport.models import (
+    RepositoryPassport,
+    RepositoryPassportV2,
+)
+from repodna.passport.validator import validate_passport_json
 from repodna.reports.exporter import export_analysis_to_html, export_analysis_to_json
 from repodna.schemas.models import (
     AnalysisResult,
@@ -61,6 +82,7 @@ _JOBS: dict[str, ScanProgress] = {}
 _CANCEL_FLAGS: dict[str, threading.Event] = {}
 _JOB_RESULTS: dict[str, AnalysisResult] = {}
 _RESULTS_BY_ID: dict[str, AnalysisResult] = {}
+_INDEXERS_BY_ID: dict[str, SymbolIndexer] = {}
 _MAX_STORED_RESULTS = 25
 
 
@@ -69,6 +91,7 @@ def _store_result(result: AnalysisResult, job_id: str | None = None) -> None:
         if len(_RESULTS_BY_ID) >= _MAX_STORED_RESULTS:
             oldest_key = next(iter(_RESULTS_BY_ID))
             _RESULTS_BY_ID.pop(oldest_key, None)
+            _INDEXERS_BY_ID.pop(oldest_key, None)
         _RESULTS_BY_ID[result.analysis_id] = result
         if job_id:
             _JOB_RESULTS[job_id] = result
@@ -84,6 +107,7 @@ def _complete_job_atomically(job_id: str, result: AnalysisResult) -> None:
         if len(_RESULTS_BY_ID) >= _MAX_STORED_RESULTS:
             oldest_key = next(iter(_RESULTS_BY_ID))
             _RESULTS_BY_ID.pop(oldest_key, None)
+            _INDEXERS_BY_ID.pop(oldest_key, None)
         _RESULTS_BY_ID[result.analysis_id] = result
         _JOB_RESULTS[job_id] = result
         curr = _JOBS.get(job_id)
@@ -98,6 +122,33 @@ def _complete_job_atomically(job_id: str, result: AnalysisResult) -> None:
                     "updated_at": datetime.now(UTC),
                 }
             )
+
+
+def _get_or_create_indexer_for_analysis(analysis_id: str) -> tuple[SymbolIndexer, AnalysisResult]:
+    """Retrieves or builds the SymbolIndexer for an existing AnalysisResult."""
+    with _LOCK:
+        res = _RESULTS_BY_ID.get(analysis_id)
+    if not res:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "ANALYSIS_NOT_FOUND", "message": f"Analysis '{analysis_id}' not found."},
+        )
+
+    with _LOCK:
+        if analysis_id in _INDEXERS_BY_ID:
+            return _INDEXERS_BY_ID[analysis_id], res
+
+    target_path = Path(res.target_display)
+    root = target_path if (target_path.exists() and target_path.is_dir()) else Path(".")
+    git_rev = res.git_insights.default_branch or "HEAD"
+    indexer = SymbolIndexer(root_path=root, revision=git_rev, analysis=res)
+    indexer.index_all()
+
+    with _LOCK:
+        _INDEXERS_BY_ID[analysis_id] = indexer
+
+    return indexer, res
+
 
 
 class DirectoryEntryItem(BaseModel):
@@ -511,3 +562,301 @@ def assess_architecture_guardian(request: GuardianAssessRequest) -> GuardianRepo
         head_is_working_tree=head_is_wt,
         git_renames=git_renames,
     )
+
+
+# -----------------------------------------------------------------------------
+# Repository Brain & Code Intelligence Endpoints (Phase 3)
+# -----------------------------------------------------------------------------
+
+
+class BrainSearchRequest(BaseModel):
+    query: str
+    limit: int = 15
+    kind: str | None = None
+    path_filter: str | None = None
+    language: str | None = None
+
+
+class BrainContextRequest(BaseModel):
+    mode: str = "compact"
+    query: str | None = None
+    target_files: list[str] | None = None
+    max_tokens: int | None = 2000
+    max_chars: int | None = None
+    page: int = 0
+    page_size: int = 15
+    minimal_contract: bool = False
+
+
+class PassportValidateRequest(BaseModel):
+    manifest_json: str
+
+
+class PassportMigrateRequest(BaseModel):
+    manifest_json: str
+
+
+@app.post("/api/analyses/{analysis_id}/brain/search", response_model=SearchResponse)
+def search_repository_brain(analysis_id: str, request: BrainSearchRequest) -> SearchResponse:
+    """Performs deterministic, explainable code and architectural location discovery."""
+    indexer, analysis = _get_or_create_indexer_for_analysis(analysis_id)
+    engine = SmartRetrievalEngine(indexer=indexer, analysis=analysis)
+    resp = engine.search(query=request.query, limit=request.limit)
+
+    # Optional path filter
+    if request.path_filter:
+        pf_low = request.path_filter.lower()
+        resp.matches = [m for m in resp.matches if pf_low in m.file_id.lower()]
+        resp.total_matches = len(resp.matches)
+
+    # Optional language filter
+    if request.language:
+        lang_low = request.language.lower()
+        resp.matches = [m for m in resp.matches if m.language.lower() == lang_low]
+        resp.total_matches = len(resp.matches)
+
+    # Optional symbol kind filter
+    if request.kind:
+        k_low = request.kind.lower()
+        for m in resp.matches:
+            m.matched_symbols = [s for s in m.matched_symbols if s.kind.value.lower() == k_low]
+
+    return resp
+
+
+@app.get("/api/analyses/{analysis_id}/brain/symbols", response_model=SymbolQueryResponse)
+def list_or_query_symbols(
+    analysis_id: str,
+    name: str | None = Query(default=None),
+    kind: str | None = Query(default=None),
+    language: str | None = Query(default=None),
+    file_path: str | None = Query(default=None),
+    container: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+) -> SymbolQueryResponse:
+    """Searches or filters symbol definitions across the repository."""
+    indexer, _ = _get_or_create_indexer_for_analysis(analysis_id)
+    if name:
+        syms = indexer.find_by_name(name=name, kind=kind, file_path=file_path, container=container, exact=False)
+        return SymbolQueryResponse(
+            total_symbols=len(syms),
+            symbols=syms[:limit],
+            summary_text=f"Found {len(syms)} symbol(s) matching '{name}'.",
+            filter_criteria={"name": name, "kind": kind, "file_path": file_path, "container": container, "limit": limit},
+        )
+    return indexer.list_symbols(kind=kind, language=language, file_path=file_path, container=container, limit=limit)
+
+
+@app.get("/api/analyses/{analysis_id}/brain/symbols/{symbol_id}/trace", response_model=SymbolTraceResult)
+def trace_repository_symbol(analysis_id: str, symbol_id: str) -> SymbolTraceResult:
+    """Traces callers, callees, imports, container hierarchy, and downstream blast radius for a symbol."""
+    indexer, analysis = _get_or_create_indexer_for_analysis(analysis_id)
+    tracer = SymbolTracer(indexer=indexer, analysis=analysis)
+    try:
+        return tracer.trace_symbol(symbol_id=symbol_id, allow_ambiguous=True)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "SYMBOL_NOT_FOUND", "message": str(exc)},
+        ) from exc
+    except AmbiguousSymbolError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "AMBIGUOUS_SYMBOL", "message": str(exc)},
+        ) from exc
+
+
+@app.get("/api/analyses/{analysis_id}/brain/evidence", response_model=EvidenceLedgerResponse)
+def get_evidence_ledger(
+    analysis_id: str,
+    evidence_id: str | None = Query(default=None),
+    file_path: str | None = Query(default=None),
+    symbol_name: str | None = Query(default=None),
+    evidence_type: str | None = Query(default=None),
+    check_staleness: bool = Query(default=True),
+    limit: int = Query(default=50, ge=1, le=500),
+) -> EvidenceLedgerResponse:
+    """Queries evidence citations with optional staleness detection against current files on disk."""
+    indexer, _ = _get_or_create_indexer_for_analysis(analysis_id)
+    ledger = indexer.ledger
+
+    if evidence_id:
+        ev = ledger.get_by_id(evidence_id)
+        if not ev:
+            return EvidenceLedgerResponse(
+                total_evidence=0,
+                stale_count=0,
+                evidence_items=[],
+                summary_text=f"Evidence citation '{evidence_id}' not found.",
+            )
+        if check_staleness:
+            full_path = indexer.root_path / ev.file_path
+            if full_path.is_file():
+                try:
+                    content = full_path.read_text(encoding="utf-8", errors="replace")
+                    ledger.check_staleness(ev.file_path, current_content=content, current_revision=indexer.revision)
+                except Exception:
+                    pass
+        return EvidenceLedgerResponse(
+            total_evidence=1,
+            stale_count=1 if ev.is_stale else 0,
+            evidence_items=[ev],
+            summary_text=f"Evidence citation '{evidence_id}' retrieved.",
+        )
+
+    if file_path:
+        evs = ledger.find_by_file(file_path)
+        if check_staleness:
+            full_path = indexer.root_path / file_path
+            if full_path.is_file():
+                try:
+                    content = full_path.read_text(encoding="utf-8", errors="replace")
+                    evs = ledger.check_staleness(file_path, current_content=content, current_revision=indexer.revision)
+                except Exception:
+                    pass
+            elif not full_path.exists():
+                evs = ledger.check_staleness(file_path, current_content="", current_revision=indexer.revision)
+        stale_c = sum(1 for e in evs if e.is_stale)
+        return EvidenceLedgerResponse(
+            total_evidence=len(evs),
+            stale_count=stale_c,
+            evidence_items=evs[:limit],
+            summary_text=f"Found {len(evs)} evidence citation(s) for file '{file_path}'.",
+        )
+
+    if symbol_name:
+        evs = ledger.find_by_symbol(symbol_name)
+        stale_c = sum(1 for e in evs if e.is_stale)
+        return EvidenceLedgerResponse(
+            total_evidence=len(evs),
+            stale_count=stale_c,
+            evidence_items=evs[:limit],
+            summary_text=f"Found {len(evs)} evidence citation(s) for symbol '{symbol_name}'.",
+        )
+
+    if evidence_type:
+        try:
+            ev_type_enum = EvidenceType(evidence_type.lower())
+            evs = ledger.find_by_type(ev_type_enum)
+            stale_c = sum(1 for e in evs if e.is_stale)
+            return EvidenceLedgerResponse(
+                total_evidence=len(evs),
+                stale_count=stale_c,
+                evidence_items=evs[:limit],
+                summary_text=f"Found {len(evs)} evidence citation(s) of type '{evidence_type}'.",
+            )
+        except Exception:
+            pass
+
+    return ledger.to_response(limit=limit)
+
+
+@app.get("/api/analyses/{analysis_id}/brain/evidence/{evidence_id}", response_model=EvidenceReference)
+def get_single_evidence(
+    analysis_id: str,
+    evidence_id: str,
+    check_staleness: bool = Query(default=True),
+) -> EvidenceReference:
+    """Retrieves a single verified architectural evidence reference with staleness check."""
+    indexer, _ = _get_or_create_indexer_for_analysis(analysis_id)
+    ev = indexer.ledger.get_by_id(evidence_id)
+    if not ev:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "EVIDENCE_NOT_FOUND", "message": f"Evidence citation '{evidence_id}' not found."},
+        )
+    if check_staleness:
+        full_path = indexer.root_path / ev.file_path
+        if full_path.is_file():
+            try:
+                content = full_path.read_text(encoding="utf-8", errors="replace")
+                indexer.ledger.check_staleness(ev.file_path, current_content=content, current_revision=indexer.revision)
+            except Exception:
+                pass
+        elif not full_path.exists():
+            indexer.ledger.check_staleness(ev.file_path, current_content="", current_revision=indexer.revision)
+    return ev
+
+
+@app.post("/api/analyses/{analysis_id}/brain/context", response_model=AgentContextResponse)
+def build_agent_context(analysis_id: str, request: BrainContextRequest) -> AgentContextResponse:
+    """Builds controlled, token-budgeted architectural context for AI agents with true vs estimated token disclosure."""
+    indexer, analysis = _get_or_create_indexer_for_analysis(analysis_id)
+    return AgentContextBuilder.build_context(
+        analysis=analysis,
+        mode=request.mode,
+        query=request.query,
+        target_files=request.target_files,
+        max_tokens=request.max_tokens,
+        max_chars=request.max_chars,
+        page=request.page,
+        page_size=request.page_size,
+        indexer=indexer,
+        minimal_contract=request.minimal_contract,
+    )
+
+
+@app.get("/api/analyses/{analysis_id}/passport/v2", response_model=RepositoryPassportV2)
+def get_analysis_passport_v2(
+    analysis_id: str,
+    max_modules: int = Query(default=150, ge=10, le=2000),
+) -> RepositoryPassportV2:
+    """Returns the portable Repository Passport v2 manifest with symbol summaries and major module roles."""
+    indexer, res = _get_or_create_indexer_for_analysis(analysis_id)
+    contract = None
+    target_path = Path(res.target_display)
+    if target_path.exists() and target_path.is_dir():
+        c_file = find_contract_file(target_path)
+        if c_file:
+            try:
+                contract = load_contract_file(c_file)
+            except Exception:
+                pass
+
+    return generate_repository_passport_v2(
+        analysis=res,
+        git_revision=res.git_insights.default_branch or "HEAD",
+        contract=contract,
+        max_modules=max_modules,
+        indexer=indexer,
+    )
+
+
+@app.post("/api/passport/validate")
+def validate_passport_manifest(request: PassportValidateRequest) -> dict[str, Any]:
+    """Validates passport JSON manifest against v1 or v2 schema and privacy guardrails."""
+    try:
+        passport = validate_passport_json(request.manifest_json)
+        return {
+            "valid": True,
+            "schema_version": passport.schema_version,
+            "repo_name": passport.repo_name,
+            "git_revision": passport.git_revision,
+            "primary_languages": [lg.language for lg in passport.primary_languages],
+            "violations": [],
+        }
+    except SecurityValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "PASSPORT_INVALID", "message": str(exc)},
+        ) from exc
+
+
+@app.post("/api/passport/migrate", response_model=RepositoryPassportV2)
+def migrate_passport_manifest(request: PassportMigrateRequest) -> RepositoryPassportV2:
+    """Migrates a v1.0 Repository Passport into a schema-compliant v2.0 manifest."""
+    try:
+        import json
+        data = json.loads(request.manifest_json)
+        return migrate_v1_to_v2(data)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "PASSPORT_MIGRATION_ERROR", "message": f"Failed to migrate passport manifest: {exc}"},
+        ) from exc
+

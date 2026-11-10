@@ -547,6 +547,14 @@ def test_skill_examples_automated_validation() -> None:
                 # Ensure diff test succeeds even on shallow or CI git checkouts
                 call_args["base_ref"] = "HEAD"
                 call_args["head_ref"] = "HEAD"
+
+            if tool_name in ('repodna_trace_symbol', 'repodna_find_symbol'):
+
+                call_args['symbol_name'] = 'OrderService'
+
+            if tool_name in ('repodna_search_code', 'repodna_build_context', 'repodna_context'):
+
+                call_args['query'] = 'service'
             res = server.call_tool(tool_name, call_args)
             assert not res.get("isError"), f"Tool call {tool_name} failed: {res}"
 

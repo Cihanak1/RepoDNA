@@ -7,7 +7,12 @@ import re
 from pathlib import Path
 from typing import Any
 
-from repodna.passport.models import PASSPORT_SCHEMA_VERSION, RepositoryPassport
+from repodna.passport.models import (
+    PASSPORT_SCHEMA_VERSION_V1,
+    PASSPORT_SCHEMA_VERSION_V2,
+    RepositoryPassport,
+    RepositoryPassportV2,
+)
 from repodna.security.validators import SecurityValidationError
 
 MAX_PASSPORT_SIZE_BYTES = 2_097_152  # 2 MB
@@ -20,8 +25,8 @@ PRIVACY_LEAK_PATTERNS = [
 ]
 
 
-def check_passport_privacy(passport: RepositoryPassport) -> list[str]:
-    """Scans a RepositoryPassport for accidental leaks of absolute host paths, user home folders, or secrets."""
+def check_passport_privacy(passport: RepositoryPassport | RepositoryPassportV2) -> list[str]:
+    """Scans a RepositoryPassport or RepositoryPassportV2 for accidental leaks of absolute host paths, user home folders, or secrets."""
     violations: list[str] = []
 
     # 1. Metadata check
@@ -51,10 +56,19 @@ def check_passport_privacy(passport: RepositoryPassport) -> list[str]:
             if pattern.search(ev):
                 violations.append(f"Private host path in evidence_references: '{ev}'")
 
+    # 4. v2 additions (entrypoints, module roles)
+    if isinstance(passport, RepositoryPassportV2):
+        for ep in passport.architectural_entrypoints:
+            if ep.file_path.startswith("/") or (len(ep.file_path) >= 2 and ep.file_path[1] == ":"):
+                violations.append(f"Absolute host path in architectural_entrypoints: '{ep.file_path}'")
+        for mr in passport.major_module_roles:
+            if mr.file_path.startswith("/") or (len(mr.file_path) >= 2 and mr.file_path[1] == ":"):
+                violations.append(f"Absolute host path in major_module_roles: '{mr.file_path}'")
+
     return violations
 
 
-def validate_passport_json(json_str: str) -> RepositoryPassport:
+def validate_passport_json(json_str: str) -> RepositoryPassport | RepositoryPassportV2:
     """Validates passport JSON string against schema and privacy policies."""
     if len(json_str.encode("utf-8")) > MAX_PASSPORT_SIZE_BYTES:
         raise SecurityValidationError(
@@ -71,12 +85,14 @@ def validate_passport_json(json_str: str) -> RepositoryPassport:
         raise ValueError("Passport manifest must be a JSON object.")
 
     version = data.get("schema_version")
-    if version != PASSPORT_SCHEMA_VERSION:
+    if version == PASSPORT_SCHEMA_VERSION_V1:
+        passport: RepositoryPassport | RepositoryPassportV2 = RepositoryPassport.model_validate(data)
+    elif version == PASSPORT_SCHEMA_VERSION_V2:
+        passport = RepositoryPassportV2.model_validate(data)
+    else:
         raise ValueError(
-            f"Unsupported passport schema version: '{version}'. Supported: ['{PASSPORT_SCHEMA_VERSION}']"
+            f"Unsupported passport schema version: '{version}'. Supported: ['{PASSPORT_SCHEMA_VERSION_V1}', '{PASSPORT_SCHEMA_VERSION_V2}']"
         )
-
-    passport = RepositoryPassport.model_validate(data)
 
     privacy_leaks = check_passport_privacy(passport)
     if privacy_leaks:
@@ -88,7 +104,8 @@ def validate_passport_json(json_str: str) -> RepositoryPassport:
     return passport
 
 
-def validate_passport_file(path: Path | str) -> RepositoryPassport:
+def validate_passport_file(path: Path | str) -> RepositoryPassport | RepositoryPassportV2:
+
     """Validates passport manifest file from disk."""
     file_path = Path(path).resolve()
     if not file_path.exists():

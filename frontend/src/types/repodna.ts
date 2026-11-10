@@ -542,3 +542,233 @@ export interface RepositoryPassport {
   truncation_metadata: PassportTruncation;
   metadata?: Record<string, unknown>;
 }
+
+// ----------------------------------------------------------------------------
+// Repository Brain & Code Intelligence Types (v0.5.0)
+// ----------------------------------------------------------------------------
+
+export type SymbolKind =
+  | 'function'
+  | 'class'
+  | 'method'
+  | 'interface'
+  | 'type'
+  | 'import'
+  | 'export'
+  | 'struct'
+  | 'variable'
+  | 'constant';
+
+export type ReferenceKind =
+  | 'import'
+  | 'call'
+  | 'type_usage'
+  | 'inheritance'
+  | 'access'
+  | 'reexport';
+
+export type ResolutionStatus = 'verified' | 'candidate' | 'unresolved';
+
+export type StalenessReason =
+  | 'fresh'
+  | 'revision_mismatch'
+  | 'content_changed'
+  | 'line_shift'
+  | 'file_deleted';
+
+export type EvidenceType =
+  | 'symbol_definition'
+  | 'symbol_reference'
+  | 'import_statement'
+  | 'export_statement'
+  | 'dependency_edge'
+  | 'architectural_hub'
+  | 'contract_violation'
+  | 'cycle_participation';
+
+export interface SymbolReference {
+  file_path: string;
+  line: number;
+  column?: number;
+  symbol_name: string;
+  reference_kind: ReferenceKind;
+  source_symbol_name?: string | null;
+  is_verified: boolean;
+  resolution_status: ResolutionStatus;
+  target_symbol_id?: string | null;
+  target_file_path?: string | null;
+  alias_name?: string | null;
+  module_specifier?: string | null;
+  qualifier?: string | null;
+  confidence_reason: string;
+}
+
+export interface SymbolDefinition {
+  id: string;
+  name: string;
+  kind: SymbolKind;
+  file_path: string;
+  line_start: number;
+  line_end: number;
+  column_start?: number;
+  column_end?: number;
+  language: string;
+  container_name?: string | null;
+  signature?: string | null;
+  docstring?: string | null;
+  is_exported: boolean;
+  evidence_id: string;
+  verified_references?: SymbolReference[];
+  candidate_references?: SymbolReference[];
+}
+
+export interface EvidenceReference {
+  evidence_id: string;
+  repository_revision: string;
+  file_path: string;
+  line_start: number;
+  line_end: number;
+  evidence_type: EvidenceType;
+  symbol_name?: string | null;
+  symbol_kind?: SymbolKind | null;
+  support_level: LanguageSupportLevel;
+  confidence_reason: string;
+  code_snippet?: string | null;
+  created_at: string;
+  is_stale: boolean;
+  staleness_reason: StalenessReason;
+  staleness_details?: string | null;
+  line_shift_delta?: number | null;
+  content_hash?: string | null;
+}
+
+export interface CodeSearchResult {
+  file_id: string;
+  score: number;
+  relevance_tier: 'HIGH' | 'MEDIUM' | 'LOW';
+  match_reasons: string[];
+  matched_symbols: SymbolDefinition[];
+  evidence_items: EvidenceReference[];
+  language: string;
+  lines_code: number;
+  fan_in: number;
+  fan_out: number;
+  is_hub: boolean;
+  in_cycle: boolean;
+  is_comment_only_match?: boolean;
+  snippet?: string | null;
+}
+
+export interface SearchResponse {
+  query: string;
+  total_matches: number;
+  matches: CodeSearchResult[];
+  summary_text: string;
+  query_intent: string;
+  tokens_evaluated: string[];
+  limitations?: string[];
+}
+
+export interface SymbolQueryResponse {
+  total_symbols: number;
+  symbols: SymbolDefinition[];
+  summary_text: string;
+  filter_criteria?: Record<string, unknown>;
+}
+
+export interface SymbolTraceResult {
+  symbol: SymbolDefinition;
+  definition_evidence: EvidenceReference;
+  references: SymbolReference[];
+  candidate_references: SymbolReference[];
+  importing_modules: string[];
+  calling_modules: string[];
+  downstream_dependents: string[];
+  downstream_impact_count: number;
+  cycle_warning?: string | null;
+  is_ambiguous: boolean;
+  ambiguity_candidates?: SymbolDefinition[];
+  summary_text: string;
+}
+
+export interface EvidenceLedgerResponse {
+  total_evidence: number;
+  stale_count: number;
+  evidence_items: EvidenceReference[];
+  summary_text: string;
+}
+
+export interface AgentContextResponse {
+  repository: string;
+  revision: string;
+  generated_at: string;
+  analysis_version: string;
+  mode: string;
+  analysis_coverage: Record<string, unknown>;
+  confidence_level: string;
+  requested_scope: Record<string, unknown>;
+  summary: string;
+  relevant_modules: Array<Record<string, unknown>>;
+  evidence: string[];
+  evidence_records?: Array<Record<string, unknown>>;
+  limitations: string[];
+  truncated: boolean;
+  continuation_token?: string | null;
+  minimal_contract?: boolean;
+  estimated_tokens?: number;
+  raw_tokens_estimate?: number;
+  token_savings_pct?: number;
+  estimated_savings_pct?: number;
+  is_savings_estimated?: boolean;
+  token_counting_method?: string;
+}
+
+export interface PassportSymbolSummary {
+  total_symbols: number;
+  language_counts: Record<string, number>;
+  symbols_by_kind: Record<string, number>;
+  total_verified_references: number;
+  total_candidate_references: number;
+  total_unresolved_references: number;
+}
+
+export interface PassportEntrypoint {
+  file_path: string;
+  role: string;
+  primary_symbol?: string | null;
+  evidence_id?: string | null;
+}
+
+export interface PassportModuleRole {
+  file_path: string;
+  role: string;
+  responsibility: string;
+}
+
+export interface PassportEvidenceSummary {
+  total_evidence: number;
+  fresh_count: number;
+  stale_count: number;
+  evidence_by_type: Record<string, number>;
+}
+
+export interface PassportRetrievalCapabilities {
+  supports_semantic_search: boolean;
+  supports_symbol_resolution: boolean;
+  supports_cross_module_trace: boolean;
+  supports_blast_radius: boolean;
+  token_budgeting: boolean;
+}
+
+export interface RepositoryPassportV2 extends RepositoryPassport {
+  symbol_index_summary?: PassportSymbolSummary | null;
+  architectural_entrypoints: PassportEntrypoint[];
+  major_module_roles: PassportModuleRole[];
+  verified_reference_counts: number;
+  candidate_unresolved_counts: Record<string, number>;
+  evidence_ledger_summary?: PassportEvidenceSummary | null;
+  retrieval_capabilities?: PassportRetrievalCapabilities | null;
+  analysis_limitations: string[];
+  source_revision?: string | null;
+}
+

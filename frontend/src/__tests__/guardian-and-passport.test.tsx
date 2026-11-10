@@ -4,7 +4,13 @@ import '../i18n';
 import { GuardianOverview } from '../components/GuardianOverview';
 import { ContractInspector } from '../components/ContractInspector';
 import { PassportViewer } from '../components/PassportViewer';
-import type { AnalysisResult, ArchitectureContract, GuardianReport, RepositoryPassport } from '../types/repodna';
+import type {
+  AnalysisResult,
+  ArchitectureContract,
+  GuardianReport,
+  RepositoryPassport,
+  RepositoryPassportV2,
+} from '../types/repodna';
 import * as apiClient from '../api/client';
 
 const mockAnalysis: AnalysisResult = {
@@ -282,7 +288,10 @@ describe('PassportViewer Component', () => {
       },
     };
 
-    vi.spyOn(apiClient, 'fetchRepositoryPassport').mockResolvedValueOnce(mockPassport);
+    vi.spyOn(apiClient, 'fetchRepositoryPassport').mockResolvedValue(mockPassport);
+    vi.spyOn(apiClient, 'fetchRepositoryPassportV2').mockResolvedValue(
+      mockPassport as unknown as RepositoryPassportV2
+    );
 
     render(<PassportViewer result={mockAnalysis} defaultWorkspacePath="." />);
 

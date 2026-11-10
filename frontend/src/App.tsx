@@ -19,6 +19,7 @@ import { FolderBrowserDialog } from './components/FolderBrowserDialog';
 import { GuardianOverview } from './components/GuardianOverview';
 import { HeaderBar } from './components/HeaderBar';
 import { InspectorPanel } from './components/InspectorPanel';
+import { IntelligenceWorkstation } from './components/IntelligenceWorkstation';
 import { Launchpad } from './components/Launchpad';
 import { OnboardingTour } from './components/OnboardingTour';
 import { PanelResizer } from './components/PanelResizer';
@@ -70,7 +71,7 @@ export const App: React.FC = () => {
   );
   useEffect(() => { savePreference('mode', workstationMode); }, [workstationMode]);
 
-  const [activeTab, setActiveTab] = useState<'studio' | 'report' | 'guardian' | 'contract' | 'passport'>('studio');
+  const [activeTab, setActiveTab] = useState<'studio' | 'intelligence' | 'report' | 'guardian' | 'contract' | 'passport'>('studio');
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [layoutMode, setLayoutMode] = useState(() => readPreference<LayoutMode>('layout', 'layered', (v): v is LayoutMode => v === 'layered' || v === 'cluster' || v === 'radial'));
   const [densityMode, setDensityMode] = useState(() => readPreference<GraphDensityMode>('density', 'balanced', (v): v is GraphDensityMode => v === 'compact' || v === 'balanced' || v === 'spacious'));
@@ -621,6 +622,12 @@ export const App: React.FC = () => {
               />
             </div>
           </>
+        ) : activeTab === 'intelligence' ? (
+          <IntelligenceWorkstation
+            result={result}
+            onSelectFileInStudio={handleSelectFileFromReport}
+            workstationMode={workstationMode}
+          />
         ) : activeTab === 'report' ? (
           <Suspense fallback={<p role="status" className="p-6 text-xs text-muted">{t('report.loading')}</p>}>
             <HealthReportView

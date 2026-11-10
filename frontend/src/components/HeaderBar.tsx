@@ -40,8 +40,8 @@ interface HeaderBarProps {
   activeJob: ScanProgress | null;
   onCancelJob: () => void;
   result: AnalysisResult | null;
-  activeTab: 'studio' | 'report' | 'guardian' | 'contract' | 'passport';
-  onTabChange: (tab: 'studio' | 'report' | 'guardian' | 'contract' | 'passport') => void;
+  activeTab: 'studio' | 'intelligence' | 'report' | 'guardian' | 'contract' | 'passport';
+  onTabChange: (tab: 'studio' | 'intelligence' | 'report' | 'guardian' | 'contract' | 'passport') => void;
   defaultWorkspacePath: string;
   onOpenCommandPalette: () => void;
   workstationMode?: WorkstationMode;
@@ -328,6 +328,20 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
               <FileCode2 className="w-3.5 h-3.5" aria-hidden="true" />
               <span className="hidden md:inline">{t('header.studioTab')}</span>
             </button>
+            <button
+              type="button"
+              onClick={() => onTabChange('intelligence')}
+              aria-pressed={activeTab === 'intelligence'}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
+                activeTab === 'intelligence'
+                  ? 'bg-accent-solid text-white shadow-xs'
+                  : 'text-muted hover:text-ink'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
+              <span className="hidden md:inline">{t('header.intelligenceTab', 'Intelligence')}</span>
+            </button>
+
             <button
               type="button"
               onClick={() => onTabChange('report')}

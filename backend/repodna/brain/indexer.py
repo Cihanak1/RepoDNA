@@ -10,6 +10,7 @@ from repodna.brain.evidence import EvidenceLedger
 from repodna.brain.extractor import DeepSymbolExtractor
 from repodna.brain.models import (
     EvidenceReference,
+    EvidenceType,
     ReferenceKind,
     ResolutionStatus,
     SymbolDefinition,
@@ -56,7 +57,54 @@ class SymbolIndexer:
             file_path = file_node.id
             full_path = self.root_path / file_path
             if not full_path.is_file():
+                # Graceful fallback: construct definitions from analysis file symbols
+                if file_node.symbols:
+                    fallback_syms: list[SymbolDefinition] = []
+                    fallback_evs: list[EvidenceReference] = []
+                    for s_item in file_node.symbols:
+                        kind_val = s_item.kind.lower() if s_item.kind else "function"
+                        try:
+                            kind_enum = SymbolKind(kind_val)
+                        except Exception:
+                            kind_enum = SymbolKind.FUNCTION
+                        sym_id = SymbolDefinition.generate_id(file_path, s_item.name, kind_enum.value, s_item.line)
+                        ev_id = EvidenceReference.generate_id(
+                            self.revision,
+                            file_path,
+                            s_item.line,
+                            s_item.line,
+                            "symbol_definition",
+                            s_item.name,
+                        )
+                        ev = EvidenceReference(
+                            evidence_id=ev_id,
+                            repository_revision=self.revision,
+                            file_path=file_path,
+                            line_start=s_item.line,
+                            line_end=s_item.line,
+                            evidence_type=EvidenceType.SYMBOL_DEFINITION,
+                            symbol_name=s_item.name,
+                            symbol_kind=kind_enum,
+                            confidence_reason="Analysis AST symbol node citation",
+                        )
+                        sym_def = SymbolDefinition(
+                            id=sym_id,
+                            name=s_item.name,
+                            kind=kind_enum,
+                            file_path=file_path,
+                            line_start=s_item.line,
+                            line_end=s_item.line,
+                            language=file_node.language,
+                            signature=f"{kind_enum.value} {s_item.name}",
+                            docstring=None,
+                            is_exported=True,
+                            evidence_id=ev_id,
+                        )
+                        fallback_syms.append(sym_def)
+                        fallback_evs.append(ev)
+                    self.add_file_symbols(file_path, fallback_syms, [], fallback_evs)
                 continue
+
 
             try:
                 content = full_path.read_text(encoding="utf-8", errors="replace")

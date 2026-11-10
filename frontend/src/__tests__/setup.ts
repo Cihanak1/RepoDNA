@@ -49,3 +49,10 @@ if (typeof window !== 'undefined') {
       };
   }
 }
+
+import { afterEach, vi } from 'vitest';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
