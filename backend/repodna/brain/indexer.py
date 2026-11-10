@@ -113,6 +113,8 @@ class SymbolIndexer:
     ) -> None:
         norm_path = file_path.replace("\\", "/").lstrip("/")
         self.ledger.add_bulk(evidence_items)
+        # Ensure file is tracked even if it defines no symbols (e.g. index.ts or __init__.py with only re-exports)
+        self._symbols_by_file.setdefault(norm_path, [])
 
         for sym in symbols:
             self._symbols_by_id[sym.id] = sym
@@ -121,7 +123,7 @@ class SymbolIndexer:
             self._symbols_by_file[norm_path].append(sym)
 
         for ref in references:
-            if ref.reference_kind == ReferenceKind.IMPORT:
+            if ref.reference_kind in (ReferenceKind.IMPORT, ReferenceKind.REEXPORT):
                 self._imports_by_file[norm_path].append(ref)
             self._raw_references.append(ref)
 
@@ -204,11 +206,26 @@ class SymbolIndexer:
         """
         for ref in self._raw_references:
             # 1. Imports resolution
-            if ref.reference_kind == ReferenceKind.IMPORT:
+            if ref.reference_kind in (ReferenceKind.IMPORT, ReferenceKind.REEXPORT):
                 target_file = self._resolve_module_specifier(ref.file_path, ref.module_specifier)
                 if target_file and target_file in self._symbols_by_file:
                     tgt_syms = self._symbols_by_file[target_file]
                     matched = next((s for s in tgt_syms if s.name == ref.symbol_name), None)
+                    if matched is None and ref.symbol_name != "*":
+                        # Check for barrel re-export in target_file (e.g. index.ts or __init__.py)
+                        reexp_cands = [
+                            r for r in self._imports_by_file[target_file]
+                            if ((r.alias_name or r.symbol_name) == ref.symbol_name or r.symbol_name == "*")
+                        ]
+                        for reexp in reexp_cands:
+                            reexp_target = self._resolve_module_specifier(target_file, reexp.module_specifier)
+                            if reexp_target and reexp_target in self._symbols_by_file:
+                                reexp_orig = reexp.symbol_name if reexp.symbol_name != "*" else ref.symbol_name
+                                matched_re = next((s for s in self._symbols_by_file[reexp_target] if s.name == reexp_orig), None)
+                                if matched_re is not None:
+                                    matched = matched_re
+                                    break
+
                     if matched is not None:
                         ref.is_verified = True
                         ref.resolution_status = ResolutionStatus.VERIFIED
@@ -220,9 +237,13 @@ class SymbolIndexer:
                         matched.verified_references.append(ref)
                     else:
                         ref.is_verified = False
-                        ref.resolution_status = ResolutionStatus.UNRESOLVED
+                        ref.resolution_status = (
+                            ResolutionStatus.CANDIDATE if ref.symbol_name == "*" else ResolutionStatus.UNRESOLVED
+                        )
                         ref.confidence_reason = (
-                            f"Unresolved import: symbol '{ref.symbol_name}' not defined in '{target_file}'"
+                            f"Wildcard import from '{target_file}'"
+                            if ref.symbol_name == "*"
+                            else f"Unresolved import: symbol '{ref.symbol_name}' not defined in '{target_file}'"
                         )
                 else:
                     ref.is_verified = False
@@ -293,6 +314,19 @@ class SymbolIndexer:
                     tgt_file = self._resolve_module_specifier(ref.file_path, direct_imp.module_specifier)
                     if tgt_file and tgt_file in self._symbols_by_file:
                         tgt_sym = next((s for s in self._symbols_by_file[tgt_file] if s.name == ref.symbol_name), None)
+                        if tgt_sym is None:
+                            reexp_cands = [
+                                r for r in self._imports_by_file[tgt_file]
+                                if ((r.alias_name or r.symbol_name) == ref.symbol_name or r.symbol_name == "*")
+                            ]
+                            for reexp in reexp_cands:
+                                reexp_target = self._resolve_module_specifier(tgt_file, reexp.module_specifier)
+                                if reexp_target and reexp_target in self._symbols_by_file:
+                                    reexp_orig = reexp.symbol_name if reexp.symbol_name != "*" else ref.symbol_name
+                                    matched_re = next((s for s in self._symbols_by_file[reexp_target] if s.name == reexp_orig), None)
+                                    if matched_re is not None:
+                                        tgt_sym = matched_re
+                                        break
                         if tgt_sym is not None:
                             ref.is_verified = True
                             ref.resolution_status = ResolutionStatus.VERIFIED
@@ -317,6 +351,28 @@ class SymbolIndexer:
                                 ref.confidence_reason = f"Statically verified qualified call '{ref.qualifier}.{ref.symbol_name}' from '{tgt_file}'"
                                 tgt_sym.verified_references.append(ref)
                                 continue
+
+                # C4: Wildcard imports (e.g. from service import *; e = Engine())
+                # Must be classified as CANDIDATE, never VERIFIED (lacks explicit static proof)
+                wildcard_imps = [imp for imp in file_imports if imp.symbol_name == "*"]
+                wildcard_resolved = False
+                for w_imp in wildcard_imps:
+                    tgt_file = self._resolve_module_specifier(ref.file_path, w_imp.module_specifier)
+                    if tgt_file and tgt_file in self._symbols_by_file:
+                        tgt_sym = next((s for s in self._symbols_by_file[tgt_file] if s.name == ref.symbol_name), None)
+                        if tgt_sym is not None:
+                            ref.is_verified = False
+                            ref.resolution_status = ResolutionStatus.CANDIDATE
+                            ref.target_symbol_id = tgt_sym.id
+                            ref.target_file_path = tgt_sym.file_path
+                            ref.confidence_reason = (
+                                f"Candidate: matched symbol '{ref.symbol_name}' defined in wildcard-imported module '{tgt_file}', but lacks explicit static import"
+                            )
+                            tgt_sym.candidate_references.append(ref)
+                            wildcard_resolved = True
+                            break
+                if wildcard_resolved:
+                    continue
 
                 # D. Dependency Graph / Candidate Resolution
                 candidates = self._symbols_by_name.get(ref.symbol_name, [])
@@ -414,6 +470,11 @@ class SymbolIndexer:
     def find_by_file(self, file_path: str) -> list[SymbolDefinition]:
         norm_path = file_path.replace("\\", "/").lstrip("/")
         return list(self._symbols_by_file.get(norm_path, []))
+
+    def get_references_in_file(self, file_path: str) -> list[SymbolReference]:
+        """Returns all cross-references originating from the given file."""
+        norm_path = file_path.replace("\\", "/").lstrip("/")
+        return [r for r in self._raw_references if r.file_path == norm_path or r.file_path.endswith(f"/{norm_path}")]
 
     def list_symbols(
         self,

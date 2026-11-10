@@ -330,6 +330,21 @@ class DeepSymbolExtractor:
                                             confidence_reason=f"Aliased import 'from {mod_name} import {oname} as {aname}'",
                                         )
                                     )
+                            elif child.type in ("wildcard_import", "*") or _node_text(source_bytes, child).strip() == "*":
+                                references.append(
+                                    SymbolReference(
+                                        file_path=file_path,
+                                        line=line_start,
+                                        column=col_start,
+                                        symbol_name="*",
+                                        reference_kind=ReferenceKind.IMPORT,
+                                        module_specifier=mod_name,
+                                        source_symbol_name=current_container,
+                                        is_verified=False,
+                                        resolution_status=ResolutionStatus.UNRESOLVED,
+                                        confidence_reason=f"Wildcard import 'from {mod_name} import *'",
+                                    )
+                                )
 
                     elif ntype == "call":
                         fn_node = node.child_by_field_name("function")
@@ -859,6 +874,50 @@ class DeepSymbolExtractor:
                                                 confidence_reason=f"Namespace import '* as {ns_name}' from '{raw_src}'",
                                             )
                                         )
+
+                    elif ntype == "export_statement":
+                        src_node = node.child_by_field_name("source")
+                        raw_src = _node_text(source_bytes, src_node).strip().strip("'\"`") if src_node else ""
+                        if raw_src:
+                            for child in node.children:
+                                if child.type == "export_clause":
+                                    for spec in child.children:
+                                        if spec.type == "export_specifier":
+                                            n_node = spec.child_by_field_name("name")
+                                            a_node = spec.child_by_field_name("alias")
+                                            sname = _node_text(source_bytes, n_node).strip() if n_node else ""
+                                            aname = _node_text(source_bytes, a_node).strip() if a_node else None
+                                            if sname:
+                                                references.append(
+                                                    SymbolReference(
+                                                        file_path=file_path,
+                                                        line=line_start,
+                                                        column=col_start,
+                                                        symbol_name=sname,
+                                                        alias_name=aname,
+                                                        reference_kind=ReferenceKind.REEXPORT,
+                                                        module_specifier=raw_src,
+                                                        source_symbol_name=current_container,
+                                                        is_verified=False,
+                                                        resolution_status=ResolutionStatus.UNRESOLVED,
+                                                        confidence_reason=f"Barrel export '{sname}' from '{raw_src}'",
+                                                    )
+                                                )
+                                elif child.type in ("*", "star_export") or _node_text(source_bytes, child).strip() == "*":
+                                    references.append(
+                                        SymbolReference(
+                                            file_path=file_path,
+                                            line=line_start,
+                                            column=col_start,
+                                            symbol_name="*",
+                                            reference_kind=ReferenceKind.REEXPORT,
+                                            module_specifier=raw_src,
+                                            source_symbol_name=current_container,
+                                            is_verified=False,
+                                            resolution_status=ResolutionStatus.UNRESOLVED,
+                                            confidence_reason=f"Wildcard barrel export '* from {raw_src}'",
+                                        )
+                                    )
 
                     elif ntype == "call_expression":
                         fn_node = node.child_by_field_name("function")

@@ -31,6 +31,7 @@ class ReferenceKind(StrEnum):
     TYPE_USAGE = "type_usage"
     INHERITANCE = "inheritance"
     ACCESS = "access"
+    REEXPORT = "reexport"
 
 
 class ResolutionStatus(StrEnum):

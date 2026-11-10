@@ -7,6 +7,7 @@ import json
 import sys
 from pathlib import Path
 
+from repodna.benchmarks.engine import BenchmarkEngine
 from repodna.brain.indexer import SymbolIndexer
 from repodna.brain.models import (
     EvidenceLedgerResponse,
@@ -356,6 +357,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
     evidence_p.add_argument("--limit", type=int, default=50, help="Max citations to list (default: 50).")
     evidence_p.add_argument("--format", choices=["table", "json"], default="table", help="Output format.")
     evidence_p.add_argument("--output", "-o", type=str, default=None, help="Optional output file path.")
+
+    # 13. benchmark
+    benchmark_p = sub.add_parser("benchmark", help="Run Code Intelligence retrieval benchmarks.")
+    bench_sub = benchmark_p.add_subparsers(dest="benchmark_action", required=True)
+    bench_run_p = bench_sub.add_parser("run", help="Execute retrieval and intelligence benchmark.")
+    bench_run_p.add_argument("target", nargs="?", default=".", help="Target repository directory (default: .).")
+    bench_run_p.add_argument("--dataset", type=str, default="benchmarks/retrieval-v1.jsonl", help="Dataset path.")
+    bench_run_p.add_argument("--format", choices=["markdown", "json"], default="markdown", help="Output format (markdown or json).")
+    bench_run_p.add_argument("--output", "-o", type=str, default=None, help="Optional output file path.")
+    bench_run_p.add_argument("--timeout", type=float, default=60.0, help="Timeout in seconds (default: 60s).")
+    bench_run_p.add_argument("--include-baselines", action="store_true", default=True, help="Include Filename and Symbol baselines.")
+    bench_run_p.add_argument("--profile-memory", action="store_true", default=True, help="Profile memory with tracemalloc.")
+    bench_run_p.add_argument("--skip-scalability", action="store_true", default=False, help="Skip multi-scale stress benchmark.")
+    bench_run_p.add_argument("--skip-budget", action="store_true", default=False, help="Skip token budget compliance matrix.")
 
     return parser
 
@@ -758,6 +773,30 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(output_text)
         return 0
+
+    if args.command == "benchmark":
+        if args.benchmark_action == "run":
+            target_path = Path(args.target).resolve()
+            dataset_path = Path(args.dataset).resolve() if args.dataset else None
+            engine = BenchmarkEngine(repo_path=target_path, dataset_path=dataset_path)
+            bench_report = engine.run(
+                include_baselines=args.include_baselines,
+                include_scalability=not args.skip_scalability,
+                include_budget=not args.skip_budget,
+            )
+            if args.format == "json":
+                output_text = bench_report.model_dump_json(indent=2)
+            else:
+                output_text = BenchmarkEngine.generate_markdown_report(bench_report)
+
+            if args.output:
+                out_p = Path(args.output).resolve()
+                out_p.parent.mkdir(parents=True, exist_ok=True)
+                out_p.write_text(output_text, encoding="utf-8")
+                print(f"Benchmark report written to {out_p}")
+            else:
+                print(output_text)
+            return 0
 
     return 1
 

@@ -26,12 +26,28 @@ SYNONYM_MAP: dict[str, set[str]] = {
     "db": {"database", "repository", "repo", "store", "storage", "model", "entity"},
     "router": {"route", "endpoint", "controller", "api", "handler", "view"},
     "config": {"configuration", "settings", "options", "env", "environment"},
-    "cache": {"memoize", "store", "buffer", "redis", "lru"},
-    "guardian": {"policy", "governance", "check", "gate", "rule", "barrier", "contract"},
+    "cache": {"memoize", "store", "buffer", "redis", "lru", "storage"},
+    "guardian": {"policy", "governance", "check", "gate", "rule", "barrier", "contract", "pr", "threshold", "verdict"},
     "contract": {"policy", "boundary", "rule", "layer", "isolation"},
     "passport": {"manifest", "identity", "metadata", "profile"},
     "module": {"mod", "file", "component", "service", "package"},
     "mod": {"module", "file", "component", "service", "package"},
+    "ast": {"parser", "treesitter", "syntax", "tree"},
+    "parser": {"parsing", "treesitter", "ast", "grammar"},
+    "cycle": {"tarjan", "scc", "circular", "loop", "cycles"},
+    "cycles": {"tarjan", "scc", "circular", "loop", "cycle"},
+    "coupling": {"instability", "fan", "afferent", "efferent"},
+    "diff": {"delta", "comparison", "compare", "snapshot"},
+    "storage": {"workspace", "clone", "temp", "storage"},
+    "report": {"exporter", "html", "export", "view", "report"},
+    "graph": {"dependency", "matrix", "network", "visualizer"},
+    "cli": {"main", "command", "parser", "installer", "cli"},
+}
+
+GENERIC_STRUCTURAL_WORDS = {
+    "service", "handler", "manager", "client", "provider", "facade", "controller",
+    "helper", "util", "utils", "config", "component", "mod", "module", "file", "item",
+    "data", "schema", "rule", "view", "tab", "dialog", "panel", "modal"
 }
 
 
@@ -75,6 +91,7 @@ class SmartRetrievalEngine:
         self._files_by_id: dict[str, FileNode] = (
             {f.id: f for f in self.analysis.files} if self.analysis else {}
         )
+        self._content_cache: dict[str, str] = {}
 
     def search(
         self,
@@ -197,22 +214,22 @@ class SmartRetrievalEngine:
             s_name_lower = sym.name.lower()
             sym_tokens = set(_split_identifier_tokens(sym.name))
 
-            is_exact = s_name_lower == raw_q_low
+            is_exact = s_name_lower == raw_q_low or s_name_lower in query_tokens
             common_tokens = sym_tokens.intersection(expanded_terms)
             is_substr = any(t in s_name_lower for t in expanded_terms)
 
             if is_exact:
-                score += 35.0
+                score += 55.0
                 reasons.append(f"Exact symbol definition match: {sym.kind.value} '{sym.name}'")
                 matched_symbols.append(sym)
                 has_symbol_code_match = True
             elif common_tokens or is_substr:
                 match_cnt = max(len(common_tokens), 1)
-                bonus = match_cnt * 10.0
+                bonus = match_cnt * 12.0
                 if sym.kind.value in ("class", "interface"):
-                    bonus += 6.0
+                    bonus += 8.0
                 elif sym.kind.value in ("function", "method"):
-                    bonus += 5.0
+                    bonus += 6.0
                 score += bonus
                 matched_label = ", ".join(sorted(common_tokens)[:2]) if common_tokens else raw_query
                 reasons.append(f"Symbol {sym.kind.value} '{sym.name}' matched {matched_label}")
@@ -221,13 +238,17 @@ class SmartRetrievalEngine:
 
         # 4. Check for Misleading Comments / Docstrings vs Code
         is_comment_only = False
-        full_path = self.indexer.root_path / file_id
-        file_content = ""
-        if full_path.is_file():
-            try:
-                file_content = full_path.read_text(encoding="utf-8", errors="replace")
-            except Exception:
-                pass
+        file_content = self._content_cache.get(file_id)
+        if file_content is None:
+            full_path = self.indexer.root_path / file_id
+            if full_path.is_file():
+                try:
+                    file_content = full_path.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    file_content = ""
+            else:
+                file_content = ""
+            self._content_cache[file_id] = file_content
 
         if file_content:
             comments_text = " ".join(
@@ -257,6 +278,30 @@ class SmartRetrievalEngine:
         if node and node.support_level == LanguageSupportLevel.FULL_AST and score > 0 and not is_comment_only:
             score += 3.0
             reasons.append("Verified Tree-sitter AST coverage")
+
+        # 7. Demote test files unless query specifically asks for tests
+        is_test_file = (
+            "/tests/" in file_path_lower
+            or file_path_lower.startswith("tests/")
+            or file_path_lower.startswith("test_")
+            or file_name.startswith("test_")
+        )
+        query_wants_tests = any(t in ("test", "tests", "spec", "fixture") for t in query_tokens)
+        if is_test_file and not query_wants_tests and score > 0:
+            score *= 0.2
+            reasons.append("Notice: Test fixture demoted for implementation search")
+
+        # 8. Domain Keyword Safeguard (prevents false positives on negative queries)
+        domain_tokens = [t for t in query_tokens if t not in GENERIC_STRUCTURAL_WORDS and len(t) >= 3]
+        if domain_tokens:
+            has_domain_match = any(
+                dt in file_path_lower
+                or any(dt in s.name.lower() for s in symbols)
+                or any(syn in file_path_lower or any(syn in s.name.lower() for s in symbols) for syn in SYNONYM_MAP.get(dt, set()))
+                for dt in domain_tokens
+            )
+            if not has_domain_match:
+                return None
 
         if score <= 0:
             return None
