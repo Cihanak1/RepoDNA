@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
 import os
 import subprocess
@@ -27,8 +28,15 @@ def analyze_git_history(
     """
     git_dir = repo_root / ".git"
     if not git_dir.exists():
+        path_hash = hashlib.sha256(repo_root.as_posix().encode("utf-8")).hexdigest()[:12]
         return GitInsights(
             is_git_repo=False,
+            commit_sha=None,
+            is_dirty=False,
+            dirty_files_count=0,
+            verification_status="UNVERIFIED_NON_GIT",
+            snapshot_identity=f"directory:{path_hash}",
+            source_type="directory",
             note="Directory is not a Git repository (.git folder not present). Git churn metrics skipped.",
         )
 
@@ -68,6 +76,28 @@ def analyze_git_history(
     branch_out = run_git(["rev-parse", "--abbrev-ref", "HEAD"])
     default_branch = branch_out.strip() if branch_out else None
 
+    # Resolve immutable full 40-character commit SHA
+    head_sha_raw = run_git(["rev-parse", "HEAD"])
+    commit_sha: str | None = None
+    if head_sha_raw:
+        sha_cand = head_sha_raw.strip()
+        if len(sha_cand) == 40 and all(c in "0123456789abcdefABCDEF" for c in sha_cand):
+            commit_sha = sha_cand.lower()
+
+    # Detect dirty working tree status safely
+    status_raw = run_git(["status", "--porcelain"])
+    dirty_lines = [line for line in (status_raw or "").splitlines() if line.strip()]
+    is_dirty = len(dirty_lines) > 0
+    dirty_count = len(dirty_lines)
+
+    if commit_sha:
+        verification_status = "VERIFIED_DIRTY" if is_dirty else "VERIFIED_CLEAN"
+        snapshot_identity = f"git:{commit_sha}{'+dirty' if is_dirty else ''}"
+    else:
+        path_hash = hashlib.sha256(repo_root.as_posix().encode("utf-8")).hexdigest()[:12]
+        verification_status = "UNVERIFIED_NON_GIT"
+        snapshot_identity = f"directory:{path_hash}"
+
     # Use ASCII Unit Separator (%x1f) to avoid collisions with '|' in author names or commit subjects
     log_raw = run_git(
         [
@@ -83,6 +113,12 @@ def analyze_git_history(
         return GitInsights(
             is_git_repo=True,
             default_branch=default_branch,
+            commit_sha=commit_sha,
+            is_dirty=is_dirty,
+            dirty_files_count=dirty_count,
+            verification_status=verification_status,
+            snapshot_identity=snapshot_identity,
+            source_type="git",
             note="Git repository initialized, but no commit history found.",
         )
 
@@ -165,6 +201,12 @@ def analyze_git_history(
     return GitInsights(
         is_git_repo=True,
         default_branch=default_branch,
+        commit_sha=commit_sha,
+        is_dirty=is_dirty,
+        dirty_files_count=dirty_count,
+        verification_status=verification_status,
+        snapshot_identity=snapshot_identity,
+        source_type="git",
         total_commits_scanned=total_commits,
         unique_contributors=len(author_commit_counts),
         first_commit_date=first_date,

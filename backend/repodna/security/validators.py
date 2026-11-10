@@ -239,6 +239,157 @@ def is_safe_subpath(root_resolved: Path, target_path: Path) -> bool:
         return False
 
 
+DEFAULT_MAX_EVIDENCE_BYTES = 1_048_576  # 1 MB
+
+
+def validate_and_resolve_evidence_path(
+    root_path: Path,
+    relative_path: str,
+    max_file_bytes: int = DEFAULT_MAX_EVIDENCE_BYTES,
+) -> tuple[Path, str]:
+    """
+    Validates a repository-relative evidence file path against traversal, escaping,
+    Windows drive/UNC paths, symlinks, directories, and sensitive files.
+
+    Returns:
+        (resolved_target_path, canonical_posix_relative_path)
+    Raises:
+        SecurityValidationError on any boundary or safety violation.
+    """
+    if not isinstance(relative_path, str):
+        raise SecurityValidationError("INVALID_PATH_TYPE", "File path must be a string.")
+
+    if "\x00" in relative_path:
+        raise SecurityValidationError("NULL_BYTE_PATH", "Path contains illegal null byte.")
+
+    cleaned = relative_path.strip()
+    if not cleaned:
+        raise SecurityValidationError("EMPTY_PATH", "Evidence file path cannot be empty.")
+
+    # 1. Drive letter and UNC path checks
+    if cleaned.startswith(("//", "\\\\")):
+        raise SecurityValidationError("UNC_PATH_BLOCKED", "UNC paths are forbidden in relative file paths.")
+
+    drive, _ = os.path.splitdrive(cleaned)
+    if drive or re.match(r"^[a-zA-Z]:", cleaned):
+        raise SecurityValidationError("DRIVE_LETTER_BLOCKED", "Windows drive letters are forbidden in relative file paths.")
+
+    # 2. Absolute path checks
+    if cleaned.startswith(("/", "\\")) or Path(cleaned).is_absolute():
+        raise SecurityValidationError("ABSOLUTE_PATH_BLOCKED", "Absolute paths are forbidden; path must be repository-relative.")
+
+    # 3. Path traversal ('..' or '.') checks
+    raw_parts = cleaned.replace("\\", "/").split("/")
+    parts: list[str] = []
+    for p in raw_parts:
+        if not p or p == ".":
+            continue
+        if p == ".." or ".." in p:
+            raise SecurityValidationError("PATH_TRAVERSAL", "Directory traversal ('..') is strictly forbidden.")
+        parts.append(p)
+
+    if not parts:
+        raise SecurityValidationError("EMPTY_PATH", "Evidence file path cannot be empty.")
+
+    posix_rel = "/".join(parts)
+
+    # 4. Root directory containment
+    try:
+        root_resolved = root_path.resolve(strict=True)
+    except OSError as exc:
+        raise SecurityValidationError("INVALID_ROOT_PATH", f"Cannot resolve repository root: {exc}") from exc
+
+    if not root_resolved.is_dir():
+        raise SecurityValidationError("ROOT_NOT_A_DIR", f"Root path is not a directory: {root_path}")
+
+    candidate = root_resolved / posix_rel
+    candidate_resolved = candidate.resolve(strict=False)
+
+    try:
+        if not candidate_resolved.is_relative_to(root_resolved) or candidate_resolved == root_resolved:
+            raise SecurityValidationError("PATH_ESCAPE", "Target path escapes repository root boundary.")
+    except (ValueError, OSError) as exc:
+        raise SecurityValidationError("PATH_ESCAPE", "Target path escapes repository root boundary.") from exc
+
+    # 5. Symlink escape check
+    try:
+        if candidate.exists():
+            strict_candidate = candidate.resolve(strict=True)
+            if not strict_candidate.is_relative_to(root_resolved):
+                raise SecurityValidationError("SYMLINK_ESCAPE", "Symbolic link escapes repository root boundary.")
+    except SecurityValidationError:
+        raise
+    except OSError as exc:
+        raise SecurityValidationError("SYMLINK_ERROR", f"Error resolving target path: {exc}") from exc
+
+    # 6. Sensitive file & directory guard
+    rel_parts = [p.lower() for p in candidate_resolved.relative_to(root_resolved).parts]
+    if any(p in {".git", ".ssh", ".aws", ".gnupg"} for p in rel_parts):
+        raise SecurityValidationError("SENSITIVE_FILE_BLOCKED", "Access to sensitive system or credential paths is forbidden.")
+
+    file_name_lower = candidate.name.lower()
+    if file_name_lower in SENSITIVE_FILENAMES or file_name_lower.startswith(".env"):
+        raise SecurityValidationError("SENSITIVE_FILE_BLOCKED", "Access to sensitive configuration or secret file is forbidden.")
+
+    # 7. Directory check
+    if candidate.exists() and candidate.is_dir():
+        raise SecurityValidationError("NOT_A_FILE", "Target path is a directory, not a file.")
+
+    return candidate, posix_rel
+
+
+def safe_read_evidence_file(
+    root_path: Path,
+    relative_path: str,
+    max_file_bytes: int = DEFAULT_MAX_EVIDENCE_BYTES,
+) -> tuple[str, str, bool]:
+    """
+    Safely reads text content of a repository-relative evidence file within strict bounds.
+
+    Returns:
+        (text_content, canonical_posix_path, file_exists_flag)
+    Raises:
+        SecurityValidationError on path escaping, oversized files, or binary files.
+    """
+    target_path, posix_rel = validate_and_resolve_evidence_path(
+        root_path=root_path,
+        relative_path=relative_path,
+        max_file_bytes=max_file_bytes,
+    )
+
+    if not target_path.exists():
+        return "", posix_rel, False
+
+    try:
+        stat_res = target_path.stat()
+        if stat_res.st_size > max_file_bytes:
+            raise SecurityValidationError(
+                "FILE_TOO_LARGE",
+                f"File size ({stat_res.st_size} bytes) exceeds maximum limit ({max_file_bytes} bytes).",
+            )
+
+        with open(target_path, "rb") as f:
+            chunk = f.read(1024)
+            if b"\x00" in chunk:
+                raise SecurityValidationError("BINARY_FILE_BLOCKED", "Binary files cannot be read for evidence inspection.")
+            rest = f.read(max_file_bytes - len(chunk) + 1)
+            raw_data = chunk + rest
+
+        if len(raw_data) > max_file_bytes:
+            raise SecurityValidationError(
+                "FILE_TOO_LARGE",
+                f"File size exceeds maximum limit ({max_file_bytes} bytes).",
+            )
+
+        text_content = raw_data.decode("utf-8", errors="replace")
+        return text_content, posix_rel, True
+    except SecurityValidationError:
+        raise
+    except OSError as exc:
+        # Avoid leaking full OS filesystem path in exception message
+        raise SecurityValidationError("FILE_READ_ERROR", f"Cannot read evidence file '{posix_rel}': {type(exc).__name__}") from exc
+
+
 def scan_line_for_secrets(line: str, line_number: int) -> list[str]:
     """
     Inspect a single line of text for high-confidence credential patterns.

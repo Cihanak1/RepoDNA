@@ -148,6 +148,7 @@ class PassportEntrypoint(BaseModel):
     role: str = Field(description="Role classification: cli, api, main, worker, web, etc.")
     primary_symbol: str | None = None
     evidence_id: str | None = None
+    source: str = "ast_verified"
 
 
 class PassportModuleRole(BaseModel):
@@ -156,6 +157,8 @@ class PassportModuleRole(BaseModel):
     file_path: str
     role: str = Field(description="Role: core, api, brain, cli, guardian, contract, passport, storage, util, etc.")
     responsibility: str
+    source: str = "ast_verified"
+    evidence_id: str | None = None
 
 
 class PassportEvidenceSummary(BaseModel):
@@ -212,7 +215,7 @@ class RepositoryPassportV2(BaseModel):
     symbol_index_summary: PassportSymbolSummary | None = None
     architectural_entrypoints: list[PassportEntrypoint] = Field(default_factory=list)
     major_module_roles: list[PassportModuleRole] = Field(default_factory=list)
-    verified_reference_counts: int = 0
+    verified_reference_counts: int | None = None
     candidate_unresolved_counts: dict[str, int] = Field(default_factory=dict)
     evidence_ledger_summary: PassportEvidenceSummary | None = None
     retrieval_capabilities: PassportRetrievalCapabilities | None = None

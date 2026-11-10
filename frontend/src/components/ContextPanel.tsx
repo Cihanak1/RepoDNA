@@ -106,6 +106,7 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({ analysisId }) => {
             <div className="flex rounded-md p-1 bg-raised border border-line">
               <button
                 type="button"
+                data-testid="context-mode-compact-btn"
                 onClick={() => setMode('compact')}
                 className={`px-3 py-1 rounded text-xs font-medium transition cursor-pointer ${
                   mode === 'compact'
@@ -117,6 +118,7 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({ analysisId }) => {
               </button>
               <button
                 type="button"
+                data-testid="context-mode-focused-btn"
                 onClick={() => setMode('focused')}
                 className={`px-3 py-1 rounded text-xs font-medium transition cursor-pointer ${
                   mode === 'focused'
@@ -128,6 +130,7 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({ analysisId }) => {
               </button>
               <button
                 type="button"
+                data-testid="context-mode-deep-btn"
                 onClick={() => setMode('deep')}
                 className={`px-3 py-1 rounded text-xs font-medium transition cursor-pointer ${
                   mode === 'deep'
@@ -148,6 +151,7 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({ analysisId }) => {
               </label>
               <input
                 type="text"
+                data-testid="context-query-input"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={t(
@@ -168,6 +172,7 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({ analysisId }) => {
                   <button
                     key={preset}
                     type="button"
+                    data-testid={`preset-${preset}-btn`}
                     onClick={() => setMaxTokens(preset)}
                     className={`px-2 py-0.5 rounded font-mono text-[11px] transition cursor-pointer border ${
                       maxTokens === preset
@@ -194,6 +199,7 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({ analysisId }) => {
               <label className="flex items-center gap-1.5 text-xs text-ink cursor-pointer">
                 <input
                   type="checkbox"
+                  data-testid="minimal-contract-checkbox"
                   checked={minimalContract}
                   onChange={(e) => setMinimalContract(e.target.checked)}
                   className="rounded border-line text-accent cursor-pointer"
@@ -203,6 +209,7 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({ analysisId }) => {
 
               <button
                 type="submit"
+                data-testid="generate-context-btn"
                 onClick={(e) => {
                   e.preventDefault();
                   void handleGenerate();

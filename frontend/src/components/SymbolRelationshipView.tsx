@@ -131,6 +131,7 @@ export const SymbolRelationshipView: React.FC<SymbolRelationshipViewProps> = ({
               <Search className="w-4 h-4 text-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
+                data-testid="symbol-search-input"
                 value={searchName}
                 onChange={(e) => setSearchName(e.target.value)}
                 placeholder={t(
@@ -154,6 +155,7 @@ export const SymbolRelationshipView: React.FC<SymbolRelationshipViewProps> = ({
             </select>
             <button
               type="submit"
+              data-testid="symbol-search-submit-btn"
               disabled={isLoading || !searchName.trim()}
               className="px-4 py-2 bg-accent-solid text-white text-xs font-medium rounded-md hover:opacity-90 transition cursor-pointer flex items-center gap-1.5 shrink-0"
             >

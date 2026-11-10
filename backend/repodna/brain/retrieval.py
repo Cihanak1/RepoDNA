@@ -6,6 +6,7 @@ Provides local-first, deterministic, explainable code and architectural location
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from repodna.brain.indexer import SymbolIndexer
 from repodna.brain.models import (
@@ -123,10 +124,12 @@ class SmartRetrievalEngine:
         query: str,
         limit: int = 10,
         kind: str | None = None,
+        language: str | None = None,
         path_filter: str | None = None,
     ) -> SearchResponse:
         """
         Executes multi-factor deterministic ranking across filenames, symbols, and dependency graph.
+        Pre-filters candidate set by path, language, and symbol kind before ranking and limiting.
         """
         intent = _classify_query_intent(query)
         raw_tokens = _split_identifier_tokens(query)
@@ -173,19 +176,59 @@ class SmartRetrievalEngine:
         for fid in self.indexer._symbols_by_file.keys():
             all_file_ids.add(fid)
 
-        norm_filter = path_filter.replace("\\", "/").lstrip("/") if path_filter else None
+        norm_filter = path_filter.replace("\\", "/").strip("/") if path_filter else None
+        req_kind = kind.strip().lower() if kind else None
+        req_lang = language.strip().lower() if language else None
+
+        ext_to_lang = {
+            ".py": "python",
+            ".ts": "typescript",
+            ".tsx": "typescript (tsx)",
+            ".js": "javascript",
+            ".jsx": "javascript (jsx)",
+            ".rs": "rust",
+            ".go": "go",
+            ".java": "java",
+            ".rb": "ruby",
+            ".cpp": "c++",
+            ".c": "c",
+        }
 
         for file_id in sorted(all_file_ids):
-            if norm_filter and not (file_id == norm_filter or file_id.startswith(norm_filter) or file_id.endswith(norm_filter)):
-                continue
+            # 1. Path filter with strict collision avoidance
+            if norm_filter:
+                norm_fid = file_id.replace("\\", "/").strip("/")
+                is_match = (
+                    norm_fid == norm_filter
+                    or norm_fid.startswith(norm_filter + "/")
+                    or any(part == norm_filter for part in norm_fid.split("/"))
+                    or norm_fid.endswith("/" + norm_filter)
+                )
+                if not is_match:
+                    continue
 
             node = self._files_by_id.get(file_id)
+
+            # 2. Language filter
+            if req_lang:
+                file_lang = (node.language if node else "").lower()
+                if not file_lang:
+                    ext = Path(file_id).suffix.lower()
+                    file_lang = ext_to_lang.get(ext, "")
+                if not (req_lang in file_lang or file_lang in req_lang):
+                    continue
+
+            # 3. Symbol kind filter: files without matching symbols of that kind are excluded
             symbols = self.indexer.find_by_file(file_id)
-            if kind:
-                symbols = [s for s in symbols if s.kind.value == kind]
+            if req_kind:
+                symbols = [s for s in symbols if s.kind.value.lower() == req_kind]
+                if not symbols:
+                    continue
 
             res = self._score_file(file_id, node, symbols, all_literal, expanded_terms, query)
             if res is not None:
+                if req_kind and not res.matched_symbols and symbols:
+                    res.matched_symbols = symbols[:3]
                 candidates.append(res)
 
         # Graph proximity boost: Boost files connected to high-confidence seed files

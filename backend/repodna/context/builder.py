@@ -48,10 +48,11 @@ class AgentContextBuilder:
         max_chars: int | None = None,
         page: int = 0,
         page_size: int = 15,
-        revision: str = "HEAD",
+        revision: str | None = "HEAD",
         indexer: SymbolIndexer | None = None,
         minimal_contract: bool = False,
     ) -> AgentContextResponse:
+        resolved_revision = revision or (indexer.revision if indexer and indexer.revision else None) or "WORKING_TREE"
         service = RepositoryIntelligenceService(analysis)
         overview = service.get_repository_overview()
         cov = service.get_analysis_coverage()
@@ -103,7 +104,7 @@ class AgentContextBuilder:
             )
             return AgentContextResponse(
                 repository=analysis.repo_name,
-                revision=revision,
+                revision=resolved_revision,
                 generated_at=datetime.now(UTC),
                 analysis_version="0.5.0",
                 mode=mode,
@@ -285,7 +286,7 @@ class AgentContextBuilder:
         if char_budget or target_tokens:
             test_resp = AgentContextResponse(
                 repository=analysis.repo_name,
-                revision=revision,
+                revision=resolved_revision,
                 generated_at=datetime.now(UTC),
                 analysis_version="0.5.0",
                 mode=mode,
@@ -346,7 +347,7 @@ class AgentContextBuilder:
 
         final_resp = AgentContextResponse(
             repository=analysis.repo_name,
-            revision=revision,
+            revision=resolved_revision,
             generated_at=datetime.now(UTC),
             analysis_version="0.5.0",
             mode=mode,

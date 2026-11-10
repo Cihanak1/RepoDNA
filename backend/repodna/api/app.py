@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import os
+import subprocess
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -10,9 +13,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from repodna import __version__
@@ -22,6 +25,7 @@ from repodna.brain.models import (
     EvidenceReference,
     EvidenceType,
     SearchResponse,
+    StalenessReason,
     SymbolQueryResponse,
     SymbolTraceResult,
 )
@@ -56,8 +60,14 @@ from repodna.schemas.models import (
     ScanProgress,
     ScanRequest,
     ScanStatus,
+    SourceType,
 )
-from repodna.security.validators import SecurityValidationError, validate_local_directory
+from repodna.security.validators import (
+    SecurityValidationError,
+    safe_read_evidence_file,
+    validate_and_resolve_evidence_path,
+    validate_local_directory,
+)
 
 logger = logging.getLogger("repodna.api")
 
@@ -66,6 +76,15 @@ app = FastAPI(
     description="Developer Repository Intelligence Platform — Static AST Dependency Graph & Explainable Architecture Health API.",
     version=__version__,
 )
+
+
+@app.exception_handler(SecurityValidationError)
+def security_validation_error_handler(request: Request, exc: SecurityValidationError) -> JSONResponse:
+    return JSONResponse(
+        status_code=400,
+        content={"code": exc.code, "message": exc.message},
+    )
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -83,6 +102,7 @@ _CANCEL_FLAGS: dict[str, threading.Event] = {}
 _JOB_RESULTS: dict[str, AnalysisResult] = {}
 _RESULTS_BY_ID: dict[str, AnalysisResult] = {}
 _INDEXERS_BY_ID: dict[str, SymbolIndexer] = {}
+_INDEXER_CACHE: dict[str, tuple[SymbolIndexer, str]] = {}
 _MAX_STORED_RESULTS = 25
 
 
@@ -92,6 +112,7 @@ def _store_result(result: AnalysisResult, job_id: str | None = None) -> None:
             oldest_key = next(iter(_RESULTS_BY_ID))
             _RESULTS_BY_ID.pop(oldest_key, None)
             _INDEXERS_BY_ID.pop(oldest_key, None)
+            _INDEXER_CACHE.pop(oldest_key, None)
         _RESULTS_BY_ID[result.analysis_id] = result
         if job_id:
             _JOB_RESULTS[job_id] = result
@@ -108,6 +129,7 @@ def _complete_job_atomically(job_id: str, result: AnalysisResult) -> None:
             oldest_key = next(iter(_RESULTS_BY_ID))
             _RESULTS_BY_ID.pop(oldest_key, None)
             _INDEXERS_BY_ID.pop(oldest_key, None)
+            _INDEXER_CACHE.pop(oldest_key, None)
         _RESULTS_BY_ID[result.analysis_id] = result
         _JOB_RESULTS[job_id] = result
         curr = _JOBS.get(job_id)
@@ -125,7 +147,7 @@ def _complete_job_atomically(job_id: str, result: AnalysisResult) -> None:
 
 
 def _get_or_create_indexer_for_analysis(analysis_id: str) -> tuple[SymbolIndexer, AnalysisResult]:
-    """Retrieves or builds the SymbolIndexer for an existing AnalysisResult."""
+    """Retrieves or builds the SymbolIndexer for an existing AnalysisResult with cache integrity and revision provenance."""
     with _LOCK:
         res = _RESULTS_BY_ID.get(analysis_id)
     if not res:
@@ -134,18 +156,94 @@ def _get_or_create_indexer_for_analysis(analysis_id: str) -> tuple[SymbolIndexer
             detail={"code": "ANALYSIS_NOT_FOUND", "message": f"Analysis '{analysis_id}' not found."},
         )
 
-    with _LOCK:
-        if analysis_id in _INDEXERS_BY_ID:
-            return _INDEXERS_BY_ID[analysis_id], res
+    is_demo = (
+        getattr(res, "is_demo", False)
+        or res.source_type == SourceType.DEMO
+        or res.target_display in ("RepoDNA-Demo", "demo")
+        or analysis_id.startswith("demo-")
+    )
 
-    target_path = Path(res.target_display)
-    root = target_path if (target_path.exists() and target_path.is_dir()) else Path(".")
-    git_rev = res.git_insights.default_branch or "HEAD"
-    indexer = SymbolIndexer(root_path=root, revision=git_rev, analysis=res)
+    if is_demo:
+        root = Path(".")
+        snapshot_id = res.git_insights.snapshot_identity or "demo:v0.5.0"
+        res.git_insights.verification_status = "SYNTHETIC_DEMO"
+        res.git_insights.snapshot_identity = snapshot_id
+    else:
+        target_path = Path(res.target_display)
+        if not target_path.exists() or not target_path.is_dir():
+            raise HTTPException(
+                status_code=410,
+                detail={
+                    "code": "ANALYSIS_SOURCE_UNAVAILABLE",
+                    "message": f"Source directory '{res.target_display}' is no longer available on disk.",
+                },
+            )
+        root = target_path.resolve()
+
+        # Check git provenance if git repo
+        if (root / ".git").exists() or res.git_insights.is_git_repo:
+            env = os.environ.copy()
+            env["GIT_TERMINAL_PROMPT"] = "0"
+            env["GIT_OPTIONAL_LOCKS"] = "0"
+
+            def _git_cmd(args: list[str]) -> str | None:
+                try:
+                    proc = subprocess.run(
+                        ["git", "--no-optional-locks", "-c", "core.quotepath=false", "-C", str(root), *args],
+                        stdin=subprocess.DEVNULL,
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        env=env,
+                        timeout=5.0,
+                        check=False,
+                    )
+                    return proc.stdout.strip() if proc.returncode == 0 else None
+                except Exception:
+                    return None
+
+            curr_sha = _git_cmd(["rev-parse", "HEAD"])
+            if curr_sha and len(curr_sha) == 40 and all(c in "0123456789abcdefABCDEF" for c in curr_sha):
+                res.git_insights.commit_sha = curr_sha.lower()
+
+            status_raw = _git_cmd(["status", "--porcelain"])
+            dirty_lines = [line for line in (status_raw or "").splitlines() if line.strip()]
+            res.git_insights.is_dirty = len(dirty_lines) > 0
+            res.git_insights.dirty_files_count = len(dirty_lines)
+
+            if res.git_insights.commit_sha:
+                res.git_insights.verification_status = "VERIFIED_DIRTY" if res.git_insights.is_dirty else "VERIFIED_CLEAN"
+                snapshot_id = f"git:{res.git_insights.commit_sha}{'+dirty' if res.git_insights.is_dirty else ''}"
+            else:
+                res.git_insights.verification_status = "UNVERIFIED_NON_GIT"
+                snapshot_id = f"directory:{hashlib.sha256(root.as_posix().encode('utf-8')).hexdigest()[:12]}"
+        else:
+            res.git_insights.commit_sha = None
+            res.git_insights.is_dirty = False
+            res.git_insights.dirty_files_count = 0
+            res.git_insights.verification_status = "UNVERIFIED_NON_GIT"
+            snapshot_id = f"directory:{hashlib.sha256(root.as_posix().encode('utf-8')).hexdigest()[:12]}"
+
+        res.git_insights.snapshot_identity = snapshot_id
+
+    # Check cache freshness
+    with _LOCK:
+        cached = _INDEXER_CACHE.get(analysis_id)
+        if cached is not None:
+            cached_indexer, cached_snapshot = cached
+            if cached_snapshot == snapshot_id:
+                return cached_indexer, res
+            # Working tree / commit changed: invalidate stale cache
+            _INDEXER_CACHE.pop(analysis_id, None)
+            _INDEXERS_BY_ID.pop(analysis_id, None)
+
+    indexer = SymbolIndexer(root_path=root, revision=snapshot_id, analysis=res)
     indexer.index_all()
 
     with _LOCK:
         _INDEXERS_BY_ID[analysis_id] = indexer
+        _INDEXER_CACHE[analysis_id] = (indexer, snapshot_id)
 
     return indexer, res
 
@@ -601,27 +699,13 @@ def search_repository_brain(analysis_id: str, request: BrainSearchRequest) -> Se
     """Performs deterministic, explainable code and architectural location discovery."""
     indexer, analysis = _get_or_create_indexer_for_analysis(analysis_id)
     engine = SmartRetrievalEngine(indexer=indexer, analysis=analysis)
-    resp = engine.search(query=request.query, limit=request.limit)
-
-    # Optional path filter
-    if request.path_filter:
-        pf_low = request.path_filter.lower()
-        resp.matches = [m for m in resp.matches if pf_low in m.file_id.lower()]
-        resp.total_matches = len(resp.matches)
-
-    # Optional language filter
-    if request.language:
-        lang_low = request.language.lower()
-        resp.matches = [m for m in resp.matches if m.language.lower() == lang_low]
-        resp.total_matches = len(resp.matches)
-
-    # Optional symbol kind filter
-    if request.kind:
-        k_low = request.kind.lower()
-        for m in resp.matches:
-            m.matched_symbols = [s for s in m.matched_symbols if s.kind.value.lower() == k_low]
-
-    return resp
+    return engine.search(
+        query=request.query,
+        limit=request.limit,
+        kind=request.kind,
+        language=request.language,
+        path_filter=request.path_filter,
+    )
 
 
 @app.get("/api/analyses/{analysis_id}/brain/symbols", response_model=SymbolQueryResponse)
@@ -690,13 +774,13 @@ def get_evidence_ledger(
                 summary_text=f"Evidence citation '{evidence_id}' not found.",
             )
         if check_staleness:
-            full_path = indexer.root_path / ev.file_path
-            if full_path.is_file():
-                try:
-                    content = full_path.read_text(encoding="utf-8", errors="replace")
-                    ledger.check_staleness(ev.file_path, current_content=content, current_revision=indexer.revision)
-                except Exception:
-                    pass
+            try:
+                content, _, file_exists = safe_read_evidence_file(indexer.root_path, ev.file_path)
+                ledger.check_staleness(ev.file_path, current_content=content if file_exists else "", current_revision=indexer.revision)
+            except SecurityValidationError:
+                ev.is_stale = True
+                ev.staleness_reason = StalenessReason.FILE_DELETED
+                ev.staleness_details = "Evidence file path cannot be safely accessed or verified."
         return EvidenceLedgerResponse(
             total_evidence=1,
             stale_count=1 if ev.is_stale else 0,
@@ -705,23 +789,17 @@ def get_evidence_ledger(
         )
 
     if file_path:
-        evs = ledger.find_by_file(file_path)
+        _, posix_rel = validate_and_resolve_evidence_path(indexer.root_path, file_path)
+        evs = ledger.find_by_file(posix_rel)
         if check_staleness:
-            full_path = indexer.root_path / file_path
-            if full_path.is_file():
-                try:
-                    content = full_path.read_text(encoding="utf-8", errors="replace")
-                    evs = ledger.check_staleness(file_path, current_content=content, current_revision=indexer.revision)
-                except Exception:
-                    pass
-            elif not full_path.exists():
-                evs = ledger.check_staleness(file_path, current_content="", current_revision=indexer.revision)
+            content, _, file_exists = safe_read_evidence_file(indexer.root_path, posix_rel)
+            evs = ledger.check_staleness(posix_rel, current_content=content if file_exists else "", current_revision=indexer.revision)
         stale_c = sum(1 for e in evs if e.is_stale)
         return EvidenceLedgerResponse(
             total_evidence=len(evs),
             stale_count=stale_c,
             evidence_items=evs[:limit],
-            summary_text=f"Found {len(evs)} evidence citation(s) for file '{file_path}'.",
+            summary_text=f"Found {len(evs)} evidence citation(s) for file '{posix_rel}'.",
         )
 
     if symbol_name:
@@ -766,15 +844,13 @@ def get_single_evidence(
             detail={"code": "EVIDENCE_NOT_FOUND", "message": f"Evidence citation '{evidence_id}' not found."},
         )
     if check_staleness:
-        full_path = indexer.root_path / ev.file_path
-        if full_path.is_file():
-            try:
-                content = full_path.read_text(encoding="utf-8", errors="replace")
-                indexer.ledger.check_staleness(ev.file_path, current_content=content, current_revision=indexer.revision)
-            except Exception:
-                pass
-        elif not full_path.exists():
-            indexer.ledger.check_staleness(ev.file_path, current_content="", current_revision=indexer.revision)
+        try:
+            content, _, file_exists = safe_read_evidence_file(indexer.root_path, ev.file_path)
+            indexer.ledger.check_staleness(ev.file_path, current_content=content if file_exists else "", current_revision=indexer.revision)
+        except SecurityValidationError:
+            ev.is_stale = True
+            ev.staleness_reason = StalenessReason.FILE_DELETED
+            ev.staleness_details = "Evidence file path cannot be safely accessed or verified."
     return ev
 
 
@@ -791,6 +867,7 @@ def build_agent_context(analysis_id: str, request: BrainContextRequest) -> Agent
         max_chars=request.max_chars,
         page=request.page,
         page_size=request.page_size,
+        revision=indexer.revision,
         indexer=indexer,
         minimal_contract=request.minimal_contract,
     )
@@ -815,7 +892,7 @@ def get_analysis_passport_v2(
 
     return generate_repository_passport_v2(
         analysis=res,
-        git_revision=res.git_insights.default_branch or "HEAD",
+        git_revision=indexer.revision,
         contract=contract,
         max_modules=max_modules,
         indexer=indexer,

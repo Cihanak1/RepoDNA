@@ -158,6 +158,7 @@ export const EvidenceInspectorView: React.FC<EvidenceInspectorViewProps> = ({
 
             <button
               type="button"
+              data-testid="verify-staleness-btn"
               onClick={() => void loadLedger()}
               className="px-3 py-1.5 rounded-md bg-raised border border-line hover:border-accent text-xs font-medium text-ink cursor-pointer flex items-center gap-1.5 transition"
             >
@@ -239,6 +240,7 @@ export const EvidenceInspectorView: React.FC<EvidenceInspectorViewProps> = ({
             <button
               key={ev.evidence_id}
               type="button"
+              data-testid="evidence-item-btn"
               onClick={() => setSelectedEvidence(ev)}
               className={`w-full p-3 rounded-lg border text-left transition cursor-pointer flex flex-col gap-1.5 ${
                 selectedEvidence?.evidence_id === ev.evidence_id

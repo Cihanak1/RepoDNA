@@ -317,6 +317,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
           <nav aria-label="Workspace views" className="flex items-center bg-panel p-0.5 rounded-lg border border-line">
             <button
               type="button"
+              data-testid="tab-studio-btn"
               onClick={() => onTabChange('studio')}
               aria-pressed={activeTab === 'studio'}
               className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
@@ -330,6 +331,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             </button>
             <button
               type="button"
+              data-testid="tab-intelligence-btn"
               onClick={() => onTabChange('intelligence')}
               aria-pressed={activeTab === 'intelligence'}
               className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
@@ -344,6 +346,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 
             <button
               type="button"
+              data-testid="tab-report-btn"
               onClick={() => onTabChange('report')}
               aria-pressed={activeTab === 'report'}
               className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
@@ -357,6 +360,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             </button>
             <button
               type="button"
+              data-testid="tab-guardian-btn"
               onClick={() => onTabChange('guardian')}
               aria-pressed={activeTab === 'guardian'}
               className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
@@ -370,6 +374,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             </button>
             <button
               type="button"
+              data-testid="tab-contract-btn"
               onClick={() => onTabChange('contract')}
               aria-pressed={activeTab === 'contract'}
               className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
@@ -383,6 +388,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             </button>
             <button
               type="button"
+              data-testid="tab-passport-btn"
               onClick={() => onTabChange('passport')}
               aria-pressed={activeTab === 'passport'}
               className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${

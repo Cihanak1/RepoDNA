@@ -47,6 +47,7 @@ export const IntelligenceWorkstation: React.FC<IntelligenceWorkstationProps> = (
         <div className="flex items-center gap-1.5 overflow-x-auto">
           <button
             type="button"
+            data-testid="subtab-search-btn"
             onClick={() => setActiveSubTab('search')}
             className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
               activeSubTab === 'search'
@@ -60,6 +61,7 @@ export const IntelligenceWorkstation: React.FC<IntelligenceWorkstationProps> = (
 
           <button
             type="button"
+            data-testid="subtab-symbols-btn"
             onClick={() => setActiveSubTab('symbols')}
             className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
               activeSubTab === 'symbols'
@@ -73,6 +75,7 @@ export const IntelligenceWorkstation: React.FC<IntelligenceWorkstationProps> = (
 
           <button
             type="button"
+            data-testid="subtab-evidence-btn"
             onClick={() => setActiveSubTab('evidence')}
             className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
               activeSubTab === 'evidence'
@@ -86,6 +89,7 @@ export const IntelligenceWorkstation: React.FC<IntelligenceWorkstationProps> = (
 
           <button
             type="button"
+            data-testid="subtab-context-btn"
             onClick={() => setActiveSubTab('context')}
             className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
               activeSubTab === 'context'

@@ -863,6 +863,12 @@ def build_labeled_demo_analysis() -> AnalysisResult:
     git_insights = GitInsights(
         is_git_repo=True,
         default_branch="main",
+        commit_sha="a84f29c0123456789abcdef0123456789abcdef0",
+        is_dirty=False,
+        dirty_files_count=0,
+        verification_status="SYNTHETIC_DEMO",
+        snapshot_identity="demo:v0.5.0",
+        source_type="demo",
         total_commits_scanned=42,
         unique_contributors=3,
         first_commit_date="2026-09-12",

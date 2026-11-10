@@ -142,6 +142,7 @@ export const PassportViewer: React.FC<PassportViewerProps> = ({
           <div className="flex rounded-md p-0.5 bg-raised border border-line text-xs">
             <button
               type="button"
+              data-testid="passport-v1-btn"
               onClick={() => setSelectedVersion('1.0')}
               className={`px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition ${
                 selectedVersion === '1.0'
@@ -153,6 +154,7 @@ export const PassportViewer: React.FC<PassportViewerProps> = ({
             </button>
             <button
               type="button"
+              data-testid="passport-v2-btn"
               onClick={() => setSelectedVersion('2.0')}
               className={`px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition ${
                 selectedVersion === '2.0'
@@ -167,6 +169,7 @@ export const PassportViewer: React.FC<PassportViewerProps> = ({
           {!isV2 && (
             <button
               type="button"
+              data-testid="passport-migrate-btn"
               onClick={handleMigrate}
               disabled={isMigrating || !passport}
               className="px-3 py-1.5 rounded-lg bg-raised hover:bg-panel border border-accent/40 text-xs font-medium text-accent flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"

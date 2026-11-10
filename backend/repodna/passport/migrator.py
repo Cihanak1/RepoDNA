@@ -41,6 +41,7 @@ def migrate_v1_to_v2(passport_v1: RepositoryPassport | dict[str, Any]) -> Reposi
                     role=role,
                     primary_symbol=None,
                     evidence_id=None,
+                    source="heuristic_migration",
                 )
             )
             if len(entrypoints) >= 10:
@@ -54,6 +55,8 @@ def migrate_v1_to_v2(passport_v1: RepositoryPassport | dict[str, Any]) -> Reposi
                 file_path=h.file_id,
                 role="hub",
                 responsibility=f"Architectural hub module with high fan-in ({h.fan_in})",
+                source="heuristic_migration",
+                evidence_id=None,
             )
         )
     for m in p1.module_inventory:
@@ -87,6 +90,8 @@ def migrate_v1_to_v2(passport_v1: RepositoryPassport | dict[str, Any]) -> Reposi
                     file_path=m.id,
                     role=role_type,
                     responsibility=resp,
+                    source="heuristic_migration",
+                    evidence_id=None,
                 )
             )
             if len(roles) >= 12:
@@ -125,8 +130,8 @@ def migrate_v1_to_v2(passport_v1: RepositoryPassport | dict[str, Any]) -> Reposi
         symbol_index_summary=None,
         architectural_entrypoints=entrypoints,
         major_module_roles=roles,
-        verified_reference_counts=0,
-        candidate_unresolved_counts={"candidate": 0, "unresolved": 0},
+        verified_reference_counts=None,
+        candidate_unresolved_counts={},
         evidence_ledger_summary=None,
         retrieval_capabilities=retrieval_caps,
         analysis_limitations=list(p1.unknown_unverified),

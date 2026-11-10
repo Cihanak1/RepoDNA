@@ -56,14 +56,33 @@ def check_passport_privacy(passport: RepositoryPassport | RepositoryPassportV2) 
             if pattern.search(ev):
                 violations.append(f"Private host path in evidence_references: '{ev}'")
 
-    # 4. v2 additions (entrypoints, module roles)
+    # 4. v2 additions (entrypoints, module roles, limitations, source revision)
     if isinstance(passport, RepositoryPassportV2):
+        if passport.source_revision:
+            for pattern in PRIVACY_LEAK_PATTERNS:
+                if pattern.search(passport.source_revision):
+                    violations.append(f"Private host path or secret in source_revision: '{passport.source_revision}'")
+            if passport.source_revision.startswith("/") or (len(passport.source_revision) >= 2 and passport.source_revision[1] == ":"):
+                violations.append(f"Absolute host path in source_revision: '{passport.source_revision}'")
+
+        for lim in passport.analysis_limitations:
+            for pattern in PRIVACY_LEAK_PATTERNS:
+                if pattern.search(lim):
+                    violations.append(f"Private host path or secret in analysis_limitations: '{lim}'")
+
         for ep in passport.architectural_entrypoints:
             if ep.file_path.startswith("/") or (len(ep.file_path) >= 2 and ep.file_path[1] == ":"):
                 violations.append(f"Absolute host path in architectural_entrypoints: '{ep.file_path}'")
+            for pattern in PRIVACY_LEAK_PATTERNS:
+                if pattern.search(ep.role):
+                    violations.append(f"Private secret or host path in entrypoint role: '{ep.role}'")
+
         for mr in passport.major_module_roles:
             if mr.file_path.startswith("/") or (len(mr.file_path) >= 2 and mr.file_path[1] == ":"):
                 violations.append(f"Absolute host path in major_module_roles: '{mr.file_path}'")
+            for pattern in PRIVACY_LEAK_PATTERNS:
+                if pattern.search(mr.responsibility):
+                    violations.append(f"Private secret or host path in module responsibility: '{mr.responsibility}'")
 
     return violations
 

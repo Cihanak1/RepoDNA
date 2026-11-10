@@ -37,7 +37,12 @@ from repodna.passport.generator import (
 )
 from repodna.passport.models import RepositoryPassport, RepositoryPassportV2
 from repodna.schemas.models import AnalysisResult, ScanLimits, ScanRequest, SourceType
-from repodna.security.validators import SecurityValidationError, validate_local_directory
+from repodna.security.validators import (
+    SecurityValidationError,
+    safe_read_evidence_file,
+    validate_and_resolve_evidence_path,
+    validate_local_directory,
+)
 
 try:
     from mcp.server.mcpserver import MCPServer
@@ -596,28 +601,25 @@ class RepoDNAMCPServer:
             if not ev:
                 return json.dumps({"error": f"Evidence '{evidence_id}' not found."})
             if check_staleness and isinstance(resolved, Path):
-                fpath = resolved / ev.file_path
-                if fpath.is_file():
-                    try:
-                        content = fpath.read_text(encoding="utf-8", errors="replace")
-                        ledger.check_staleness(ev.file_path, current_content=content, current_revision=indexer.revision)
-                    except Exception:
-                        pass
-                elif not fpath.exists():
-                    ledger.check_staleness(ev.file_path, current_content="", current_revision=indexer.revision)
+                try:
+                    content, _, file_exists = safe_read_evidence_file(resolved, ev.file_path)
+                    ledger.check_staleness(ev.file_path, current_content=content if file_exists else "", current_revision=indexer.revision)
+                except SecurityValidationError:
+                    pass
             return ev.model_dump_json(indent=2)
         if file_path:
-            evs = ledger.find_by_file(file_path)
+            try:
+                root_target = resolved if isinstance(resolved, Path) else Path(".")
+                _, posix_rel = validate_and_resolve_evidence_path(root_target, file_path)
+            except SecurityValidationError as exc:
+                return json.dumps({"error": f"Invalid evidence file path: {exc.message}"})
+            evs = ledger.find_by_file(posix_rel)
             if check_staleness and isinstance(resolved, Path):
-                fpath = resolved / file_path
-                if fpath.is_file():
-                    try:
-                        content = fpath.read_text(encoding="utf-8", errors="replace")
-                        evs = ledger.check_staleness(file_path, current_content=content, current_revision=indexer.revision)
-                    except Exception:
-                        pass
-                elif not fpath.exists():
-                    evs = ledger.check_staleness(file_path, current_content="", current_revision=indexer.revision)
+                try:
+                    content, _, file_exists = safe_read_evidence_file(resolved, posix_rel)
+                    evs = ledger.check_staleness(posix_rel, current_content=content if file_exists else "", current_revision=indexer.revision)
+                except SecurityValidationError:
+                    pass
             return json.dumps([e.model_dump() for e in evs[:limit]], indent=2)
         if symbol_name:
             evs = ledger.find_by_symbol(symbol_name)

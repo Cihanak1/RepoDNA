@@ -89,6 +89,7 @@ export const CodeExplorerView: React.FC<CodeExplorerViewProps> = ({
               <Search className="w-4 h-4 text-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
+                data-testid="smart-search-input"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={t(
@@ -100,6 +101,7 @@ export const CodeExplorerView: React.FC<CodeExplorerViewProps> = ({
             </div>
             <button
               type="submit"
+              data-testid="smart-search-submit-btn"
               disabled={isLoading || !query.trim()}
               className="px-4 py-2 bg-accent-solid text-white text-xs font-medium rounded-md hover:opacity-90 transition cursor-pointer flex items-center gap-1.5 shrink-0"
             >
@@ -287,6 +289,7 @@ export const CodeExplorerView: React.FC<CodeExplorerViewProps> = ({
                       <button
                         key={sym.id}
                         type="button"
+                        data-testid="trace-symbol-btn"
                         onClick={() => onSelectSymbolForTrace?.(sym.id)}
                         className="px-2 py-1 rounded-md text-[11px] font-mono bg-raised border border-line hover:border-accent text-ink hover:text-accent cursor-pointer flex items-center gap-1 transition"
                         title={t('intelligence.clickToTrace', 'Click to trace callers and blast radius')}

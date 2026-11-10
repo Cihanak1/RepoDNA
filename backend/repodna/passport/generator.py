@@ -274,11 +274,12 @@ def generate_repository_passport_v2(
 
     # 1. Symbol index summary
     symbol_summary: PassportSymbolSummary | None = None
-    verified_refs_count = 0
-    candidate_unresolved: dict[str, int] = {"candidate": 0, "unresolved": 0}
+    verified_refs_count: int | None = None
+    candidate_unresolved: dict[str, int] = {}
     evidence_summary: PassportEvidenceSummary | None = None
 
     if indexer is not None and hasattr(indexer, "_symbols_by_id"):
+        verified_refs_count = 0
         symbols = list(indexer._symbols_by_id.values())
         lang_counts: dict[str, int] = defaultdict(int)
         kind_counts: dict[str, int] = defaultdict(int)
@@ -343,6 +344,7 @@ def generate_repository_passport_v2(
                     role=role,
                     primary_symbol=primary_sym,
                     evidence_id=ev_id,
+                    source="ast_verified",
                 )
             )
             if len(entrypoints) >= 12:
@@ -385,6 +387,8 @@ def generate_repository_passport_v2(
                     file_path=f.id,
                     role=role_type,
                     responsibility=resp,
+                    source="ast_verified",
+                    evidence_id=None,
                 )
             )
             if len(roles) >= 15:
