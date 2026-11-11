@@ -145,7 +145,8 @@ def test_mcp_server_protocol_and_tools() -> None:
     assert "repodna_history_diff" in tool_names
     assert "repodna_history_timeline" in tool_names
     assert "repodna_history_evidence" in tool_names
-    assert len(tools) == 22
+    assert "repodna_refactoring_advisor" in tool_names
+    assert len(tools) == 23
 
     # 4. Tool calls
     r1 = server.call_tool("repodna_repository_overview", {"target": "demo"})
@@ -248,7 +249,8 @@ async def test_official_mcp_sdk_client_integration() -> None:
             assert "repodna_history_diff" in tool_names
             assert "repodna_history_timeline" in tool_names
             assert "repodna_history_evidence" in tool_names
-            assert len(tool_names) == 22
+            assert "repodna_refactoring_advisor" in tool_names
+            assert len(tool_names) == 23
 
             # Call repodna_repository_overview
             res1 = await session.call_tool("repodna_repository_overview", {"target": "demo"})

@@ -8,6 +8,11 @@ import sys
 from pathlib import Path
 
 from repodna import __version__
+from repodna.advisor import (
+    AdvisorCategory,
+    RefactoringAdvisorEngine,
+    RefactoringAdvisorReport,
+)
 from repodna.benchmarks.engine import BenchmarkEngine
 from repodna.brain.indexer import SymbolIndexer
 from repodna.brain.models import (
@@ -284,6 +289,69 @@ def _format_summary_table(result: AnalysisResult) -> str:
             lines.append(f"  - {ur}")
 
     lines.append("=" * 76)
+    return "\n".join(lines)
+
+
+def _format_advisor_table(report: RefactoringAdvisorReport) -> str:
+    lines = [
+        "=" * 78,
+        f"RepoDNA Architecture Refactoring Advisor — {report.repo_name}",
+        "=" * 78,
+        f"Evaluated Modules    : {report.total_modules_analyzed}",
+        f"Recommendations      : {report.total_recommendations}",
+        f"Critical Cycles      : {report.critical_cycles_detected}",
+        f"High Coupling Targets: {report.high_coupling_modules}",
+        f"Layer Violations     : {report.layer_boundary_violations}",
+        f"Oversized Hubs       : {report.oversized_hubs}",
+        "-" * 78,
+    ]
+    if not report.recommendations:
+        lines.append("No actionable architectural refactoring recommendations found.")
+        lines.append("Architecture health meets all configured thresholds.")
+    for idx, rec in enumerate(report.recommendations, 1):
+        lines.append(f"{idx}. [{rec.severity.upper()}] {rec.title}")
+        lines.append(f"   Category : {rec.category.value}")
+        lines.append(f"   Target(s): {', '.join(rec.target_modules)}")
+        lines.append(f"   Impact   : {rec.impact_description}")
+        lines.append("   Action Steps:")
+        for step in rec.action_steps:
+            lines.append(f"     * {step}")
+        lines.append(f"   Benefit  : {rec.expected_benefit}")
+        lines.append("-" * 78)
+    lines.append(report.summary)
+    lines.append("=" * 78)
+    return "\n".join(lines)
+
+
+def _format_advisor_markdown(report: RefactoringAdvisorReport) -> str:
+    lines = [
+        f"# RepoDNA Refactoring Advisor — {report.repo_name}",
+        "",
+        f"- **Analyzed Modules**: {report.total_modules_analyzed}",
+        f"- **Total Recommendations**: {report.total_recommendations}",
+        f"- **Critical Cycles**: {report.critical_cycles_detected}",
+        f"- **High Coupling Modules**: {report.high_coupling_modules}",
+        f"- **Layer Violations**: {report.layer_boundary_violations}",
+        f"- **Oversized Hubs**: {report.oversized_hubs}",
+        "",
+        "## Recommendations",
+        "",
+    ]
+    if not report.recommendations:
+        lines.append("No actionable refactoring recommendations detected. Architecture is clean.")
+    for rec in report.recommendations:
+        lines.append(f"### [{rec.severity.upper()}] {rec.title}")
+        lines.append(f"- **Category**: `{rec.category.value}`")
+        lines.append(f"- **Target(s)**: `{', '.join(rec.target_modules)}`")
+        lines.append(f"- **Impact**: {rec.impact_description}")
+        lines.append("- **Action Steps**:")
+        for step in rec.action_steps:
+            lines.append(f"  - {step}")
+        lines.append(f"- **Expected Benefit**: {rec.expected_benefit}")
+        lines.append("")
+    lines.append("## Executive Summary")
+    lines.append("")
+    lines.append(report.summary)
     return "\n".join(lines)
 
 
@@ -716,6 +784,65 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     hist_time_p.add_argument(
         "--output", "-o", type=str, default=None, help="Optional output file path."
+    )
+
+    # advisor
+    advisor_p = sub.add_parser(
+        "advisor",
+        help="Generate deterministic, evidence-grounded architectural refactoring recommendations.",
+    )
+    advisor_p.add_argument(
+        "target",
+        nargs="?",
+        default=".",
+        help="Repository directory or remote URL (default: current directory).",
+    )
+    advisor_p.add_argument(
+        "--category",
+        choices=[c.value for c in AdvisorCategory],
+        default=None,
+        help="Filter by specific refactoring category.",
+    )
+    advisor_p.add_argument(
+        "--min-severity",
+        choices=["low", "medium", "high", "critical"],
+        default=None,
+        help="Filter by minimum severity level.",
+    )
+    advisor_p.add_argument(
+        "--format",
+        choices=["table", "json", "markdown"],
+        default="table",
+        help="Output format (default: table).",
+    )
+    advisor_p.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="Output file path (prints to stdout if omitted).",
+    )
+
+    # start
+    start_p = sub.add_parser(
+        "start",
+        help="Launch the RepoDNA local intelligence server and workstation.",
+    )
+    start_p.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Server host bind address (default: 127.0.0.1).",
+    )
+    start_p.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Server port number (default: 8000).",
+    )
+    start_p.add_argument(
+        "--open-browser",
+        action="store_true",
+        default=False,
+        help="Automatically open default browser to the Workstation UI.",
     )
 
     return parser
@@ -1322,6 +1449,81 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(output_text)
             return 0
+
+    if args.command == "advisor":
+        source_type = _detect_source_type(args.target)
+        try:
+            req = ScanRequest(
+                source_type=source_type,
+                target=args.target,
+            )
+            analysis = run_repository_analysis(req)
+        except SecurityValidationError as exc:
+            print(f"[SECURITY ERROR] ({exc.code}): {exc.message}", file=sys.stderr)
+            return 2
+        except Exception as exc:
+            print(f"[ERROR] Repository analysis for advisor failed: {exc}", file=sys.stderr)
+            return 1
+
+        contract_opt: ArchitectureContract | None = None
+        target_path = Path(args.target)
+        if target_path.exists() and target_path.is_dir():
+            c_file = find_contract_file(target_path)
+            if c_file and c_file.exists():
+                try:
+                    contract_opt = load_contract_file(c_file)
+                except Exception:
+                    pass
+
+        cat_filter = None
+        if args.category:
+            try:
+                cat_filter = AdvisorCategory(args.category)
+            except ValueError:
+                print(f"[ERROR] Invalid category '{args.category}'", file=sys.stderr)
+                return 1
+
+        advisor_engine = RefactoringAdvisorEngine(analysis=analysis, contract=contract_opt)
+        advisor_report = advisor_engine.generate_report(
+            category_filter=cat_filter, min_severity=args.min_severity
+        )
+
+        if args.format == "json":
+            output_text = advisor_report.model_dump_json(indent=2)
+        elif args.format == "markdown":
+            output_text = _format_advisor_markdown(advisor_report)
+        else:
+            output_text = _format_advisor_table(advisor_report)
+
+        if args.output:
+            out_p = Path(args.output).resolve()
+            out_p.parent.mkdir(parents=True, exist_ok=True)
+            out_p.write_text(output_text, encoding="utf-8")
+            print(f"Refactoring recommendations written to {out_p}")
+        else:
+            print(output_text)
+        return 0
+
+    if args.command == "start":
+        import uvicorn
+
+        host = args.host
+        port = args.port
+        print(f"Starting RepoDNA Intelligence Server at http://{host}:{port} ...")
+        if args.open_browser:
+            import threading
+            import webbrowser
+
+            def _open() -> None:
+                import time
+
+                time.sleep(1.2)
+                webbrowser.open(f"http://{host}:{port}")
+
+            threading.Thread(target=_open, daemon=True).start()
+
+        uvicorn.run("repodna.api.app:app", host=host, port=port, reload=False)
+        return 0
 
     return 1
 

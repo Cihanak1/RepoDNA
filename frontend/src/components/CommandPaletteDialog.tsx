@@ -26,7 +26,17 @@ interface CommandPaletteDialogProps {
   onClose: () => void;
   files: FileNode[];
   onSelectFile: (fileId: string) => void;
-  onSwitchTab: (tab: 'studio' | 'intelligence' | 'report' | 'guardian' | 'contract' | 'passport' | 'history') => void;
+  onSwitchTab: (
+    tab:
+      | 'studio'
+      | 'intelligence'
+      | 'report'
+      | 'guardian'
+      | 'contract'
+      | 'passport'
+      | 'history'
+      | 'advisor'
+  ) => void;
   onToggleTheme: () => void;
   onChangeLayout: (mode: LayoutMode) => void;
   onChangeGrouping: (mode: GraphGroupingMode) => void;
@@ -173,6 +183,21 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
         badge: 'View',
         onRun: () => {
           onSwitchTab('history');
+          onClose();
+        },
+      },
+      {
+        id: 'act-advisor',
+        category: navCategory,
+        title: t('palette.actAdvisorTitle', 'Switch to Refactoring Advisor'),
+        subtitle: t(
+          'palette.actAdvisorSub',
+          'Explore deterministic refactoring advice for cycles, coupling, and hubs'
+        ),
+        icon: <Sparkles className="w-4 h-4 text-accent" aria-hidden="true" />,
+        badge: 'View',
+        onRun: () => {
+          onSwitchTab('advisor');
           onClose();
         },
       },

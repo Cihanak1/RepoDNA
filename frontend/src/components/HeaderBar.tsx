@@ -41,8 +41,26 @@ interface HeaderBarProps {
   activeJob: ScanProgress | null;
   onCancelJob: () => void;
   result: AnalysisResult | null;
-  activeTab: 'studio' | 'intelligence' | 'report' | 'guardian' | 'contract' | 'passport' | 'history';
-  onTabChange: (tab: 'studio' | 'intelligence' | 'report' | 'guardian' | 'contract' | 'passport' | 'history') => void;
+  activeTab:
+    | 'studio'
+    | 'intelligence'
+    | 'report'
+    | 'guardian'
+    | 'contract'
+    | 'passport'
+    | 'history'
+    | 'advisor';
+  onTabChange: (
+    tab:
+      | 'studio'
+      | 'intelligence'
+      | 'report'
+      | 'guardian'
+      | 'contract'
+      | 'passport'
+      | 'history'
+      | 'advisor'
+  ) => void;
   defaultWorkspacePath: string;
   onOpenCommandPalette: () => void;
   workstationMode?: WorkstationMode;
@@ -414,6 +432,20 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             >
               <History className="w-3.5 h-3.5" aria-hidden="true" />
               <span className="hidden md:inline">{t('header.historyTab', 'Time Machine')}</span>
+            </button>
+            <button
+              type="button"
+              data-testid="tab-advisor-btn"
+              onClick={() => onTabChange('advisor')}
+              aria-pressed={activeTab === 'advisor'}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
+                activeTab === 'advisor'
+                  ? 'bg-accent-solid text-white shadow-xs'
+                  : 'text-muted hover:text-ink'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
+              <span className="hidden md:inline">{t('header.advisorTab', 'Advisor')}</span>
             </button>
           </nav>
 

@@ -17,6 +17,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from repodna import __version__
+from repodna.advisor.engine import RefactoringAdvisorEngine
+from repodna.advisor.models import AdvisorCategory
 from repodna.brain.evidence import extract_evidence_snippet
 from repodna.brain.indexer import SymbolIndexer
 from repodna.brain.retrieval import SmartRetrievalEngine
@@ -66,7 +69,7 @@ except Exception:
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "repodna-mcp"
-SERVER_VERSION = "0.5.0"
+SERVER_VERSION = __version__
 
 RELEVANT_EXTENSIONS = {
     ".py",
@@ -827,6 +830,42 @@ class RepoDNAMCPServer:
             indent=2,
         )
 
+    def tool_refactoring_advisor(
+        self,
+        target: str,
+        category: str | None = None,
+        min_severity: str | None = None,
+        format: str = "json",
+        force: bool = False,
+    ) -> str:
+        analysis = self.get_analysis(target, force=force)
+        contract = None
+        resolved, _ = self._resolve_target(target)
+        if isinstance(resolved, Path) and resolved.is_dir():
+            c_file = find_contract_file(resolved)
+            if c_file and c_file.exists():
+                try:
+                    contract = load_contract_file(c_file)
+                except Exception:
+                    pass
+
+        cat_filter = None
+        if category:
+            try:
+                cat_filter = AdvisorCategory(category)
+            except ValueError:
+                return json.dumps(
+                    {
+                        "error": f"Invalid category '{category}'. Valid: {[c.value for c in AdvisorCategory]}"
+                    }
+                )
+
+        engine = RefactoringAdvisorEngine(analysis=analysis, contract=contract)
+        report = engine.generate_report(category_filter=cat_filter, min_severity=min_severity)
+        if format == "text":
+            return report.summary
+        return report.model_dump_json(indent=2)
+
     # -------------------------------------------------------------------------
     # Official Python MCP SDK Server Setup
     # -------------------------------------------------------------------------
@@ -1104,6 +1143,25 @@ class RepoDNAMCPServer:
                 file_path=file_path,
                 line_start=line_start,
                 line_end=line_end,
+            )
+
+        @self._official_server.tool(
+            name="repodna_refactoring_advisor",
+            description="Generates deterministic, evidence-grounded architectural refactoring recommendations (cycles, coupling, layer violations, oversized hubs).",
+        )
+        def _mcp_refactoring_advisor(
+            target: str,
+            category: str | None = None,
+            min_severity: str | None = None,
+            format: str = "json",
+            force: bool = False,
+        ) -> str:
+            return self.tool_refactoring_advisor(
+                target=target,
+                category=category,
+                min_severity=min_severity,
+                format=format,
+                force=force,
             )
 
     def run(self, transport: str = "stdio") -> None:
@@ -1536,6 +1594,39 @@ class RepoDNAMCPServer:
                     "required": ["target", "commit_sha", "file_path"],
                 },
             },
+            {
+                "name": "repodna_refactoring_advisor",
+                "description": "Generates deterministic, evidence-grounded architectural refactoring recommendations (cycles, coupling, layer violations, oversized hubs).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": {
+                            "type": "string",
+                            "description": "Local repository directory or GitHub clone URL.",
+                        },
+                        "category": {
+                            "type": "string",
+                            "description": "Optional category filter: circular_dependency_reduction, high_coupling_module_review, layer_boundary_improvement, oversized_architectural_hub_review.",
+                        },
+                        "min_severity": {
+                            "type": "string",
+                            "description": "Minimum severity filter: low, medium, high, critical.",
+                        },
+                        "format": {
+                            "type": "string",
+                            "enum": ["json", "text"],
+                            "default": "json",
+                            "description": "Output format: JSON structure or human-readable summary text.",
+                        },
+                        "force": {
+                            "type": "boolean",
+                            "default": False,
+                            "description": "Bypass in-memory cache and re-analyze repository.",
+                        },
+                    },
+                    "required": ["target"],
+                },
+            },
         ]
 
     def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -1708,6 +1799,14 @@ class RepoDNAMCPServer:
                     file_path=arguments.get("file_path", ""),
                     line_start=int(arguments.get("line_start", 1)),
                     line_end=int(arguments.get("line_end", 50)),
+                )
+            elif name in ("repodna_refactoring_advisor", "repodna_advisor"):
+                content = self.tool_refactoring_advisor(
+                    target=target,
+                    category=arguments.get("category"),
+                    min_severity=arguments.get("min_severity"),
+                    format=arguments.get("format", "json"),
+                    force=bool(arguments.get("force", False)),
                 )
 
             else:

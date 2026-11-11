@@ -4,6 +4,46 @@ All notable changes to **RepoDNA** are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-11-11
+
+### Added
+- **Architecture Refactoring Advisor Engine (`repodna.advisor`)**:
+  - Deterministic, graph-theoretic refactoring advisory engine analyzing dependency networks, Tarjan SCCs, Johnson elementary cycles, efferent coupling ($C_e$), instability ($I$), architectural layer hierarchies, and hub centrality.
+  - Zero LLM/paid API dependencies: all recommendations are grounded in objective AST graph metrics and deterministic heuristics. Zero code rewriting of user codebases (advisory recommendations only).
+  - 4 specialized refactoring recommendation categories:
+    1. `circular_dependency_reduction`: Enumerates circular dependency cycles and calculates the optimal candidate edge to break based on minimum symbol dependency weight, highest instability delta, and cycle reduction potential.
+    2. `high_coupling_module_review`: Flags modules with excessive efferent coupling ($C_e \ge 7$ or $I \ge 0.8$), prescribing facade patterns, dependency injection, and interface segregation.
+    3. `layer_boundary_improvement`: Detects layer boundary inversions across architectural tiers (e.g. Domain -> Presentation/API bypass), proposing contract abstractions and inversion of control.
+    4. `oversized_architectural_hub_review`: Identifies god files and excessive degree hubs (degree $\ge 14$ or non-comment LOC $\ge 300$), prescribing cohesive sub-module decomposition.
+  - Deterministic severity classification (`critical`, `high`, `medium`, `low`) and deduplicated ordering.
+  - Rich recommendation model including `target_modules`, `action_steps`, `expected_benefit`, `impact_description`, and `metric_delta_preview`.
+  - Executive summary report with aggregate KPIs: `total_recommendations`, `critical_cycles`, `high_coupling_modules`, `layer_boundary_violations`, `oversized_hubs`.
+- **Refactoring Advisor REST API**:
+  - `GET /api/analyses/{analysis_id}/advisor`: Filterable by `category` and `min_severity`.
+  - Scaled in-memory stored analysis cache from 25 to 100 entries to prevent premature cache eviction during high-volume test runs.
+- **Extended Model Context Protocol (MCP) Suite (23 Tools Total)**:
+  - New tool: `repodna_refactoring_advisor`:
+    - Parameters: `target`, `category`, `min_severity`, `format`, `force`.
+    - Returns structured recommendations, actionable remediation steps, and metric deltas for AI coding agents.
+- **CLI Commands**:
+  - `repodna advisor [target] [--category ...] [--min-severity ...] [--format {table,json,markdown}] [-o OUTPUT]`: Terminal-based refactoring advisory report generation with colorized table, JSON, or Markdown output.
+  - `repodna start [--host ...] [--port ...] [--open-browser]`: Single-command full-stack launcher starting backend and static web workstation.
+- **Windows Quick-Start & Developer Onboarding**:
+  - `start-repodna.bat` and `start-repodna.ps1`: Zero-friction Windows launchers setting up dependencies, running health diagnostics, and opening the browser.
+- **Refactoring Advisor UI & Unified Workstation**:
+  - Dedicated **Refactoring Advisor** tab with Sparkles icon in the HeaderBar.
+  - Executive KPI summary strip (Total Recommendations, Critical Cycles, High Coupling, Layer Inversions, Oversized Hubs).
+  - Multi-category filter pills and minimum severity filter dropdown.
+  - Interactive recommendation cards with severity badges, category tags, interactive action checklists, and metric delta previews.
+  - "Copy Prompt" button generating prompt-ready instructions for AI coding assistants.
+  - "Inspect in Graph" cross-navigation jumping directly from advisor cards to the module in the 3-Pane Architecture Studio graph.
+  - Inspector Panel integration with "Open in Advisor" button for selected modules.
+  - Command Palette integration (`Ctrl+K` -> `act-advisor`).
+  - Full bilingual localization (English & Turkish).
+- **Playwright End-to-End Verification**:
+  - `frontend/e2e/advisor.spec.ts` verifying scan, navigation, filter pills, checklist interactions, and cross-navigation to Studio graph.
+  - Production verification screenshots: `docs/design/after/advisor-overview.png` and `docs/design/after/advisor-cross-navigation-graph.png`.
+
 ## [0.6.0] - 2026-11-11
 
 ### Added

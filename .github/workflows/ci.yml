@@ -123,7 +123,7 @@ jobs:
       - name: Run Playwright Chromium E2E Suite
         working-directory: frontend
         run: |
-          npx playwright test e2e/intelligence-workstation.spec.ts e2e/timemachine.spec.ts --project=chromium
+          npx playwright test e2e/intelligence-workstation.spec.ts e2e/timemachine.spec.ts e2e/advisor.spec.ts --project=chromium
 
       - name: Upload E2E Design & Workstation Screenshots
         if: always()

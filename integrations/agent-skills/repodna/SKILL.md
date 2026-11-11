@@ -1,17 +1,17 @@
 ---
 name: repodna
-description: "Evidence-based repository intelligence platform for architecture discovery, dependency graph tracing, change impact blast radius, circular dependency detection, PR architecture guarding, and architecture contract enforcement."
+description: "Evidence-based repository intelligence platform for architecture discovery, dependency graph tracing, change impact blast radius, circular dependency detection, PR architecture guarding, architecture refactoring advisory, and architecture contract enforcement."
 ---
 
 # RepoDNA — AI-Native Repository Intelligence & Repository Brain
 
-RepoDNA provides deterministic, read-only architectural and code intelligence for AI coding agents (Antigravity, Codex, Claude Code, Cursor). It extracts Tree-sitter AST dependency graphs, tracks cross-module symbol definitions and call sites, calculates Robert C. Martin instability metrics, detects circular dependency cycles (Tarjan SCC), verifies architectural contracts, and manages an immutable Evidence Ledger with staleness detection.
+RepoDNA provides deterministic, read-only architectural and code intelligence for AI coding agents (Antigravity, Codex, Claude Code, Cursor). It extracts Tree-sitter AST dependency graphs, tracks cross-module symbol definitions and call sites, calculates Robert C. Martin instability metrics, detects circular dependency cycles (Tarjan SCC), verifies architectural contracts, generates graph-theoretic refactoring recommendations, and manages an immutable Evidence Ledger with staleness detection.
 
 ---
 
-## 1. Fast Routing & Tool Invocation Matrix (17 MCP Tools)
+## 1. Fast Routing & Tool Invocation Matrix (23 MCP Tools)
 
-RepoDNA provides 17 read-only MCP tools:
+RepoDNA provides 23 read-only MCP tools:
 
 | Category | Tool Name | When to Use | Key Arguments |
 | :--- | :--- | :--- | :--- |
@@ -29,8 +29,14 @@ RepoDNA provides 17 read-only MCP tools:
 | **Governance** | `repodna_get_contract` | Read `.repodna/architecture.yml` rules & layers | `target="."`, `format="yaml"` |
 | **Governance** | `repodna_check_contract` | Evaluate repo against architecture contract rules | `target="."`, `mode="enforce"` |
 | **Governance** | `repodna_pr_guardian` | PR assessment between Git revisions with pass/fail verdict | `target="."`, `base_ref="HEAD~1"`, `head_ref="HEAD"` |
+| **Refactoring** | `repodna_refactoring_advisor` | Prescribe optimal refactorings, cycle breaking edge, decoupling steps | `target="."`, `category="circular_dependency_reduction"` |
 | **Delta** | `repodna_architecture_diff` | Structural diff between two Git revisions | `target="."`, `base_ref="HEAD~1"`, `head_ref="HEAD"` |
 | **Delta** | `repodna_change_impact` | Pre-edit blast radius & affected dependents check | `target="."`, `changed_files=["..."]` |
+| **History** | `repodna_history_snapshots` | List historical architecture snapshots and schema versions | `target="."`, `limit=20` |
+| **History** | `repodna_history_analyze` | Analyze immutable architecture snapshot for past Git commit | `target="."`, `commit_sha="<sha>"` |
+| **History** | `repodna_history_diff` | Compute semantic evolution diff across revisions | `target="."`, `base_sha="<sha>"`, `head_sha="<sha>"` |
+| **History** | `repodna_history_timeline` | Trace chronological architectural trajectory across commits | `target="."`, `limit=30` |
+| **History** | `repodna_history_evidence` | Non-destructive historical Git blob inspection with verification | `target="."`, `commit_sha="<sha>"`, `file_path="..."` |
 | **Coverage** | `repodna_analysis_coverage` | Verify AST coverage ratio and unverified rules | `target="."` |
 
 ---
@@ -65,6 +71,12 @@ RepoDNA provides 17 read-only MCP tools:
 1. Before modifying high-impact modules, call `repodna_change_impact(target=".", changed_files=["src/core.py"])`.
 2. Before opening a PR or completing a branch task, call `repodna_pr_guardian(target=".", base_ref="main", head_ref="HEAD")`.
 3. Check the verdict (`PASS`, `WARNING`, `FAIL`). Any circular dependency (`ARCH-001`) or layer breach is a blocker.
+
+### Workflow 6: Refactoring Advice & Cycle Breaking
+1. Call `repodna_refactoring_advisor(target=".")` to retrieve prioritized, deterministic refactoring recommendations.
+2. For circular dependencies (`circular_dependency_reduction`), check `candidate_breaking_edge` and `action_steps` detailing which import to invert or extract based on minimum symbol dependency weight and highest instability delta.
+3. For oversized hubs (`oversized_architectural_hub_review`), follow decomposition steps into cohesive sub-modules.
+4. Validate metric improvements via `metric_delta_preview` and re-run `repodna_module_findings` to confirm resolution.
 
 ---
 
@@ -108,6 +120,13 @@ RepoDNA provides 17 read-only MCP tools:
   3. Architecture contract rule violations.
   4. Health score delta and coupling drift.
 
+### Q6: Refactoring Advice / "Bu projedeki döngüsel bağımlılıkları ve mimari sorunları nasıl çözerim?"
+- **Action:** Call `repodna_refactoring_advisor(target=".", category="circular_dependency_reduction")`.
+- **Response Structure:**
+  1. Priority-ranked recommendations with severity badges.
+  2. Optimal candidate edge to break with least symbol weight and highest instability delta.
+  3. Action checklist and metric delta preview.
+
 ---
 
 ## 4. CLI Fallback Instructions (When MCP is Unavailable)
@@ -115,6 +134,12 @@ RepoDNA provides 17 read-only MCP tools:
 If running in terminal without MCP server:
 
 ```bash
+# Architecture Refactoring Advisor
+repodna advisor . --category circular_dependency_reduction --format markdown
+
+# Single-command full-stack workstation start
+repodna start --open-browser
+
 # Context building
 repodna context --mode focused --query "auth token" --max-tokens 2000
 
