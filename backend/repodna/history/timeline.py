@@ -6,6 +6,7 @@ Traces architectural progression and health evolution across a sequence of Git c
 from __future__ import annotations
 
 import subprocess
+import threading
 
 from repodna.history.engine import HistoricalSnapshotEngine
 from repodna.history.models import (
@@ -41,6 +42,7 @@ class TimelineEngine:
         self,
         commits: list[str] | None = None,
         limit: int = 30,
+        cancel_event: threading.Event | None = None,
     ) -> TimelineResult:
         """
         Builds chronological architectural timeline for the specified commits or recent history.
@@ -52,6 +54,8 @@ class TimelineEngine:
 
         entries: list[TimelineEntry] = []
         for sha in chronological_shas:
+            if cancel_event is not None and cancel_event.is_set():
+                raise InterruptedError("Timeline generation cancelled by user request.")
             try:
                 snap = self.engine.create_snapshot(sha, use_cache=True)
                 entries.append(

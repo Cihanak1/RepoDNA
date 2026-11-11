@@ -7,6 +7,7 @@ import json
 import sys
 from pathlib import Path
 
+from repodna import __version__
 from repodna.benchmarks.engine import BenchmarkEngine
 from repodna.brain.indexer import SymbolIndexer
 from repodna.brain.models import (
@@ -291,6 +292,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         prog="repodna",
         description="RepoDNA — AI-Native Repository Intelligence Platform CLI",
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     # 1. analyze

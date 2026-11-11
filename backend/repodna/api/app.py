@@ -1111,6 +1111,7 @@ class HistoryJobRequest(BaseModel):
 
 class HistoryJobProgress(BaseModel):
     job_id: str
+    analysis_id: str
     action: HistoryJobAction
     status: HistoryJobStatus
     progress_pct: int = 0
@@ -1232,11 +1233,19 @@ def _run_history_job(
             result_payload = diff_res
 
         elif action == HistoryJobAction.TIMELINE:
+            if cancel_ev.is_set():
+                with _LOCK:
+                    _HIST_JOBS[job_id].status = HistoryJobStatus.CANCELLED
+                    _HIST_JOBS[job_id].current_step = "Cancelled by user request."
+                    _HIST_JOBS[job_id].completed_at = datetime.now(UTC).isoformat()
+                return
             with _LOCK:
                 _HIST_JOBS[job_id].progress_pct = 25
                 _HIST_JOBS[job_id].current_step = "Analyzing commit progression timeline"
             timeline_eng = TimelineEngine(engine=engine)
-            timeline_res = timeline_eng.build_timeline(commits=req.commits, limit=req.limit)
+            timeline_res = timeline_eng.build_timeline(
+                commits=req.commits, limit=req.limit, cancel_event=cancel_ev
+            )
             result_payload = timeline_res
 
         else:
@@ -1245,6 +1254,7 @@ def _run_history_job(
         if cancel_ev.is_set():
             with _LOCK:
                 _HIST_JOBS[job_id].status = HistoryJobStatus.CANCELLED
+                _HIST_JOBS[job_id].current_step = "Cancelled by user request."
                 _HIST_JOBS[job_id].completed_at = datetime.now(UTC).isoformat()
             return
 
@@ -1257,8 +1267,12 @@ def _run_history_job(
 
     except Exception as exc:
         with _LOCK:
-            _HIST_JOBS[job_id].status = HistoryJobStatus.FAILED
-            _HIST_JOBS[job_id].error_message = str(exc)
+            if cancel_ev.is_set() or isinstance(exc, InterruptedError):
+                _HIST_JOBS[job_id].status = HistoryJobStatus.CANCELLED
+                _HIST_JOBS[job_id].current_step = "Cancelled by user request."
+            else:
+                _HIST_JOBS[job_id].status = HistoryJobStatus.FAILED
+                _HIST_JOBS[job_id].error_message = str(exc)
             _HIST_JOBS[job_id].completed_at = datetime.now(UTC).isoformat()
 
 
@@ -1452,6 +1466,7 @@ def start_history_job_endpoint(
     cancel_ev = threading.Event()
     job = HistoryJobProgress(
         job_id=job_id,
+        analysis_id=analysis_id,
         action=request.action,
         status=HistoryJobStatus.PENDING,
         progress_pct=0,
@@ -1474,10 +1489,13 @@ def get_history_job_status_endpoint(
     """Retrieves progress and status of an asynchronous history job."""
     with _LOCK:
         job = _HIST_JOBS.get(job_id)
-        if not job:
+        if not job or job.analysis_id != analysis_id:
             raise HTTPException(
                 status_code=404,
-                detail={"code": "JOB_NOT_FOUND", "message": "History job not found."},
+                detail={
+                    "code": "JOB_NOT_FOUND",
+                    "message": f"History job '{job_id}' not found for analysis '{analysis_id}'.",
+                },
             )
         return job.model_copy()
 
@@ -1493,21 +1511,29 @@ def cancel_history_job_endpoint(
     with _LOCK:
         job = _HIST_JOBS.get(job_id)
         cancel_ev = _HIST_CANCEL_FLAGS.get(job_id)
-        if not job or not cancel_ev:
+        if not job or not cancel_ev or job.analysis_id != analysis_id:
             raise HTTPException(
                 status_code=404,
-                detail={"code": "JOB_NOT_FOUND", "message": "History job not found."},
+                detail={
+                    "code": "JOB_NOT_FOUND",
+                    "message": f"History job '{job_id}' not found for analysis '{analysis_id}'.",
+                },
             )
+        # If job is already COMPLETED or FAILED, cancellation must NOT alter the status or clear results!
+        if job.status == HistoryJobStatus.COMPLETED:
+            return job.model_copy()
+        if job.status == HistoryJobStatus.FAILED:
+            return job.model_copy()
+
         cancel_ev.set()
-        if job.status not in (HistoryJobStatus.COMPLETED, HistoryJobStatus.FAILED):
-            job = job.model_copy(
-                update={
-                    "status": HistoryJobStatus.CANCELLED,
-                    "current_step": "Cancelled by user request.",
-                    "completed_at": datetime.now(UTC).isoformat(),
-                }
-            )
-            _HIST_JOBS[job_id] = job
+        job = job.model_copy(
+            update={
+                "status": HistoryJobStatus.CANCELLED,
+                "current_step": "Cancelled by user request.",
+                "completed_at": datetime.now(UTC).isoformat(),
+            }
+        )
+        _HIST_JOBS[job_id] = job
         return job.model_copy()
 
 
@@ -1520,9 +1546,13 @@ def get_history_job_result_endpoint(
     with _LOCK:
         job = _HIST_JOBS.get(job_id)
         res = _HIST_JOB_RESULTS.get(job_id)
-    if not job:
+    if not job or job.analysis_id != analysis_id:
         raise HTTPException(
-            status_code=404, detail={"code": "JOB_NOT_FOUND", "message": "History job not found."}
+            status_code=404,
+            detail={
+                "code": "JOB_NOT_FOUND",
+                "message": f"History job '{job_id}' not found for analysis '{analysis_id}'.",
+            },
         )
     if job.status != HistoryJobStatus.COMPLETED or res is None:
         raise HTTPException(

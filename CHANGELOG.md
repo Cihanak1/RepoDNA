@@ -4,6 +4,49 @@ All notable changes to **RepoDNA** are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-11-11
+
+### Added
+- **Architecture Time Machine Engine (`repodna.history`)**:
+  - **Historical Snapshot Engine (`HistoricalSnapshotEngine`)**:
+    - Analyzes past Git commit SHAs and references without modifying the active working tree or branch pointer, streaming `git archive --format=tar` into an isolated in-memory extraction pipeline.
+    - Full AST extraction and symbol indexing across Python, TypeScript/TSX, JavaScript/JSX, Go, and Rust for any historical revision.
+    - Security-hardened extraction protecting against zip-slip / tar-slip directory traversal, Windows reserved device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1-9`, `LPT1-9`), symlink escapes, and tarbomb size limits (`MAX_EXTRACT_SIZE_BYTES = 500MB`, `MAX_MEMBERS = 100,000`).
+  - **Deterministic Multi-Tier Historical Cache (`HistoricalCache`)**:
+    - Atomic filesystem persistence with cache keys incorporating repository identity, commit SHA, snapshot schema version, tree-sitter grammar versions, and analyzer configuration fingerprints.
+    - Clean separation of deterministic architectural data from runtime execution metadata (`analyzed_at`, `analysis_duration_ms`, `cache_hit`), ensuring bitwise repeatable snapshot verification.
+    - Windows-resilient atomic replace loop with exponential backoff on file-locking (`PermissionError` / WinError 32).
+    - Corrupted entry detection and automatic self-healing fallback.
+  - **Evolution Diff Engine (`EvolutionDiffEngine`)**:
+    - Semantic comparison between historical snapshots (`base` vs `head`).
+    - Granular module categorization: `added`, `removed`, `modified`, and `renamed` (detected via Git similarity heuristics and structural AST equivalence).
+    - Longitudinal cycle tracking: `new_cycles`, `resolved_cycles`, and `persisting_cycles`.
+    - Health score trajectory, coupling shifts, and architectural drift deltas.
+  - **Historical Evidence Provider (`HistoricalEvidenceProvider`)**:
+    - Non-destructive Git blob reading via `git cat-file -p <commit_sha>:<file_path>`.
+    - Cryptographic SHA-256 content hashing and tamper verification with zero working tree side-effects.
+  - **Historical Timeline Engine (`TimelineEngine`)**:
+    - Sequential architectural trajectory generation across Git commit histories.
+    - Explicit failure modeling: commits that fail analysis are captured with error messages, completely eliminating "zero fake zeros" from health metrics and trends.
+    - Cooperative cancellation checkpoints allowing background jobs to cleanly abort upon request.
+  - **Historical REST API & Asynchronous Job Infrastructure**:
+    - Endpoints for commit history (`GET /history/commits`), snapshot extraction (`POST /history/snapshots`), evolution diff (`POST /history/diff`), timeline analysis (`POST /history/timeline`), and historical evidence inspection (`GET /history/evidence/{evidence_id}`).
+    - Asynchronous background jobs (`POST /history/jobs`, `GET /history/jobs/{job_id}`, `POST /history/jobs/{job_id}/cancel`, `GET /history/jobs/{job_id}/result`).
+    - Multi-analysis job isolation preventing cross-analysis data leakage or unauthorized job manipulation.
+    - Completed job persistence: cancellation requests on finished jobs preserve status and results.
+  - **Extended Model Context Protocol (MCP) Suite (22 Tools Total)**:
+    - 5 new agent tools: `repodna_history_snapshots`, `repodna_history_analyze`, `repodna_history_diff`, `repodna_history_timeline`, `repodna_history_evidence`.
+  - **Historical Intelligence Workstation UI**:
+    - Dedicated "Time Machine" workspace featuring interactive timeline scrubber, commit search, snapshot module inspector, evolution diff viewer, and architecture trends table.
+    - Historical Git Blob Evidence Inspector modal with syntax highlighting, line numbering, and cryptographic provenance verification.
+    - Complete bilingual localization (TR/EN), keyboard shortcut collision guards, and responsive themes.
+  - **CLI Commands**:
+    - `repodna history snapshots [target]`
+    - `repodna history analyze <commit_sha> [target]`
+    - `repodna history diff <base_commit> <head_commit> [target]`
+    - `repodna history timeline [target] [--limit ...]`
+    - Global `--version` flag outputting version `0.6.0`.
+
 ## [0.5.0] - 2026-11-11
 
 ### Added

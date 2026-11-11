@@ -125,6 +125,15 @@ export const App: React.FC = () => {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        // Prevent opening palette if another modal dialog is already open (e.g. folder browser, evidence inspector)
+        if (typeof document !== 'undefined') {
+          const activeOtherDialog = document.querySelector<HTMLDialogElement>(
+            'dialog[open]:not([data-testid="command-palette-dialog"])'
+          );
+          if (activeOtherDialog) {
+            return;
+          }
+        }
         e.preventDefault();
         setCommandPaletteOpen((prev) => !prev);
       }

@@ -450,6 +450,7 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
       }
     } else if (e.key === 'Escape') {
       e.preventDefault();
+      e.stopPropagation();
       onClose();
     }
   };

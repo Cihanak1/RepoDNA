@@ -56,40 +56,39 @@ test.describe('RepoDNA v0.6.0 — Architecture Time Machine E2E Audit', () => {
 
     // 5. Open Historical Evidence Blob Inspector Modal
     const moduleItems = page.locator('[data-testid^="snapshot-module-"]');
-    if (await moduleItems.count() > 0) {
-      await moduleItems.first().click();
-      await expect(page.getByTestId('evidence-inspector-modal')).toBeVisible({ timeout: 10000 });
-      await expect(page.getByText('Historical Git Blob Evidence Inspector')).toBeVisible();
-      await expect(page.getByText(/Cryptographically Verified Historical Blob/i)).toBeVisible();
+    await expect(moduleItems.first()).toBeVisible({ timeout: 15000 });
+    await moduleItems.first().click();
+    await expect(page.getByTestId('evidence-inspector-modal')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Historical Git Blob Evidence Inspector')).toBeVisible();
+    await expect(page.getByText(/Cryptographically Verified Historical Blob/i)).toBeVisible();
 
-      // Screenshot 2: Historical Git Blob Modal
-      await page.screenshot({ path: `${ARTIFACT_DIR}/timemachine-2-evidence-modal.png` });
+    // Screenshot 2: Historical Git Blob Modal
+    await page.screenshot({ path: `${ARTIFACT_DIR}/timemachine-2-evidence-modal.png` });
 
-      // Close modal
-      const closeBtn = page.getByRole('button').filter({ has: page.locator('svg.lucide-x') }).first();
-      if (await closeBtn.isVisible()) {
-        await closeBtn.click();
-      }
-    }
+    // Close modal
+    const closeBtn = page.getByRole('button').filter({ has: page.locator('svg.lucide-x') }).first();
+    await expect(closeBtn).toBeVisible();
+    await closeBtn.click();
+    await expect(page.getByTestId('evidence-inspector-modal')).not.toBeVisible();
 
     // 6. Navigate to Evolution Diff Subtab
     await page.getByTestId('tm-subtab-diff-btn').click();
     await expect(page.getByTestId('diff-base-select')).toBeVisible();
     await expect(page.getByTestId('diff-head-select')).toBeVisible();
 
-    // Select base and head commits if multiple available
+    // Select base and head commits
     const baseOptions = page.locator('[data-testid="diff-base-select"] option');
     const headOptions = page.locator('[data-testid="diff-head-select"] option');
+    await expect(baseOptions.first()).toBeAttached();
     const optCount = await baseOptions.count();
+    expect(optCount).toBeGreaterThanOrEqual(2);
 
-    if (optCount >= 2) {
-      const baseVal = await baseOptions.nth(optCount - 1).getAttribute('value');
-      const headVal = await headOptions.nth(0).getAttribute('value');
-      if (baseVal && headVal) {
-        await page.getByTestId('diff-base-select').selectOption(baseVal);
-        await page.getByTestId('diff-head-select').selectOption(headVal);
-      }
-    }
+    const baseVal = await baseOptions.nth(optCount - 1).getAttribute('value');
+    const headVal = await headOptions.nth(0).getAttribute('value');
+    expect(baseVal).toBeTruthy();
+    expect(headVal).toBeTruthy();
+    await page.getByTestId('diff-base-select').selectOption(baseVal!);
+    await page.getByTestId('diff-head-select').selectOption(headVal!);
 
     // Run comparison
     await page.getByTestId('run-diff-btn').click();
@@ -108,29 +107,29 @@ test.describe('RepoDNA v0.6.0 — Architecture Time Machine E2E Audit', () => {
 
     // 8. Internationalization (Turkish switch)
     const trBtn = page.getByTestId('lang-tr-btn');
-    if (await trBtn.isVisible()) {
-      await trBtn.click();
-      await page.waitForTimeout(300);
-      await expect(page.getByText(/Zaman Tüneli|Evrimsel Fark|Mimari Trendleri/i).first()).toBeVisible();
+    await expect(trBtn).toBeVisible();
+    await trBtn.click();
+    await page.waitForTimeout(300);
+    await expect(page.getByText(/Zaman Tüneli|Evrimsel Fark|Mimari Trendleri/i).first()).toBeVisible();
 
-      // Screenshot 5: Turkish Localization
-      await page.screenshot({ path: `${ARTIFACT_DIR}/timemachine-5-turkish.png` });
+    // Screenshot 5: Turkish Localization
+    await page.screenshot({ path: `${ARTIFACT_DIR}/timemachine-5-turkish.png` });
 
-      // Switch back to English
-      await page.getByTestId('lang-en-btn').click();
-    }
+    // Switch back to English
+    const enBtnAfter = page.getByTestId('lang-en-btn');
+    await expect(enBtnAfter).toBeVisible();
+    await enBtnAfter.click();
 
     // 9. Theme toggle (Light theme)
     const themeToggleBtn = page.getByTestId('theme-toggle-btn');
-    if (await themeToggleBtn.isVisible()) {
-      await themeToggleBtn.click();
-      await page.waitForTimeout(300);
+    await expect(themeToggleBtn).toBeVisible();
+    await themeToggleBtn.click();
+    await page.waitForTimeout(300);
 
-      // Screenshot 6: Light Theme
-      await page.screenshot({ path: `${ARTIFACT_DIR}/timemachine-6-light-theme.png` });
+    // Screenshot 6: Light Theme
+    await page.screenshot({ path: `${ARTIFACT_DIR}/timemachine-6-light-theme.png` });
 
-      // Toggle back to dark
-      await themeToggleBtn.click();
-    }
+    // Toggle back to dark
+    await themeToggleBtn.click();
   });
 });

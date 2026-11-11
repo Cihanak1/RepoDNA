@@ -305,6 +305,7 @@ class TestHistoryRESTAPIAndJobs:
         job_info = start_resp.json()
         job_id = job_info["job_id"]
         assert job_info["action"] == "timeline"
+        assert job_info["analysis_id"] == analysis_id
 
         # Poll status until completed (timeout 15s)
         import time
@@ -327,6 +328,74 @@ class TestHistoryRESTAPIAndJobs:
         assert res_resp.status_code == 200
         res_data = res_resp.json()
         assert res_data["total_commits"] == 3
+
+        # Cancelling a completed job must NOT overwrite status and must keep result intact
+        cancel_resp = client.post(f"/api/analyses/{analysis_id}/history/jobs/{job_id}/cancel")
+        assert cancel_resp.status_code == 200
+        assert cancel_resp.json()["status"] == "completed"
+
+        res_resp_after = client.get(f"/api/analyses/{analysis_id}/history/jobs/{job_id}/result")
+        assert res_resp_after.status_code == 200
+        assert res_resp_after.json()["total_commits"] == 3
+
+    def test_job_multi_analysis_isolation(
+        self, api_client: tuple[TestClient, str], test_git_repo: Path
+    ) -> None:
+        """Verifies that jobs belonging to analysis A cannot be accessed or cancelled from analysis B."""
+        client, analysis_id_a = api_client
+        from repodna.api.app import _LOCK, _RESULTS_BY_ID
+        from repodna.core.analyzer import run_repository_analysis
+
+        # Create second analysis B
+        analysis_b = run_repository_analysis(
+            ScanRequest(source_type=SourceType.LOCAL, target=str(test_git_repo))
+        )
+        analysis_id_b = analysis_b.analysis_id
+        with _LOCK:
+            _RESULTS_BY_ID[analysis_id_b] = analysis_b
+
+        # Start job in analysis A
+        start_resp = client.post(
+            f"/api/analyses/{analysis_id_a}/history/jobs",
+            json={"action": "timeline", "limit": 2},
+        )
+        assert start_resp.status_code == 200
+        job_id = start_resp.json()["job_id"]
+
+        # Attempt to access or cancel job_id via analysis B -> must return 404
+        st_other = client.get(f"/api/analyses/{analysis_id_b}/history/jobs/{job_id}")
+        assert st_other.status_code == 404
+        assert st_other.json()["detail"]["code"] == "JOB_NOT_FOUND"
+
+        cancel_other = client.post(f"/api/analyses/{analysis_id_b}/history/jobs/{job_id}/cancel")
+        assert cancel_other.status_code == 404
+        assert cancel_other.json()["detail"]["code"] == "JOB_NOT_FOUND"
+
+        res_other = client.get(f"/api/analyses/{analysis_id_b}/history/jobs/{job_id}/result")
+        assert res_other.status_code == 404
+        assert res_other.json()["detail"]["code"] == "JOB_NOT_FOUND"
+
+    def test_job_cancellation_during_execution(self, api_client: tuple[TestClient, str]) -> None:
+        """Verifies that cancelling a running job safely aborts at checkpoints and sets status to cancelled."""
+        client, analysis_id = api_client
+        start_resp = client.post(
+            f"/api/analyses/{analysis_id}/history/jobs",
+            json={"action": "timeline", "limit": 10},
+        )
+        assert start_resp.status_code == 200
+        job_id = start_resp.json()["job_id"]
+
+        # Immediately cancel
+        cancel_resp = client.post(f"/api/analyses/{analysis_id}/history/jobs/{job_id}/cancel")
+        assert cancel_resp.status_code == 200
+        assert cancel_resp.json()["status"] in ("cancelled", "completed")
+
+        # Result endpoint should not return 200 if cancelled
+        st_resp = client.get(f"/api/analyses/{analysis_id}/history/jobs/{job_id}")
+        st_data = st_resp.json()
+        if st_data["status"] == "cancelled":
+            res_resp = client.get(f"/api/analyses/{analysis_id}/history/jobs/{job_id}/result")
+            assert res_resp.status_code == 409
 
 
 class TestMCPHistoryTools:
