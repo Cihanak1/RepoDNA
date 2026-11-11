@@ -7,6 +7,7 @@ import json
 import sys
 from pathlib import Path
 
+from repodna import __version__
 from repodna.benchmarks.engine import BenchmarkEngine
 from repodna.brain.indexer import SymbolIndexer
 from repodna.brain.models import (
@@ -29,6 +30,13 @@ from repodna.core.analyzer import run_repository_analysis
 from repodna.diff.engine import ArchitectureDiffEngine
 from repodna.diff.snapshot import SnapshotManager
 from repodna.guardian import PRArchitectureGuardian
+from repodna.history.cache import HistoricalCache
+from repodna.history.diff import EvolutionDiffEngine
+from repodna.history.engine import HistoricalSnapshotEngine
+from repodna.history.models import (
+    HistoricalSnapshot,
+)
+from repodna.history.timeline import TimelineEngine
 from repodna.mcp.server import RepoDNAMCPServer
 from repodna.passport import (
     export_passport_to_json,
@@ -65,8 +73,12 @@ def _format_search_table(response: SearchResponse) -> str:
         hub_flag = " [HUB]" if m.is_hub else ""
         cycle_flag = " [IN CYCLE]" if m.in_cycle else ""
         comment_flag = " [COMMENT ONLY]" if m.is_comment_only_match else ""
-        lines.append(f"{i}. {m.file_id} (Score: {m.score:.1f}, Tier: {m.relevance_tier}){hub_flag}{cycle_flag}{comment_flag}")
-        lines.append(f"   Language: {m.language} | LOC: {m.lines_code} | Fan-In: {m.fan_in} | Fan-Out: {m.fan_out}")
+        lines.append(
+            f"{i}. {m.file_id} (Score: {m.score:.1f}, Tier: {m.relevance_tier}){hub_flag}{cycle_flag}{comment_flag}"
+        )
+        lines.append(
+            f"   Language: {m.language} | LOC: {m.lines_code} | Fan-In: {m.fan_in} | Fan-Out: {m.fan_out}"
+        )
         if m.match_reasons:
             lines.append(f"   Why: {'; '.join(m.match_reasons)}")
         if m.matched_symbols:
@@ -115,13 +127,108 @@ def _format_evidence_table(response: EvidenceLedgerResponse) -> str:
     return "\n".join(lines)
 
 
+def _format_historical_snapshot_table(snap: HistoricalSnapshot) -> str:
+    lines = [
+        "=" * 76,
+        f"RepoDNA Historical Architecture Snapshot — {snap.repo_identity}",
+        "=" * 76,
+        f"Commit SHA   : {snap.commit_sha}",
+        f"Committed At : {snap.commit_timestamp} by {snap.commit_author}",
+        f"Subject      : {snap.commit_message}",
+        f"Health Score : {snap.health.score:.1f} (Grade {snap.health.grade}, Status: {snap.health.status})"
+        if snap.health.score is not None
+        else "Health Score : N/A",
+        f"Architecture : {len(snap.modules)} modules | {len(snap.dependencies)} dependencies | {len(snap.cycles)} cycles",
+        f"Coverage     : {snap.total_files} files, {snap.total_lines_code} LOC, {snap.ast_loc_coverage_pct:.1f}% AST coverage",
+        f"Languages    : {', '.join(f'{k} ({v.percentage:.1f}%)' for k, v in snap.languages.items()) or 'None'}",
+        f"Cache Hit    : {'YES (loaded from disk cache)' if snap.cache_hit else 'NO (cold AST analysis)'}",
+        "-" * 76,
+        "TOP ARCHITECTURAL MODULES:",
+    ]
+    for m in sorted(snap.modules, key=lambda x: (x.is_hub, x.lines_code), reverse=True)[:8]:
+        hub_flag = " [HUB]" if m.is_hub else ""
+        cycle_flag = " [CYCLE]" if m.in_cycle else ""
+        lines.append(
+            f"  - {m.path:<40} {m.language:<10} {m.lines_code:>5} LOC (In:{m.fan_in} Out:{m.fan_out}){hub_flag}{cycle_flag}"
+        )
+    if snap.limitations:
+        lines.append("-" * 76)
+        lines.append("ANALYSIS LIMITATIONS:")
+        for lim in snap.limitations[:5]:
+            lines.append(f"  ! {lim}")
+    lines.append("=" * 76)
+    return "\n".join(lines)
+
+
+def _format_historical_snapshot_markdown(snap: HistoricalSnapshot) -> str:
+    lines = [
+        f"# Historical Architecture Snapshot: `{snap.commit_sha[:10]}`",
+        "",
+        f"- **Repository:** {snap.repo_identity}",
+        f"- **Commit SHA:** `{snap.commit_sha}`",
+        f"- **Committed:** {snap.commit_timestamp} by **{snap.commit_author}**",
+        f"- **Subject:** {snap.commit_message}",
+        f"- **Health:** **{snap.health.score}** (Grade {snap.health.grade})",
+        f"- **AST Coverage:** {snap.ast_loc_coverage_pct:.1f}% ({snap.total_files} files, {snap.total_lines_code:,} LOC)",
+        f"- **Cache:** {'Hit' if snap.cache_hit else 'Cold Analysis'}",
+        "",
+        "## Languages",
+        "",
+        "| Language | Files | LOC | Percentage |",
+        "| :--- | :--- | :--- | :--- |",
+    ]
+    for lang, lsum in snap.languages.items():
+        lines.append(
+            f"| {lang} | {lsum.files_count} | {lsum.lines_code:,} | {lsum.percentage:.1f}% |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Key Modules",
+            "",
+            "| Module Path | Language | LOC | Fan-In | Fan-Out | Instability | Hub | In Cycle |",
+            "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
+        ]
+    )
+    for m in sorted(snap.modules, key=lambda x: (x.is_hub, x.lines_code), reverse=True)[:15]:
+        hub_str = "Yes" if m.is_hub else "No"
+        cyc_str = "Yes" if m.in_cycle else "No"
+        lines.append(
+            f"| `{m.path}` | {m.language} | {m.lines_code} | {m.fan_in} | {m.fan_out} | {m.instability:.2f} | {hub_str} | {cyc_str} |"
+        )
+    return "\n".join(lines)
+
+
+def _format_snapshots_table(cache: HistoricalCache) -> str:
+    stats = cache.get_stats()
+    lines = [
+        "=" * 76,
+        f"RepoDNA Historical Snapshots Cache — {stats['total_entries']} Entry(ies) ({stats['total_size_bytes'] / 1024:.1f} KB)",
+        "=" * 76,
+        f"{'CACHE KEY':<32} | {'COMMIT SHA':<14} | {'TIMESTAMP':<20}",
+        "-" * 76,
+    ]
+    for key in sorted(cache.list_keys()):
+        snap = cache.get(key)
+        if snap:
+            lines.append(
+                f"{key[:32]:<32} | {snap.commit_sha[:10]:<14} | {snap.commit_timestamp[:19]:<20}"
+            )
+        else:
+            lines.append(f"{key[:32]:<32} | {'(invalid)':<14} | {'N/A':<20}")
+    lines.append("=" * 76)
+    return "\n".join(lines)
+
+
 def _format_summary_table(result: AnalysisResult) -> str:
     hr = result.health_report
     gm = result.graph_metrics
     tr = result.transparency
 
     if hr.overall_score is not None:
-        score_str = f"{hr.overall_score:.1f} / 100 (Grade {hr.grade}, Confidence: {hr.confidence.upper()})"
+        score_str = (
+            f"{hr.overall_score:.1f} / 100 (Grade {hr.grade}, Confidence: {hr.confidence.upper()})"
+        )
     elif hr.status == "insufficient_dependency_coverage":
         score_str = f"Not evaluated — Insufficient dependency coverage (Grade {hr.grade}, Confidence: {hr.confidence.upper()})"
     else:
@@ -185,11 +292,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
         prog="repodna",
         description="RepoDNA — AI-Native Repository Intelligence Platform CLI",
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     # 1. analyze
-    analyze_p = sub.add_parser("analyze", help="Analyze a local directory, public HTTPS GitHub URL, or 'demo'.")
-    analyze_p.add_argument("target", help="Local directory path, https://github.com/<owner>/<repo>, or 'demo'.")
+    analyze_p = sub.add_parser(
+        "analyze", help="Analyze a local directory, public HTTPS GitHub URL, or 'demo'."
+    )
+    analyze_p.add_argument(
+        "target", help="Local directory path, https://github.com/<owner>/<repo>, or 'demo'."
+    )
     analyze_p.add_argument(
         "--format",
         choices=["table", "json", "html"],
@@ -203,18 +315,26 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional file path to write the report output.",
     )
-    analyze_p.add_argument("--branch", type=str, default=None, help="Optional GitHub branch or tag name.")
-    analyze_p.add_argument("--max-files", type=int, default=2500, help="Maximum number of files to scan.")
+    analyze_p.add_argument(
+        "--branch", type=str, default=None, help="Optional GitHub branch or tag name."
+    )
+    analyze_p.add_argument(
+        "--max-files", type=int, default=2500, help="Maximum number of files to scan."
+    )
     analyze_p.add_argument(
         "--max-file-size",
         type=int,
         default=1_048_576,
         help="Maximum single file size in bytes (default: 1048576).",
     )
-    analyze_p.add_argument("--timeout", type=float, default=60.0, help="Scan timeout in seconds (default: 60).")
+    analyze_p.add_argument(
+        "--timeout", type=float, default=60.0, help="Scan timeout in seconds (default: 60)."
+    )
 
     # 2. diff
-    diff_p = sub.add_parser("diff", help="Compare architecture between two Git revisions or working tree.")
+    diff_p = sub.add_parser(
+        "diff", help="Compare architecture between two Git revisions or working tree."
+    )
     diff_p.add_argument("base_ref", help="Base Git revision (e.g. HEAD~1, main, commit SHA).")
     diff_p.add_argument(
         "head_ref",
@@ -229,7 +349,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default="table",
         help="Output diff format (default: table).",
     )
-    diff_p.add_argument("--output", "-o", type=str, default=None, help="Optional file path to write diff.")
+    diff_p.add_argument(
+        "--output", "-o", type=str, default=None, help="Optional file path to write diff."
+    )
 
     # 3. context
     ctx_p = sub.add_parser("context", help="Generate token-budgeted context for AI coding agents.")
@@ -240,7 +362,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default="compact",
         help="Context density mode (default: compact).",
     )
-    ctx_p.add_argument("--query", type=str, default=None, help="Search query for focused context mode.")
+    ctx_p.add_argument(
+        "--query", type=str, default=None, help="Search query for focused context mode."
+    )
     ctx_p.add_argument(
         "--format",
         choices=["markdown", "json"],
@@ -248,7 +372,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Context format (default: markdown).",
     )
     ctx_p.add_argument("--max-tokens", type=int, default=None, help="Approximate token budget cap.")
-    ctx_p.add_argument("--output", "-o", type=str, default=None, help="Optional file path to write context.")
+    ctx_p.add_argument(
+        "--output", "-o", type=str, default=None, help="Optional file path to write context."
+    )
 
     # 4. mcp
     mcp_p = sub.add_parser("mcp", help="Run the local Model Context Protocol (MCP) stdio server.")
@@ -273,80 +399,188 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default="project",
         help="Installation scope (default: project).",
     )
-    setup_p.add_argument("--dry-run", action="store_true", help="Preview planned changes without writing.")
-    setup_p.add_argument("--verify", action="store_true", help="Check current agent integration status.")
-    setup_p.add_argument("--repair", action="store_true", help="Repair or refresh corrupted agent integrations.")
-    setup_p.add_argument("--uninstall", action="store_true", help="Remove RepoDNA integration from agent.")
+    setup_p.add_argument(
+        "--dry-run", action="store_true", help="Preview planned changes without writing."
+    )
+    setup_p.add_argument(
+        "--verify", action="store_true", help="Check current agent integration status."
+    )
+    setup_p.add_argument(
+        "--repair", action="store_true", help="Repair or refresh corrupted agent integrations."
+    )
+    setup_p.add_argument(
+        "--uninstall", action="store_true", help="Remove RepoDNA integration from agent."
+    )
 
     # 6. doctor
-    sub.add_parser("doctor", help="Run comprehensive diagnostic of environment, parsers, and agent tools.")
+    sub.add_parser(
+        "doctor", help="Run comprehensive diagnostic of environment, parsers, and agent tools."
+    )
 
     # 7. contract
-    contract_p = sub.add_parser("contract", help="Define and evaluate declarative Architecture Contracts.")
+    contract_p = sub.add_parser(
+        "contract", help="Define and evaluate declarative Architecture Contracts."
+    )
     c_sub = contract_p.add_subparsers(dest="contract_action", required=True)
 
-    c_init = c_sub.add_parser("init", help="Create starter .repodna/architecture.yml in target repository.")
-    c_init.add_argument("target", nargs="?", default=".", help="Target repository directory (default: .).")
-    c_init.add_argument("--force", "-f", action="store_true", help="Overwrite existing architecture.yml.")
+    c_init = c_sub.add_parser(
+        "init", help="Create starter .repodna/architecture.yml in target repository."
+    )
+    c_init.add_argument(
+        "target", nargs="?", default=".", help="Target repository directory (default: .)."
+    )
+    c_init.add_argument(
+        "--force", "-f", action="store_true", help="Overwrite existing architecture.yml."
+    )
 
-    c_val = c_sub.add_parser("validate", help="Validate architecture contract YAML syntax and schema.")
-    c_val.add_argument("path", nargs="?", default=".", help="Path to architecture.yml or repository root (default: .).")
+    c_val = c_sub.add_parser(
+        "validate", help="Validate architecture contract YAML syntax and schema."
+    )
+    c_val.add_argument(
+        "path",
+        nargs="?",
+        default=".",
+        help="Path to architecture.yml or repository root (default: .).",
+    )
 
-    c_check = c_sub.add_parser("check", help="Evaluate repository against architecture contract rules.")
-    c_check.add_argument("target", nargs="?", default=".", help="Target repository directory (default: .).")
-    c_check.add_argument("--contract", "-c", type=str, default=None, help="Explicit path to architecture.yml.")
-    c_check.add_argument("--baseline", "-b", type=str, default=None, help="Path to baseline violations JSON.")
-    c_check.add_argument("--mode", choices=["advisory", "enforce"], default=None, help="Evaluation mode override.")
-    c_check.add_argument("--format", choices=["table", "json"], default="table", help="Output format (default: table).")
-    c_check.add_argument("--output", "-o", type=str, default=None, help="Optional output file path.")
+    c_check = c_sub.add_parser(
+        "check", help="Evaluate repository against architecture contract rules."
+    )
+    c_check.add_argument(
+        "target", nargs="?", default=".", help="Target repository directory (default: .)."
+    )
+    c_check.add_argument(
+        "--contract", "-c", type=str, default=None, help="Explicit path to architecture.yml."
+    )
+    c_check.add_argument(
+        "--baseline", "-b", type=str, default=None, help="Path to baseline violations JSON."
+    )
+    c_check.add_argument(
+        "--mode", choices=["advisory", "enforce"], default=None, help="Evaluation mode override."
+    )
+    c_check.add_argument(
+        "--format",
+        choices=["table", "json"],
+        default="table",
+        help="Output format (default: table).",
+    )
+    c_check.add_argument(
+        "--output", "-o", type=str, default=None, help="Optional output file path."
+    )
 
     # 8. guardian
     guardian_p = sub.add_parser("guardian", help="Continuous pull request architecture assessment.")
     g_sub = guardian_p.add_subparsers(dest="guardian_action", required=True)
 
-    g_check = g_sub.add_parser("check", help="Evaluate architectural regression between Git revisions.")
-    g_check.add_argument("target", nargs="?", default=".", help="Target Git repository directory (default: .).")
-    g_check.add_argument("--base", type=str, required=True, help="Base Git revision (e.g. main, HEAD~1, commit SHA).")
-    g_check.add_argument("--head", type=str, default="HEAD", help="Head Git revision (default: HEAD).")
-    g_check.add_argument("--contract", "-c", type=str, default=None, help="Explicit path to architecture.yml.")
-    g_check.add_argument("--baseline", "-b", type=str, default=None, help="Path to baseline violations JSON.")
-    g_check.add_argument("--mode", choices=["advisory", "enforce"], default=None, help="Enforce or advisory mode.")
-    g_check.add_argument("--format", choices=["table", "markdown", "json"], default="table", help="Output format.")
-    g_check.add_argument("--output", "-o", type=str, default=None, help="Optional output file path.")
+    g_check = g_sub.add_parser(
+        "check", help="Evaluate architectural regression between Git revisions."
+    )
+    g_check.add_argument(
+        "target", nargs="?", default=".", help="Target Git repository directory (default: .)."
+    )
+    g_check.add_argument(
+        "--base", type=str, required=True, help="Base Git revision (e.g. main, HEAD~1, commit SHA)."
+    )
+    g_check.add_argument(
+        "--head", type=str, default="HEAD", help="Head Git revision (default: HEAD)."
+    )
+    g_check.add_argument(
+        "--contract", "-c", type=str, default=None, help="Explicit path to architecture.yml."
+    )
+    g_check.add_argument(
+        "--baseline", "-b", type=str, default=None, help="Path to baseline violations JSON."
+    )
+    g_check.add_argument(
+        "--mode", choices=["advisory", "enforce"], default=None, help="Enforce or advisory mode."
+    )
+    g_check.add_argument(
+        "--format", choices=["table", "markdown", "json"], default="table", help="Output format."
+    )
+    g_check.add_argument(
+        "--output", "-o", type=str, default=None, help="Optional output file path."
+    )
 
     # 9. passport
-    pass_p = sub.add_parser("passport", help="Manage and verify portable Repository Passport manifests.")
+    pass_p = sub.add_parser(
+        "passport", help="Manage and verify portable Repository Passport manifests."
+    )
     p_sub = pass_p.add_subparsers(dest="passport_action", required=True)
 
-    p_gen = p_sub.add_parser("generate", help="Generate .repodna/passport.json for AI coding agents.")
+    p_gen = p_sub.add_parser(
+        "generate", help="Generate .repodna/passport.json for AI coding agents."
+    )
     p_gen.add_argument("target", nargs="?", default=".", help="Target directory (default: .).")
-    p_gen.add_argument("--output", "-o", type=str, default=None, help="Output file path (default: .repodna/passport.json or stdout).")
-    p_gen.add_argument("--format", choices=["json", "markdown"], default="json", help="Output format (default: json).")
-    p_gen.add_argument("--max-modules", type=int, default=150, help="Maximum modules in inventory (default: 150).")
-    p_gen.add_argument("--contract", "-c", type=str, default=None, help="Optional path to architecture.yml.")
+    p_gen.add_argument(
+        "--output",
+        "-o",
+        type=str,
+        default=None,
+        help="Output file path (default: .repodna/passport.json or stdout).",
+    )
+    p_gen.add_argument(
+        "--format",
+        choices=["json", "markdown"],
+        default="json",
+        help="Output format (default: json).",
+    )
+    p_gen.add_argument(
+        "--max-modules", type=int, default=150, help="Maximum modules in inventory (default: 150)."
+    )
+    p_gen.add_argument(
+        "--contract", "-c", type=str, default=None, help="Optional path to architecture.yml."
+    )
 
     p_val = p_sub.add_parser("validate", help="Validate passport.json schema and integrity.")
-    p_val.add_argument("path", nargs="?", default=None, help="Path to passport.json (default: .repodna/passport.json).")
+    p_val.add_argument(
+        "path",
+        nargs="?",
+        default=None,
+        help="Path to passport.json (default: .repodna/passport.json).",
+    )
 
     # 10. search
-    search_p = sub.add_parser("search", help="Smart Context Retrieval across code and architecture.")
+    search_p = sub.add_parser(
+        "search", help="Smart Context Retrieval across code and architecture."
+    )
     search_p.add_argument("query", help="Natural language or technical code search query.")
     search_p.add_argument("target", nargs="?", default=".", help="Target directory (default: .).")
-    search_p.add_argument("--kind", choices=["class", "function", "method", "interface", "type"], default=None, help="Filter by symbol kind.")
-    search_p.add_argument("--limit", type=int, default=10, help="Max results to return (default: 10).")
-    search_p.add_argument("--format", choices=["table", "json"], default="table", help="Output format.")
-    search_p.add_argument("--output", "-o", type=str, default=None, help="Optional output file path.")
+    search_p.add_argument(
+        "--kind",
+        choices=["class", "function", "method", "interface", "type"],
+        default=None,
+        help="Filter by symbol kind.",
+    )
+    search_p.add_argument(
+        "--limit", type=int, default=10, help="Max results to return (default: 10)."
+    )
+    search_p.add_argument(
+        "--format", choices=["table", "json"], default="table", help="Output format."
+    )
+    search_p.add_argument(
+        "--output", "-o", type=str, default=None, help="Optional output file path."
+    )
 
     # 11. symbols
     symbols_p = sub.add_parser("symbols", help="Query Tree-sitter symbol index.")
     symbols_p.add_argument("target", nargs="?", default=".", help="Target directory (default: .).")
     symbols_p.add_argument("--name", type=str, default=None, help="Symbol name.")
-    symbols_p.add_argument("--kind", choices=["class", "function", "method", "interface", "type", "struct"], default=None, help="Symbol kind.")
+    symbols_p.add_argument(
+        "--kind",
+        choices=["class", "function", "method", "interface", "type", "struct"],
+        default=None,
+        help="Symbol kind.",
+    )
     symbols_p.add_argument("--file", type=str, default=None, help="Filter by file path.")
-    symbols_p.add_argument("--container", type=str, default=None, help="Filter by container class name.")
+    symbols_p.add_argument(
+        "--container", type=str, default=None, help="Filter by container class name."
+    )
     symbols_p.add_argument("--limit", type=int, default=50, help="Max symbols to return.")
-    symbols_p.add_argument("--format", choices=["table", "json"], default="table", help="Output format.")
-    symbols_p.add_argument("--output", "-o", type=str, default=None, help="Optional output file path.")
+    symbols_p.add_argument(
+        "--format", choices=["table", "json"], default="table", help="Output format."
+    )
+    symbols_p.add_argument(
+        "--output", "-o", type=str, default=None, help="Optional output file path."
+    )
 
     # 12. evidence
     evidence_p = sub.add_parser("evidence", help="Inspect and verify Evidence Ledger records.")
@@ -354,23 +588,135 @@ def build_arg_parser() -> argparse.ArgumentParser:
     evidence_p.add_argument("--id", type=str, default=None, help="Evidence ID.")
     evidence_p.add_argument("--file", type=str, default=None, help="Filter by file path.")
     evidence_p.add_argument("--symbol", type=str, default=None, help="Filter by symbol name.")
-    evidence_p.add_argument("--limit", type=int, default=50, help="Max citations to list (default: 50).")
-    evidence_p.add_argument("--format", choices=["table", "json"], default="table", help="Output format.")
-    evidence_p.add_argument("--output", "-o", type=str, default=None, help="Optional output file path.")
+    evidence_p.add_argument(
+        "--limit", type=int, default=50, help="Max citations to list (default: 50)."
+    )
+    evidence_p.add_argument(
+        "--format", choices=["table", "json"], default="table", help="Output format."
+    )
+    evidence_p.add_argument(
+        "--output", "-o", type=str, default=None, help="Optional output file path."
+    )
 
     # 13. benchmark
     benchmark_p = sub.add_parser("benchmark", help="Run Code Intelligence retrieval benchmarks.")
     bench_sub = benchmark_p.add_subparsers(dest="benchmark_action", required=True)
     bench_run_p = bench_sub.add_parser("run", help="Execute retrieval and intelligence benchmark.")
-    bench_run_p.add_argument("target", nargs="?", default=".", help="Target repository directory (default: .).")
-    bench_run_p.add_argument("--dataset", type=str, default="benchmarks/retrieval-v1.jsonl", help="Dataset path.")
-    bench_run_p.add_argument("--format", choices=["markdown", "json"], default="markdown", help="Output format (markdown or json).")
-    bench_run_p.add_argument("--output", "-o", type=str, default=None, help="Optional output file path.")
-    bench_run_p.add_argument("--timeout", type=float, default=60.0, help="Timeout in seconds (default: 60s).")
-    bench_run_p.add_argument("--include-baselines", action="store_true", default=True, help="Include Filename and Symbol baselines.")
-    bench_run_p.add_argument("--profile-memory", action="store_true", default=True, help="Profile memory with tracemalloc.")
-    bench_run_p.add_argument("--skip-scalability", action="store_true", default=False, help="Skip multi-scale stress benchmark.")
-    bench_run_p.add_argument("--skip-budget", action="store_true", default=False, help="Skip token budget compliance matrix.")
+    bench_run_p.add_argument(
+        "target", nargs="?", default=".", help="Target repository directory (default: .)."
+    )
+    bench_run_p.add_argument(
+        "--dataset", type=str, default="benchmarks/retrieval-v1.jsonl", help="Dataset path."
+    )
+    bench_run_p.add_argument(
+        "--format",
+        choices=["markdown", "json"],
+        default="markdown",
+        help="Output format (markdown or json).",
+    )
+    bench_run_p.add_argument(
+        "--output", "-o", type=str, default=None, help="Optional output file path."
+    )
+    bench_run_p.add_argument(
+        "--timeout", type=float, default=60.0, help="Timeout in seconds (default: 60s)."
+    )
+    bench_run_p.add_argument(
+        "--include-baselines",
+        action="store_true",
+        default=True,
+        help="Include Filename and Symbol baselines.",
+    )
+    bench_run_p.add_argument(
+        "--profile-memory",
+        action="store_true",
+        default=True,
+        help="Profile memory with tracemalloc.",
+    )
+    bench_run_p.add_argument(
+        "--skip-scalability",
+        action="store_true",
+        default=False,
+        help="Skip multi-scale stress benchmark.",
+    )
+    bench_run_p.add_argument(
+        "--skip-budget",
+        action="store_true",
+        default=False,
+        help="Skip token budget compliance matrix.",
+    )
+
+    # 14. history
+    history_p = sub.add_parser(
+        "history", help="Historical Architecture Snapshot Engine & Time Machine."
+    )
+    hist_sub = history_p.add_subparsers(dest="history_action", required=True)
+
+    # history analyze
+    hist_analyze_p = hist_sub.add_parser(
+        "analyze", help="Extract and analyze immutable architectural snapshot for a Git commit."
+    )
+    hist_analyze_p.add_argument(
+        "target", nargs="?", default=".", help="Target repository directory (default: .)."
+    )
+    hist_analyze_p.add_argument(
+        "--rev", type=str, required=True, help="Git commit SHA or reference."
+    )
+    hist_analyze_p.add_argument(
+        "--format", choices=["table", "json", "markdown"], default="table", help="Output format."
+    )
+    hist_analyze_p.add_argument(
+        "--no-cache", action="store_true", default=False, help="Bypass disk cache."
+    )
+    hist_analyze_p.add_argument(
+        "--output", "-o", type=str, default=None, help="Optional output file path."
+    )
+
+    # history diff
+    hist_diff_p = hist_sub.add_parser(
+        "diff", help="Compute architectural evolution diff between two historical commits."
+    )
+    hist_diff_p.add_argument(
+        "target", nargs="?", default=".", help="Target repository directory (default: .)."
+    )
+    hist_diff_p.add_argument("--base", type=str, required=True, help="Base Git commit SHA.")
+    hist_diff_p.add_argument("--head", type=str, required=True, help="Head Git commit SHA.")
+    hist_diff_p.add_argument(
+        "--format", choices=["table", "json", "markdown"], default="table", help="Output format."
+    )
+    hist_diff_p.add_argument(
+        "--output", "-o", type=str, default=None, help="Optional output file path."
+    )
+
+    # history snapshots
+    hist_snaps_p = hist_sub.add_parser(
+        "snapshots", help="List cached historical architecture snapshots."
+    )
+    hist_snaps_p.add_argument(
+        "target", nargs="?", default=".", help="Target repository directory (default: .)."
+    )
+    hist_snaps_p.add_argument(
+        "--limit", type=int, default=50, help="Max entries to list (default: 50)."
+    )
+    hist_snaps_p.add_argument(
+        "--format", choices=["table", "json"], default="table", help="Output format."
+    )
+
+    # history timeline
+    hist_time_p = hist_sub.add_parser(
+        "timeline", help="Build historical architecture evolution timeline across commit sequence."
+    )
+    hist_time_p.add_argument(
+        "target", nargs="?", default=".", help="Target repository directory (default: .)."
+    )
+    hist_time_p.add_argument(
+        "--limit", type=int, default=30, help="Number of recent commits to analyze (default: 30)."
+    )
+    hist_time_p.add_argument(
+        "--format", choices=["table", "json", "markdown"], default="table", help="Output format."
+    )
+    hist_time_p.add_argument(
+        "--output", "-o", type=str, default=None, help="Optional output file path."
+    )
 
     return parser
 
@@ -443,7 +789,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[ERROR] Architecture diff failed: {exc}", file=sys.stderr)
             return 1
 
-        output_text = diff_res.model_dump_json(indent=2) if args.format == "json" else diff_res.summary_text
+        output_text = (
+            diff_res.model_dump_json(indent=2) if args.format == "json" else diff_res.summary_text
+        )
         if args.output:
             out_path = Path(args.output)
             out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -524,7 +872,10 @@ def main(argv: list[str] | None = None) -> int:
                 target_path = Path(args.path).resolve()
                 c_file = target_path if target_path.is_file() else find_contract_file(target_path)
                 if not c_file:
-                    print(f"[ERROR] No architecture contract file found at '{target_path}'", file=sys.stderr)
+                    print(
+                        f"[ERROR] No architecture contract file found at '{target_path}'",
+                        file=sys.stderr,
+                    )
                     return 1
                 contract = load_contract_file(c_file)
                 print(
@@ -545,12 +896,17 @@ def main(argv: list[str] | None = None) -> int:
                     c_file = find_contract_file(target_path)
 
                 if not c_file or not c_file.exists():
-                    print(f"[ERROR] No architecture contract found for '{target_path}'. Run 'repodna contract init' to create one.", file=sys.stderr)
+                    print(
+                        f"[ERROR] No architecture contract found for '{target_path}'. Run 'repodna contract init' to create one.",
+                        file=sys.stderr,
+                    )
                     return 1
 
                 contract = load_contract_file(c_file)
                 stype = _detect_source_type(str(target_path))
-                analysis = run_repository_analysis(ScanRequest(source_type=stype, target=str(target_path)))
+                analysis = run_repository_analysis(
+                    ScanRequest(source_type=stype, target=str(target_path))
+                )
                 mode_override = ContractMode(args.mode) if args.mode else None
                 evaluator = ContractEvaluator(
                     contract=contract,
@@ -562,7 +918,9 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"[ERROR] Contract check failed: {exc}", file=sys.stderr)
                 return 1
 
-            output_text = report.model_dump_json(indent=2) if args.format == "json" else report.summary_text
+            output_text = (
+                report.model_dump_json(indent=2) if args.format == "json" else report.summary_text
+            )
             if args.output:
                 out_p = Path(args.output)
                 out_p.parent.mkdir(parents=True, exist_ok=True)
@@ -571,7 +929,12 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(output_text)
 
-            return 0 if (report.verdict in ("PASS", "WARNING") and report.mode == ContractMode.ADVISORY) or report.verdict == "PASS" else 1
+            return (
+                0
+                if (report.verdict in ("PASS", "WARNING") and report.mode == ContractMode.ADVISORY)
+                or report.verdict == "PASS"
+                else 1
+            )
 
     if args.command == "guardian":
         if args.guardian_action == "check":
@@ -583,7 +946,11 @@ def main(argv: list[str] | None = None) -> int:
                 git_renames = snap_mgr.find_git_renames(args.base, args.head)
 
                 guardian_contract: ArchitectureContract | None = None
-                c_file = Path(args.contract).resolve() if args.contract else find_contract_file(target_path)
+                c_file = (
+                    Path(args.contract).resolve()
+                    if args.contract
+                    else find_contract_file(target_path)
+                )
                 if c_file and c_file.exists():
                     guardian_contract = load_contract_file(c_file)
 
@@ -630,8 +997,14 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 target_path = Path(args.target).resolve()
                 stype = _detect_source_type(str(target_path))
-                analysis = run_repository_analysis(ScanRequest(source_type=stype, target=str(target_path)))
-                c_file = Path(args.contract).resolve() if args.contract else find_contract_file(target_path)
+                analysis = run_repository_analysis(
+                    ScanRequest(source_type=stype, target=str(target_path))
+                )
+                c_file = (
+                    Path(args.contract).resolve()
+                    if args.contract
+                    else find_contract_file(target_path)
+                )
                 passport_contract: ArchitectureContract | None = (
                     load_contract_file(c_file) if c_file and c_file.exists() else None
                 )
@@ -695,7 +1068,11 @@ def main(argv: list[str] | None = None) -> int:
         indexer.index_all()
         retrieval = SmartRetrievalEngine(indexer=indexer, analysis=analysis)
         search_res = retrieval.search(query=args.query, limit=args.limit, kind=args.kind)
-        output_text = search_res.model_dump_json(indent=2) if args.format == "json" else _format_search_table(search_res)
+        output_text = (
+            search_res.model_dump_json(indent=2)
+            if args.format == "json"
+            else _format_search_table(search_res)
+        )
         if args.output:
             out_p = Path(args.output).resolve()
             out_p.parent.mkdir(parents=True, exist_ok=True)
@@ -710,12 +1087,23 @@ def main(argv: list[str] | None = None) -> int:
         indexer = SymbolIndexer(root_path=target_path, revision="HEAD")
         indexer.index_all()
         if args.name:
-            matched = indexer.find_by_name(args.name, kind=args.kind, file_path=args.file, container=args.container, exact=False)
+            matched = indexer.find_by_name(
+                args.name,
+                kind=args.kind,
+                file_path=args.file,
+                container=args.container,
+                exact=False,
+            )
             sym_res = SymbolQueryResponse(
                 total_symbols=len(matched),
-                symbols=matched[:args.limit],
+                symbols=matched[: args.limit],
                 summary_text=f"Found {len(matched)} symbol(s) matching '{args.name}'.",
-                filter_criteria={"name": args.name, "kind": args.kind, "file": args.file, "container": args.container},
+                filter_criteria={
+                    "name": args.name,
+                    "kind": args.kind,
+                    "file": args.file,
+                    "container": args.container,
+                },
             )
         else:
             sym_res = indexer.list_symbols(
@@ -724,7 +1112,11 @@ def main(argv: list[str] | None = None) -> int:
                 container=args.container,
                 limit=args.limit,
             )
-        output_text = sym_res.model_dump_json(indent=2) if args.format == "json" else _format_symbols_table(sym_res)
+        output_text = (
+            sym_res.model_dump_json(indent=2)
+            if args.format == "json"
+            else _format_symbols_table(sym_res)
+        )
         if args.output:
             out_p = Path(args.output).resolve()
             out_p.parent.mkdir(parents=True, exist_ok=True)
@@ -751,20 +1143,24 @@ def main(argv: list[str] | None = None) -> int:
             ev_list = ledger.find_by_file(args.file)
             ev_res = EvidenceLedgerResponse(
                 total_evidence=len(ev_list),
-                evidence_items=ev_list[:args.limit],
+                evidence_items=ev_list[: args.limit],
                 summary_text=f"Found {len(ev_list)} evidence citation(s) for file '{args.file}'.",
             )
         elif args.symbol:
             ev_list = ledger.find_by_symbol(args.symbol)
             ev_res = EvidenceLedgerResponse(
                 total_evidence=len(ev_list),
-                evidence_items=ev_list[:args.limit],
+                evidence_items=ev_list[: args.limit],
                 summary_text=f"Found {len(ev_list)} evidence citation(s) for symbol '{args.symbol}'.",
             )
         else:
             ev_res = ledger.to_response(limit=args.limit)
 
-        output_text = ev_res.model_dump_json(indent=2) if args.format == "json" else _format_evidence_table(ev_res)
+        output_text = (
+            ev_res.model_dump_json(indent=2)
+            if args.format == "json"
+            else _format_evidence_table(ev_res)
+        )
         if args.output:
             out_p = Path(args.output).resolve()
             out_p.parent.mkdir(parents=True, exist_ok=True)
@@ -794,6 +1190,135 @@ def main(argv: list[str] | None = None) -> int:
                 out_p.parent.mkdir(parents=True, exist_ok=True)
                 out_p.write_text(output_text, encoding="utf-8")
                 print(f"Benchmark report written to {out_p}")
+            else:
+                print(output_text)
+            return 0
+
+    if args.command == "history":
+        target_path = Path(args.target).resolve()
+        try:
+            hist_engine = HistoricalSnapshotEngine(repo_path=target_path)
+        except Exception as exc:
+            print(f"[ERROR] Failed to initialize history engine: {exc}", file=sys.stderr)
+            return 1
+
+        if args.history_action == "analyze":
+            try:
+                snap = hist_engine.create_snapshot(git_ref=args.rev, use_cache=not args.no_cache)
+            except SecurityValidationError as exc:
+                print(f"[SECURITY ERROR] ({exc.code}): {exc.message}", file=sys.stderr)
+                return 2
+            except Exception as exc:
+                print(f"[ERROR] Historical snapshot analysis failed: {exc}", file=sys.stderr)
+                return 1
+
+            if args.format == "json":
+                output_text = snap.model_dump_json(indent=2)
+            elif args.format == "markdown":
+                output_text = _format_historical_snapshot_markdown(snap)
+            else:
+                output_text = _format_historical_snapshot_table(snap)
+
+            if args.output:
+                out_p = Path(args.output).resolve()
+                out_p.parent.mkdir(parents=True, exist_ok=True)
+                out_p.write_text(output_text, encoding="utf-8")
+                print(f"Historical snapshot written to {out_p}")
+            else:
+                print(output_text)
+            return 0
+
+        if args.history_action == "diff":
+            try:
+                base_snap = hist_engine.create_snapshot(git_ref=args.base)
+                head_snap = hist_engine.create_snapshot(git_ref=args.head)
+                hist_diff_res = EvolutionDiffEngine.compare_snapshots(
+                    base=base_snap,
+                    head=head_snap,
+                    repo_path=target_path,
+                )
+            except SecurityValidationError as exc:
+                print(f"[SECURITY ERROR] ({exc.code}): {exc.message}", file=sys.stderr)
+                return 2
+            except Exception as exc:
+                print(f"[ERROR] Historical diff failed: {exc}", file=sys.stderr)
+                return 1
+
+            if args.format == "json":
+                output_text = hist_diff_res.model_dump_json(indent=2)
+            else:
+                output_text = hist_diff_res.summary_text
+
+            if args.output:
+                out_p = Path(args.output).resolve()
+                out_p.parent.mkdir(parents=True, exist_ok=True)
+                out_p.write_text(output_text, encoding="utf-8")
+                print(f"Historical diff written to {out_p}")
+            else:
+                print(output_text)
+            return 0
+
+        if args.history_action == "snapshots":
+            cache = hist_engine.cache
+            if args.format == "json":
+                keys = cache.list_keys()[: args.limit]
+                items = []
+                for k in keys:
+                    s = cache.get(k)
+                    if s:
+                        items.append(
+                            {
+                                "key": k,
+                                "commit_sha": s.commit_sha,
+                                "timestamp": s.commit_timestamp,
+                                "author": s.commit_author,
+                            }
+                        )
+                output_text = json.dumps({"total": len(items), "snapshots": items}, indent=2)
+            else:
+                output_text = _format_snapshots_table(cache)
+
+            print(output_text)
+            return 0
+
+        if args.history_action == "timeline":
+            try:
+                timeline_eng = TimelineEngine(engine=hist_engine)
+                timeline_res = timeline_eng.build_timeline(limit=args.limit)
+            except SecurityValidationError as exc:
+                print(f"[SECURITY ERROR] ({exc.code}): {exc.message}", file=sys.stderr)
+                return 2
+            except Exception as exc:
+                print(f"[ERROR] Historical timeline failed: {exc}", file=sys.stderr)
+                return 1
+
+            if args.format == "json":
+                output_text = timeline_res.model_dump_json(indent=2)
+            elif args.format == "markdown":
+                lines = [
+                    f"# Architecture Evolution Timeline — `{timeline_res.repo_identity}`",
+                    "",
+                    f"Total analyzed commits: **{timeline_res.total_commits}**",
+                    "",
+                    "| Commit | Date | Author | Files | LOC | Health Score | Grade | Cycles | AST Cov |",
+                    "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
+                ]
+                for e in timeline_res.entries:
+                    h_str = f"{e.health_score:.1f}" if e.health_score is not None else "N/A"
+                    lines.append(
+                        f"| `{e.commit_sha[:10]}` | {e.commit_timestamp[:10]} | {e.commit_author} | "
+                        f"{e.total_files} | {e.total_lines_code:,} | {h_str} | {e.health_grade} | "
+                        f"{e.cycles_count} | {e.ast_coverage_pct:.1f}% |"
+                    )
+                output_text = "\n".join(lines)
+            else:
+                output_text = timeline_res.summary_text
+
+            if args.output:
+                out_p = Path(args.output).resolve()
+                out_p.parent.mkdir(parents=True, exist_ok=True)
+                out_p.write_text(output_text, encoding="utf-8")
+                print(f"Historical timeline written to {out_p}")
             else:
                 print(output_text)
             return 0

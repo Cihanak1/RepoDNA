@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from repodna.brain.evidence import extract_evidence_snippet
 from repodna.brain.indexer import SymbolIndexer
 from repodna.brain.retrieval import SmartRetrievalEngine
 from repodna.brain.tracer import AmbiguousSymbolError, SymbolTracer
@@ -28,6 +29,10 @@ from repodna.core.analyzer import run_repository_analysis
 from repodna.diff.engine import ArchitectureDiffEngine
 from repodna.diff.snapshot import SnapshotManager
 from repodna.guardian.engine import PRArchitectureGuardian
+from repodna.history.diff import EvolutionDiffEngine
+from repodna.history.engine import HistoricalSnapshotEngine
+from repodna.history.evidence import HistoricalEvidenceProvider
+from repodna.history.timeline import TimelineEngine
 from repodna.intelligence.service import RepositoryIntelligenceService
 from repodna.passport.generator import (
     export_passport_to_json,
@@ -46,6 +51,7 @@ from repodna.security.validators import (
 
 try:
     from mcp.server.mcpserver import MCPServer
+
     HAS_OFFICIAL_MCP = True
 except ImportError:
     HAS_OFFICIAL_MCP = False
@@ -53,6 +59,7 @@ except ImportError:
 
 try:
     import importlib.metadata
+
     MCP_SDK_VERSION = importlib.metadata.version("mcp")
 except Exception:
     MCP_SDK_VERSION = "unknown"
@@ -62,16 +69,41 @@ SERVER_NAME = "repodna-mcp"
 SERVER_VERSION = "0.5.0"
 
 RELEVANT_EXTENSIONS = {
-    ".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
-    ".go", ".rs", ".cs", ".java",
-    ".json", ".toml", ".yaml", ".yml", ".md",
-    ".csproj", ".sln",
+    ".py",
+    ".ts",
+    ".tsx",
+    ".js",
+    ".jsx",
+    ".mjs",
+    ".cjs",
+    ".go",
+    ".rs",
+    ".cs",
+    ".java",
+    ".json",
+    ".toml",
+    ".yaml",
+    ".yml",
+    ".md",
+    ".csproj",
+    ".sln",
 }
 
 IGNORED_SCAN_DIRS = {
-    ".git", "node_modules", ".venv", "venv", "dist", "build",
-    "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
-    ".next", ".nuxt", "bin", "obj",
+    ".git",
+    "node_modules",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".next",
+    ".nuxt",
+    "bin",
+    "obj",
 }
 
 
@@ -91,7 +123,11 @@ class RepoDNAMCPServer:
         else:
             env_val = os.environ.get("REPODNA_ALLOWED_ROOTS", "").strip()
             if env_val:
-                raw_parts = re.split(r"(?<![a-zA-Z]):|;", env_val) if sys.platform == "win32" else env_val.split(":")
+                raw_parts = (
+                    re.split(r"(?<![a-zA-Z]):|;", env_val)
+                    if sys.platform == "win32"
+                    else env_val.split(":")
+                )
                 for part in raw_parts:
                     p_str = part.strip()
                     if p_str:
@@ -103,7 +139,9 @@ class RepoDNAMCPServer:
             cwd = Path.cwd().resolve()
             # If current directory is user home or drive root, do not default to it (require explicit root)
             if cwd == Path.home().resolve() or cwd == cwd.parent:
-                _log(f"Warning: Current working directory '{cwd}' is a system root or user home. Requiring explicit authorized root.")
+                _log(
+                    f"Warning: Current working directory '{cwd}' is a system root or user home. Requiring explicit authorized root."
+                )
                 configured_roots = []
             else:
                 configured_roots = [cwd]
@@ -113,7 +151,9 @@ class RepoDNAMCPServer:
         _log(f"Configured authorized workspace roots: {[str(r) for r in self.allowed_roots]}")
 
         # Analysis cache: (cache_type, repo_str, git_rev) -> (fingerprint, time_iso, dur_ms, AnalysisResult)
-        self._analysis_cache: dict[tuple[str, str, str], tuple[str, str, float, AnalysisResult]] = {}
+        self._analysis_cache: dict[
+            tuple[str, str, str], tuple[str, str, float, AnalysisResult]
+        ] = {}
         self._indexer_cache: dict[tuple[str, str], SymbolIndexer] = {}
         # Per-repo file stat cache for fast incremental hashing: {repo_str: {norm_rel: (size, mtime_ns, hash)}}
         self._file_stat_cache: dict[str, dict[str, tuple[int, int, str]]] = {}
@@ -200,7 +240,9 @@ class RepoDNAMCPServer:
                 except OSError:
                     pass
             git_metadata = f"{head_content}|{head_mtime}|{index_stat}"
-            git_rev = head_content.split("/")[-1] if "/" in head_content else (head_content[:8] or "HEAD")
+            git_rev = (
+                head_content.split("/")[-1] if "/" in head_content else (head_content[:8] or "HEAD")
+            )
 
         # 2. Collect relevant source files
         file_entries: list[tuple[str, int, int]] = []
@@ -209,7 +251,12 @@ class RepoDNAMCPServer:
             rel_root = os.path.relpath(root, repo_path)
             for f in files:
                 ext = os.path.splitext(f)[1].lower()
-                if ext in RELEVANT_EXTENSIONS or f in ("pyproject.toml", "package.json", "Cargo.toml", "go.mod"):
+                if ext in RELEVANT_EXTENSIONS or f in (
+                    "pyproject.toml",
+                    "package.json",
+                    "Cargo.toml",
+                    "go.mod",
+                ):
                     rel_path = f if rel_root == "." else os.path.join(rel_root, f)
                     norm_rel = rel_path.replace("\\", "/")
                     full_path = os.path.join(root, f)
@@ -234,7 +281,11 @@ class RepoDNAMCPServer:
         always_hash = len(file_entries) <= 300 or force
 
         for norm_rel, size, mtime_ns in file_entries:
-            if not always_hash and norm_rel in cached_files and cached_files[norm_rel][:2] == (size, mtime_ns):
+            if (
+                not always_hash
+                and norm_rel in cached_files
+                and cached_files[norm_rel][:2] == (size, mtime_ns)
+            ):
                 file_hash = cached_files[norm_rel][2]
             else:
                 target_file = repo_path / norm_rel
@@ -303,7 +354,9 @@ class RepoDNAMCPServer:
         """Returns the cache report from the most recent get_analysis query."""
         return dict(self._last_cache_report)
 
-    def tool_repository_overview(self, target: str, format: str = "text", force: bool = False) -> str:
+    def tool_repository_overview(
+        self, target: str, format: str = "text", force: bool = False
+    ) -> str:
         analysis = self.get_analysis(target, force=force)
         svc = RepositoryIntelligenceService(analysis)
         ov = svc.get_repository_overview()
@@ -317,14 +370,21 @@ class RepoDNAMCPServer:
         am = svc.get_architecture_map(level=level, limit=limit)
         return am.model_dump_json(indent=2)
 
-    def tool_find_modules(self, target: str, query: str, limit: int = 10, force: bool = False) -> str:
+    def tool_find_modules(
+        self, target: str, query: str, limit: int = 10, force: bool = False
+    ) -> str:
         analysis = self.get_analysis(target, force=force)
         svc = RepositoryIntelligenceService(analysis)
         res = svc.find_relevant_modules(query=query, limit=limit)
         return res.model_dump_json(indent=2)
 
     def tool_module_dependencies(
-        self, target: str, file_path: str, direction: str = "outgoing", depth: int = 1, force: bool = False
+        self,
+        target: str,
+        file_path: str,
+        direction: str = "outgoing",
+        depth: int = 1,
+        force: bool = False,
     ) -> str:
         analysis = self.get_analysis(target, force=force)
         svc = RepositoryIntelligenceService(analysis)
@@ -431,14 +491,23 @@ class RepoDNAMCPServer:
             return export_passport_to_markdown(passport)
         return export_passport_to_json(passport)
 
-
     def tool_get_contract(self, target: str, format: str = "yaml") -> str:
         resolved, stype = self._resolve_target(target)
         if stype != SourceType.LOCAL or not isinstance(resolved, Path):
-            return json.dumps({"has_contract": False, "message": "Contracts are only supported for local repositories."})
+            return json.dumps(
+                {
+                    "has_contract": False,
+                    "message": "Contracts are only supported for local repositories.",
+                }
+            )
         c_file = find_contract_file(resolved)
         if not c_file:
-            return json.dumps({"has_contract": False, "message": "No .repodna/architecture.yml found in repository."})
+            return json.dumps(
+                {
+                    "has_contract": False,
+                    "message": "No .repodna/architecture.yml found in repository.",
+                }
+            )
         content = c_file.read_text(encoding="utf-8", errors="replace")
         if format.lower() == "json":
             contract = load_contract_file(c_file)
@@ -456,7 +525,12 @@ class RepoDNAMCPServer:
             return json.dumps({"error": "Contract checks require a local repository."})
         c_file = find_contract_file(resolved)
         if not c_file:
-            return json.dumps({"has_contract": False, "message": "No .repodna/architecture.yml found in repository. Run 'repodna contract init' to create one."})
+            return json.dumps(
+                {
+                    "has_contract": False,
+                    "message": "No .repodna/architecture.yml found in repository. Run 'repodna contract init' to create one.",
+                }
+            )
         contract = load_contract_file(c_file)
         analysis = self.get_analysis(target, force=force)
         mode_override = ContractMode(mode) if mode else None
@@ -505,7 +579,9 @@ class RepoDNAMCPServer:
             return report.summary_markdown
         return report.model_dump_json(indent=2)
 
-    def _get_or_create_indexer(self, resolved: Path | str, analysis: AnalysisResult) -> SymbolIndexer:
+    def _get_or_create_indexer(
+        self, resolved: Path | str, analysis: AnalysisResult
+    ) -> SymbolIndexer:
         repo_str = str(resolved)
         cache_key = (repo_str, analysis.analyzed_at.isoformat())
         if cache_key in self._indexer_cache:
@@ -547,7 +623,9 @@ class RepoDNAMCPServer:
         if name:
             syms = indexer.find_by_name(name=name, kind=kind, file_path=file_path, exact=False)
             return json.dumps([s.model_dump() for s in syms[:limit]], indent=2)
-        resp = indexer.list_symbols(kind=kind, file_path=file_path, container=container, limit=limit)
+        resp = indexer.list_symbols(
+            kind=kind, file_path=file_path, container=container, limit=limit
+        )
         return resp.model_dump_json(indent=2)
 
     def tool_trace_symbol(
@@ -603,7 +681,11 @@ class RepoDNAMCPServer:
             if check_staleness and isinstance(resolved, Path):
                 try:
                     content, _, file_exists = safe_read_evidence_file(resolved, ev.file_path)
-                    ledger.check_staleness(ev.file_path, current_content=content if file_exists else "", current_revision=indexer.revision)
+                    ledger.check_staleness(
+                        ev.file_path,
+                        current_content=content if file_exists else "",
+                        current_revision=indexer.revision,
+                    )
                 except SecurityValidationError:
                     pass
             return ev.model_dump_json(indent=2)
@@ -617,7 +699,11 @@ class RepoDNAMCPServer:
             if check_staleness and isinstance(resolved, Path):
                 try:
                     content, _, file_exists = safe_read_evidence_file(resolved, posix_rel)
-                    evs = ledger.check_staleness(posix_rel, current_content=content if file_exists else "", current_revision=indexer.revision)
+                    evs = ledger.check_staleness(
+                        posix_rel,
+                        current_content=content if file_exists else "",
+                        current_revision=indexer.revision,
+                    )
                 except SecurityValidationError:
                     pass
             return json.dumps([e.model_dump() for e in evs[:limit]], indent=2)
@@ -653,6 +739,93 @@ class RepoDNAMCPServer:
             return ctx.model_dump_json(indent=2)
         return ctx.as_markdown()
 
+    def tool_history_snapshots(self, target: str, limit: int = 30) -> str:
+        resolved, _ = self._resolve_target(target)
+        root = resolved if isinstance(resolved, Path) else Path(".")
+        engine = HistoricalSnapshotEngine(repo_path=root)
+        keys = engine.cache.list_keys()[:limit]
+        items = []
+        for k in keys:
+            snap = engine.cache.get(k)
+            if snap:
+                items.append(
+                    {
+                        "cache_key": k,
+                        "commit_sha": snap.commit_sha,
+                        "timestamp": snap.commit_timestamp,
+                        "author": snap.commit_author,
+                        "health_score": snap.health.score,
+                        "modules_count": len(snap.modules),
+                    }
+                )
+        return json.dumps(
+            {
+                "repo_identity": engine.repo_identity,
+                "total_cached_snapshots": len(items),
+                "snapshots": items,
+                "read_only": True,
+                "provenance": "historical_disk_cache",
+            },
+            indent=2,
+        )
+
+    def tool_history_analyze(
+        self, target: str, commit_sha: str = "HEAD", use_cache: bool = True
+    ) -> str:
+        resolved, _ = self._resolve_target(target)
+        root = resolved if isinstance(resolved, Path) else Path(".")
+        engine = HistoricalSnapshotEngine(repo_path=root)
+        snap = engine.create_snapshot(commit_sha, use_cache=use_cache)
+        return snap.model_dump_json(indent=2)
+
+    def tool_history_diff(
+        self, target: str, base_sha: str = "HEAD~1", head_sha: str = "HEAD"
+    ) -> str:
+        resolved, _ = self._resolve_target(target)
+        root = resolved if isinstance(resolved, Path) else Path(".")
+        engine = HistoricalSnapshotEngine(repo_path=root)
+        base_snap = engine.create_snapshot(base_sha)
+        head_snap = engine.create_snapshot(head_sha)
+        diff_res = EvolutionDiffEngine.compare_snapshots(
+            base=base_snap, head=head_snap, repo_path=root
+        )
+        return diff_res.model_dump_json(indent=2)
+
+    def tool_history_timeline(self, target: str, limit: int = 20) -> str:
+        resolved, _ = self._resolve_target(target)
+        root = resolved if isinstance(resolved, Path) else Path(".")
+        engine = HistoricalSnapshotEngine(repo_path=root)
+        timeline_eng = TimelineEngine(engine=engine)
+        res = timeline_eng.build_timeline(limit=limit)
+        return res.model_dump_json(indent=2)
+
+    def tool_history_evidence(
+        self, target: str, commit_sha: str, file_path: str, line_start: int = 1, line_end: int = 50
+    ) -> str:
+        resolved, _ = self._resolve_target(target)
+        root = resolved if isinstance(resolved, Path) else Path(".")
+        engine = HistoricalSnapshotEngine(repo_path=root)
+        if len(commit_sha) != 40 or not all(c in "0123456789abcdefABCDEF" for c in commit_sha):
+            full_sha, _, _, _, _ = engine.resolve_commit(commit_sha)
+        else:
+            full_sha = commit_sha.lower()
+
+        provider = HistoricalEvidenceProvider(repo_path=root)
+        content = provider.read_historical_file(commit_sha=full_sha, file_path=file_path)
+        snippet, chash = extract_evidence_snippet(content, line_start, line_end)
+        return json.dumps(
+            {
+                "commit_sha": full_sha,
+                "file_path": file_path,
+                "line_start": line_start,
+                "line_end": line_end,
+                "snippet": snippet,
+                "content_hash": chash,
+                "is_historical_blob": True,
+                "revision_source": f"git_blob:{full_sha[:10]}",
+            },
+            indent=2,
+        )
 
     # -------------------------------------------------------------------------
     # Official Python MCP SDK Server Setup
@@ -661,74 +834,277 @@ class RepoDNAMCPServer:
         """Configures official MCPServer with typed tools when SDK is available."""
         self._official_server = MCPServer(name=SERVER_NAME)
 
-        @self._official_server.tool(name="repodna_repository_overview", description="Provides high-level codebase architecture snapshot, health metrics, and component vitals.")
+        @self._official_server.tool(
+            name="repodna_repository_overview",
+            description="Provides high-level codebase architecture snapshot, health metrics, and component vitals.",
+        )
         def _mcp_overview(target: str, format: str = "text", force: bool = False) -> str:
             return self.tool_repository_overview(target=target, format=format, force=force)
 
-        @self._official_server.tool(name="repodna_architecture_map", description="Outputs component taxonomy, dependency graph linkages, and modular hierarchy.")
-        def _mcp_arch_map(target: str, level: str = "clusters", limit: int = 30, force: bool = False) -> str:
+        @self._official_server.tool(
+            name="repodna_architecture_map",
+            description="Outputs component taxonomy, dependency graph linkages, and modular hierarchy.",
+        )
+        def _mcp_arch_map(
+            target: str, level: str = "clusters", limit: int = 30, force: bool = False
+        ) -> str:
             return self.tool_architecture_map(target=target, level=level, limit=limit, force=force)
 
-        @self._official_server.tool(name="repodna_find_modules", description="Finds repository modules matching a search query by filename, symbols, or architectural hub status.")
+        @self._official_server.tool(
+            name="repodna_find_modules",
+            description="Finds repository modules matching a search query by filename, symbols, or architectural hub status.",
+        )
         def _mcp_find_modules(target: str, query: str, limit: int = 10, force: bool = False) -> str:
             return self.tool_find_modules(target=target, query=query, limit=limit, force=force)
 
-        @self._official_server.tool(name="repodna_module_dependencies", description="Traces direct or transitive incoming/outgoing dependencies for a specific module.")
-        def _mcp_dependencies(target: str, file_path: str, direction: str = "outgoing", depth: int = 1, force: bool = False) -> str:
-            return self.tool_module_dependencies(target=target, file_path=file_path, direction=direction, depth=depth, force=force)
+        @self._official_server.tool(
+            name="repodna_module_dependencies",
+            description="Traces direct or transitive incoming/outgoing dependencies for a specific module.",
+        )
+        def _mcp_dependencies(
+            target: str,
+            file_path: str,
+            direction: str = "outgoing",
+            depth: int = 1,
+            force: bool = False,
+        ) -> str:
+            return self.tool_module_dependencies(
+                target=target, file_path=file_path, direction=direction, depth=depth, force=force
+            )
 
-        @self._official_server.tool(name="repodna_module_findings", description="Lists architectural rule findings (circular dependencies, coupling hotspots) filtered by module or rule.")
-        def _mcp_findings(target: str, file_path: str | None = None, rule_id: str | None = None, severity: str | None = None, force: bool = False) -> str:
-            return self.tool_module_findings(target=target, file_path=file_path, rule_id=rule_id, severity=severity, force=force)
+        @self._official_server.tool(
+            name="repodna_module_findings",
+            description="Lists architectural rule findings (circular dependencies, coupling hotspots) filtered by module or rule.",
+        )
+        def _mcp_findings(
+            target: str,
+            file_path: str | None = None,
+            rule_id: str | None = None,
+            severity: str | None = None,
+            force: bool = False,
+        ) -> str:
+            return self.tool_module_findings(
+                target=target, file_path=file_path, rule_id=rule_id, severity=severity, force=force
+            )
 
-        @self._official_server.tool(name="repodna_architecture_diff", description="Compares two Git revisions or working tree against a revision for architectural changes.")
+        @self._official_server.tool(
+            name="repodna_architecture_diff",
+            description="Compares two Git revisions or working tree against a revision for architectural changes.",
+        )
         def _mcp_diff(target: str, base_ref: str = "HEAD~1", head_ref: str = "HEAD") -> str:
             return self.tool_architecture_diff(target=target, base_ref=base_ref, head_ref=head_ref)
 
-        @self._official_server.tool(name="repodna_change_impact", description="Evaluates architectural risk and direct/transitive blast radius of proposed file edits.")
-        def _mcp_change_impact(target: str, changed_files: list[str], max_depth: int = 2, force: bool = False) -> str:
-            return self.tool_change_impact(target=target, changed_files=changed_files, max_depth=max_depth, force=force)
+        @self._official_server.tool(
+            name="repodna_change_impact",
+            description="Evaluates architectural risk and direct/transitive blast radius of proposed file edits.",
+        )
+        def _mcp_change_impact(
+            target: str, changed_files: list[str], max_depth: int = 2, force: bool = False
+        ) -> str:
+            return self.tool_change_impact(
+                target=target, changed_files=changed_files, max_depth=max_depth, force=force
+            )
 
-        @self._official_server.tool(name="repodna_analysis_coverage", description="Returns full AST vs partial static language coverage, unverified rules, and honesty guarantees.")
+        @self._official_server.tool(
+            name="repodna_analysis_coverage",
+            description="Returns full AST vs partial static language coverage, unverified rules, and honesty guarantees.",
+        )
         def _mcp_coverage(target: str, force: bool = False) -> str:
             return self.tool_analysis_coverage(target=target, force=force)
 
-        @self._official_server.tool(name="repodna_get_passport", description="Retrieves portable Repository Passport containing structural identity, AST coverage, hubs, and contracts.")
-        def _mcp_passport(target: str, max_modules: int = 150, format: str = "json", version: str = "2.0", force: bool = False) -> str:
-            return self.tool_get_passport(target=target, max_modules=max_modules, format=format, version=version, force=force)
+        @self._official_server.tool(
+            name="repodna_get_passport",
+            description="Retrieves portable Repository Passport containing structural identity, AST coverage, hubs, and contracts.",
+        )
+        def _mcp_passport(
+            target: str,
+            max_modules: int = 150,
+            format: str = "json",
+            version: str = "2.0",
+            force: bool = False,
+        ) -> str:
+            return self.tool_get_passport(
+                target=target, max_modules=max_modules, format=format, version=version, force=force
+            )
 
-
-        @self._official_server.tool(name="repodna_get_contract", description="Returns declared repository Architecture Contract rules and boundary policies from .repodna/architecture.yml.")
+        @self._official_server.tool(
+            name="repodna_get_contract",
+            description="Returns declared repository Architecture Contract rules and boundary policies from .repodna/architecture.yml.",
+        )
         def _mcp_get_contract(target: str, format: str = "yaml") -> str:
             return self.tool_get_contract(target=target, format=format)
 
-        @self._official_server.tool(name="repodna_check_contract", description="Evaluates repository against architecture contract rules, reporting violations, baseline items, and unknowns.")
+        @self._official_server.tool(
+            name="repodna_check_contract",
+            description="Evaluates repository against architecture contract rules, reporting violations, baseline items, and unknowns.",
+        )
         def _mcp_check_contract(target: str, mode: str | None = None, force: bool = False) -> str:
             return self.tool_check_contract(target=target, mode=mode, force=force)
 
-        @self._official_server.tool(name="repodna_pr_guardian", description="Continuous architectural assessment between base and head Git revisions for PR review with pass/fail verdict.")
-        def _mcp_guardian(target: str, base_ref: str = "HEAD~1", head_ref: str = "HEAD", mode: str | None = None, format: str = "json") -> str:
-            return self.tool_pr_guardian(target=target, base_ref=base_ref, head_ref=head_ref, mode=mode, format=format)
-        @self._official_server.tool(name="repodna_search_code", description="Smart Context Retrieval across repository code, symbols, and architecture with explainable scoring.")
-        def _mcp_search_code(target: str, query: str, limit: int = 10, kind: str | None = None, path_filter: str | None = None, force: bool = False) -> str:
-            return self.tool_search_code(target=target, query=query, limit=limit, kind=kind, path_filter=path_filter, force=force)
+        @self._official_server.tool(
+            name="repodna_pr_guardian",
+            description="Continuous architectural assessment between base and head Git revisions for PR review with pass/fail verdict.",
+        )
+        def _mcp_guardian(
+            target: str,
+            base_ref: str = "HEAD~1",
+            head_ref: str = "HEAD",
+            mode: str | None = None,
+            format: str = "json",
+        ) -> str:
+            return self.tool_pr_guardian(
+                target=target, base_ref=base_ref, head_ref=head_ref, mode=mode, format=format
+            )
 
-        @self._official_server.tool(name="repodna_find_symbol", description="Queries Tree-sitter symbol index by name, kind, file path, or container class.")
-        def _mcp_find_symbol(target: str, name: str | None = None, kind: str | None = None, file_path: str | None = None, container: str | None = None, limit: int = 25, force: bool = False) -> str:
-            return self.tool_find_symbol(target=target, name=name, kind=kind, file_path=file_path, container=container, limit=limit, force=force)
+        @self._official_server.tool(
+            name="repodna_search_code",
+            description="Smart Context Retrieval across repository code, symbols, and architecture with explainable scoring.",
+        )
+        def _mcp_search_code(
+            target: str,
+            query: str,
+            limit: int = 10,
+            kind: str | None = None,
+            path_filter: str | None = None,
+            force: bool = False,
+        ) -> str:
+            return self.tool_search_code(
+                target=target,
+                query=query,
+                limit=limit,
+                kind=kind,
+                path_filter=path_filter,
+                force=force,
+            )
 
-        @self._official_server.tool(name="repodna_trace_symbol", description="Traces cross-module call sites, importing files, and blast radius of modifying a symbol.")
-        def _mcp_trace_symbol(target: str, symbol_name: str, file_path: str | None = None, force: bool = False) -> str:
-            return self.tool_trace_symbol(target=target, symbol_name=symbol_name, file_path=file_path, force=force)
+        @self._official_server.tool(
+            name="repodna_find_symbol",
+            description="Queries Tree-sitter symbol index by name, kind, file path, or container class.",
+        )
+        def _mcp_find_symbol(
+            target: str,
+            name: str | None = None,
+            kind: str | None = None,
+            file_path: str | None = None,
+            container: str | None = None,
+            limit: int = 25,
+            force: bool = False,
+        ) -> str:
+            return self.tool_find_symbol(
+                target=target,
+                name=name,
+                kind=kind,
+                file_path=file_path,
+                container=container,
+                limit=limit,
+                force=force,
+            )
 
-        @self._official_server.tool(name="repodna_get_evidence", description="Retrieves verified architectural evidence citations with Git revision provenance and staleness status.")
-        def _mcp_get_evidence(target: str, evidence_id: str | None = None, file_path: str | None = None, symbol_name: str | None = None, check_staleness: bool = True, limit: int = 25, force: bool = False) -> str:
-            return self.tool_get_evidence(target=target, evidence_id=evidence_id, file_path=file_path, symbol_name=symbol_name, check_staleness=check_staleness, limit=limit, force=force)
+        @self._official_server.tool(
+            name="repodna_trace_symbol",
+            description="Traces cross-module call sites, importing files, and blast radius of modifying a symbol.",
+        )
+        def _mcp_trace_symbol(
+            target: str, symbol_name: str, file_path: str | None = None, force: bool = False
+        ) -> str:
+            return self.tool_trace_symbol(
+                target=target, symbol_name=symbol_name, file_path=file_path, force=force
+            )
 
-        @self._official_server.tool(name="repodna_build_context", description="Generates budget-aware architectural context (compact/focused/deep) with evidence citations for AI agents.")
-        def _mcp_build_context(target: str, mode: str = "focused", query: str | None = None, target_files: list[str] | None = None, max_tokens: int | None = 2000, minimal_contract: bool = False, format: str = "markdown", force: bool = False) -> str:
-            return self.tool_build_context(target=target, mode=mode, query=query, target_files=target_files, max_tokens=max_tokens, minimal_contract=minimal_contract, format=format, force=force)
+        @self._official_server.tool(
+            name="repodna_get_evidence",
+            description="Retrieves verified architectural evidence citations with Git revision provenance and staleness status.",
+        )
+        def _mcp_get_evidence(
+            target: str,
+            evidence_id: str | None = None,
+            file_path: str | None = None,
+            symbol_name: str | None = None,
+            check_staleness: bool = True,
+            limit: int = 25,
+            force: bool = False,
+        ) -> str:
+            return self.tool_get_evidence(
+                target=target,
+                evidence_id=evidence_id,
+                file_path=file_path,
+                symbol_name=symbol_name,
+                check_staleness=check_staleness,
+                limit=limit,
+                force=force,
+            )
 
+        @self._official_server.tool(
+            name="repodna_build_context",
+            description="Generates budget-aware architectural context (compact/focused/deep) with evidence citations for AI agents.",
+        )
+        def _mcp_build_context(
+            target: str,
+            mode: str = "focused",
+            query: str | None = None,
+            target_files: list[str] | None = None,
+            max_tokens: int | None = 2000,
+            minimal_contract: bool = False,
+            format: str = "markdown",
+            force: bool = False,
+        ) -> str:
+            return self.tool_build_context(
+                target=target,
+                mode=mode,
+                query=query,
+                target_files=target_files,
+                max_tokens=max_tokens,
+                minimal_contract=minimal_contract,
+                format=format,
+                force=force,
+            )
+
+        @self._official_server.tool(
+            name="repodna_history_snapshots",
+            description="Lists cached historical architecture snapshots in the repository with health and module counts.",
+        )
+        def _mcp_history_snapshots(target: str, limit: int = 30) -> str:
+            return self.tool_history_snapshots(target=target, limit=limit)
+
+        @self._official_server.tool(
+            name="repodna_history_analyze",
+            description="Extracts and returns an immutable architectural snapshot for a specific Git commit SHA.",
+        )
+        def _mcp_history_analyze(
+            target: str, commit_sha: str = "HEAD", use_cache: bool = True
+        ) -> str:
+            return self.tool_history_analyze(
+                target=target, commit_sha=commit_sha, use_cache=use_cache
+            )
+
+        @self._official_server.tool(
+            name="repodna_history_diff",
+            description="Computes architectural evolution diff between base and head Git commits (added/removed modules, renames, cycles, coupling).",
+        )
+        def _mcp_history_diff(target: str, base_sha: str = "HEAD~1", head_sha: str = "HEAD") -> str:
+            return self.tool_history_diff(target=target, base_sha=base_sha, head_sha=head_sha)
+
+        @self._official_server.tool(
+            name="repodna_history_timeline",
+            description="Builds historical architecture evolution timeline across a sequence of Git commits.",
+        )
+        def _mcp_history_timeline(target: str, limit: int = 20) -> str:
+            return self.tool_history_timeline(target=target, limit=limit)
+
+        @self._official_server.tool(
+            name="repodna_history_evidence",
+            description="Retrieves historical source snippet directly from a Git commit blob with cryptographic provenance.",
+        )
+        def _mcp_history_evidence(
+            target: str, commit_sha: str, file_path: str, line_start: int = 1, line_end: int = 50
+        ) -> str:
+            return self.tool_history_evidence(
+                target=target,
+                commit_sha=commit_sha,
+                file_path=file_path,
+                line_start=line_start,
+                line_end=line_end,
+            )
 
     def run(self, transport: str = "stdio") -> None:
         """Runs the server. Enforces official Python MCP SDK as standard."""
@@ -738,7 +1114,9 @@ class RepoDNAMCPServer:
                 f"Currently installed: {MCP_SDK_VERSION}. Please install with: pip install 'mcp>=2.0.0'"
             )
 
-        _log(f"Starting RepoDNA MCP server via official Python SDK v2 ({MCP_SDK_VERSION}), transport={transport}")
+        _log(
+            f"Starting RepoDNA MCP server via official Python SDK v2 ({MCP_SDK_VERSION}), transport={transport}"
+        )
         self._official_server.run(transport=transport)
 
     # -------------------------------------------------------------------------
@@ -752,7 +1130,10 @@ class RepoDNAMCPServer:
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "target": {"type": "string", "description": "Local path, repo URL, or 'demo'."},
+                        "target": {
+                            "type": "string",
+                            "description": "Local path, repo URL, or 'demo'.",
+                        },
                         "format": {"type": "string", "enum": ["text", "json"], "default": "text"},
                     },
                     "required": ["target"],
@@ -765,7 +1146,11 @@ class RepoDNAMCPServer:
                     "type": "object",
                     "properties": {
                         "target": {"type": "string", "description": "Local path or 'demo'."},
-                        "level": {"type": "string", "enum": ["overview", "clusters", "full"], "default": "clusters"},
+                        "level": {
+                            "type": "string",
+                            "enum": ["overview", "clusters", "full"],
+                            "default": "clusters",
+                        },
                         "limit": {"type": "integer", "default": 30},
                     },
                     "required": ["target"],
@@ -778,7 +1163,10 @@ class RepoDNAMCPServer:
                     "type": "object",
                     "properties": {
                         "target": {"type": "string", "description": "Local path or 'demo'."},
-                        "query": {"type": "string", "description": "Search keyword, symbol name, or path substring."},
+                        "query": {
+                            "type": "string",
+                            "description": "Search keyword, symbol name, or path substring.",
+                        },
                         "limit": {"type": "integer", "default": 10},
                     },
                     "required": ["target", "query"],
@@ -791,8 +1179,15 @@ class RepoDNAMCPServer:
                     "type": "object",
                     "properties": {
                         "target": {"type": "string", "description": "Local path or 'demo'."},
-                        "file_path": {"type": "string", "description": "Relative file path within repository."},
-                        "direction": {"type": "string", "enum": ["outgoing", "incoming", "both"], "default": "outgoing"},
+                        "file_path": {
+                            "type": "string",
+                            "description": "Relative file path within repository.",
+                        },
+                        "direction": {
+                            "type": "string",
+                            "enum": ["outgoing", "incoming", "both"],
+                            "default": "outgoing",
+                        },
                         "depth": {"type": "integer", "default": 1},
                     },
                     "required": ["target", "file_path"],
@@ -805,8 +1200,14 @@ class RepoDNAMCPServer:
                     "type": "object",
                     "properties": {
                         "target": {"type": "string", "description": "Local path or 'demo'."},
-                        "file_path": {"type": "string", "description": "Optional file path to inspect."},
-                        "rule_id": {"type": "string", "description": "Optional rule filter (e.g. ARCH-001)."},
+                        "file_path": {
+                            "type": "string",
+                            "description": "Optional file path to inspect.",
+                        },
+                        "rule_id": {
+                            "type": "string",
+                            "description": "Optional rule filter (e.g. ARCH-001).",
+                        },
                         "severity": {"type": "string", "enum": ["critical", "warning", "info"]},
                     },
                     "required": ["target"],
@@ -818,7 +1219,10 @@ class RepoDNAMCPServer:
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "target": {"type": "string", "description": "Local Git repository directory."},
+                        "target": {
+                            "type": "string",
+                            "description": "Local Git repository directory.",
+                        },
                         "base_ref": {"type": "string", "default": "HEAD~1"},
                         "head_ref": {"type": "string", "default": "HEAD"},
                     },
@@ -857,8 +1261,17 @@ class RepoDNAMCPServer:
                     "properties": {
                         "target": {"type": "string", "description": "Local path or 'demo'."},
                         "max_modules": {"type": "integer", "default": 150},
-                        "format": {"type": "string", "enum": ["json", "markdown"], "default": "json"},
-                        "version": {"type": "string", "enum": ["1.0", "2.0"], "default": "2.0", "description": "Passport schema version."},
+                        "format": {
+                            "type": "string",
+                            "enum": ["json", "markdown"],
+                            "default": "json",
+                        },
+                        "version": {
+                            "type": "string",
+                            "enum": ["1.0", "2.0"],
+                            "default": "2.0",
+                            "description": "Passport schema version.",
+                        },
                     },
                     "required": ["target"],
                 },
@@ -893,11 +1306,18 @@ class RepoDNAMCPServer:
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "target": {"type": "string", "description": "Local Git repository directory."},
+                        "target": {
+                            "type": "string",
+                            "description": "Local Git repository directory.",
+                        },
                         "base_ref": {"type": "string", "default": "HEAD~1"},
                         "head_ref": {"type": "string", "default": "HEAD"},
                         "mode": {"type": "string", "enum": ["advisory", "enforce"]},
-                        "format": {"type": "string", "enum": ["json", "markdown"], "default": "json"},
+                        "format": {
+                            "type": "string",
+                            "enum": ["json", "markdown"],
+                            "default": "json",
+                        },
                     },
                     "required": ["target"],
                 },
@@ -909,10 +1329,19 @@ class RepoDNAMCPServer:
                     "type": "object",
                     "properties": {
                         "target": {"type": "string", "description": "Local path or 'demo'."},
-                        "query": {"type": "string", "description": "Natural or technical code query."},
+                        "query": {
+                            "type": "string",
+                            "description": "Natural or technical code query.",
+                        },
                         "limit": {"type": "integer", "default": 10},
-                        "kind": {"type": "string", "enum": ["class", "function", "method", "interface", "type"]},
-                        "path_filter": {"type": "string", "description": "Optional file path filter."},
+                        "kind": {
+                            "type": "string",
+                            "enum": ["class", "function", "method", "interface", "type"],
+                        },
+                        "path_filter": {
+                            "type": "string",
+                            "description": "Optional file path filter.",
+                        },
                     },
                     "required": ["target", "query"],
                 },
@@ -925,9 +1354,15 @@ class RepoDNAMCPServer:
                     "properties": {
                         "target": {"type": "string", "description": "Local path or 'demo'."},
                         "name": {"type": "string", "description": "Symbol name."},
-                        "kind": {"type": "string", "enum": ["class", "function", "method", "interface", "type", "struct"]},
+                        "kind": {
+                            "type": "string",
+                            "enum": ["class", "function", "method", "interface", "type", "struct"],
+                        },
                         "file_path": {"type": "string", "description": "File path filter."},
-                        "container": {"type": "string", "description": "Parent class or namespace name."},
+                        "container": {
+                            "type": "string",
+                            "description": "Parent class or namespace name.",
+                        },
                         "limit": {"type": "integer", "default": 25},
                     },
                     "required": ["target"],
@@ -940,10 +1375,22 @@ class RepoDNAMCPServer:
                     "type": "object",
                     "properties": {
                         "target": {"type": "string", "description": "Local path or 'demo'."},
-                        "symbol_name": {"type": "string", "description": "Name of the symbol to trace."},
-                        "symbol_id": {"type": "string", "description": "Deterministic symbol ID for unambiguous lookup."},
-                        "file_path": {"type": "string", "description": "Optional file path of symbol definition."},
-                        "container": {"type": "string", "description": "Optional parent class or namespace name."},
+                        "symbol_name": {
+                            "type": "string",
+                            "description": "Name of the symbol to trace.",
+                        },
+                        "symbol_id": {
+                            "type": "string",
+                            "description": "Deterministic symbol ID for unambiguous lookup.",
+                        },
+                        "file_path": {
+                            "type": "string",
+                            "description": "Optional file path of symbol definition.",
+                        },
+                        "container": {
+                            "type": "string",
+                            "description": "Optional parent class or namespace name.",
+                        },
                     },
                     "required": ["target"],
                 },
@@ -955,10 +1402,23 @@ class RepoDNAMCPServer:
                     "type": "object",
                     "properties": {
                         "target": {"type": "string", "description": "Local path or 'demo'."},
-                        "evidence_id": {"type": "string", "description": "Specific evidence ID (e.g. ev_<hash>)."},
-                        "file_path": {"type": "string", "description": "Filter evidence by file path."},
-                        "symbol_name": {"type": "string", "description": "Filter evidence by symbol name."},
-                        "check_staleness": {"type": "boolean", "default": True, "description": "Verify evidence staleness against files on disk."},
+                        "evidence_id": {
+                            "type": "string",
+                            "description": "Specific evidence ID (e.g. ev_<hash>).",
+                        },
+                        "file_path": {
+                            "type": "string",
+                            "description": "Filter evidence by file path.",
+                        },
+                        "symbol_name": {
+                            "type": "string",
+                            "description": "Filter evidence by symbol name.",
+                        },
+                        "check_staleness": {
+                            "type": "boolean",
+                            "default": True,
+                            "description": "Verify evidence staleness against files on disk.",
+                        },
                         "limit": {"type": "integer", "default": 25},
                     },
                     "required": ["target"],
@@ -971,15 +1431,109 @@ class RepoDNAMCPServer:
                     "type": "object",
                     "properties": {
                         "target": {"type": "string", "description": "Local path or 'demo'."},
-                        "mode": {"type": "string", "enum": ["compact", "focused", "deep"], "default": "focused"},
-                        "query": {"type": "string", "description": "Search query for focused context mode."},
+                        "mode": {
+                            "type": "string",
+                            "enum": ["compact", "focused", "deep"],
+                            "default": "focused",
+                        },
+                        "query": {
+                            "type": "string",
+                            "description": "Search query for focused context mode.",
+                        },
                         "target_files": {"type": "array", "items": {"type": "string"}},
                         "max_tokens": {"type": "integer", "default": 2000},
-                        "minimal_contract": {"type": "boolean", "default": False, "description": "Strict minimal contract mode."},
-                        "format": {"type": "string", "enum": ["markdown", "json"], "default": "markdown"},
+                        "minimal_contract": {
+                            "type": "boolean",
+                            "default": False,
+                            "description": "Strict minimal contract mode.",
+                        },
+                        "format": {
+                            "type": "string",
+                            "enum": ["markdown", "json"],
+                            "default": "markdown",
+                        },
                     },
-
                     "required": ["target"],
+                },
+            },
+            {
+                "name": "repodna_history_snapshots",
+                "description": "Lists cached historical architecture snapshots in the repository with health and module counts.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": {
+                            "type": "string",
+                            "description": "Local Git repository directory.",
+                        },
+                        "limit": {"type": "integer", "default": 30},
+                    },
+                    "required": ["target"],
+                },
+            },
+            {
+                "name": "repodna_history_analyze",
+                "description": "Extracts and returns an immutable architectural snapshot for a specific Git commit SHA.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": {
+                            "type": "string",
+                            "description": "Local Git repository directory.",
+                        },
+                        "commit_sha": {"type": "string", "default": "HEAD"},
+                        "use_cache": {"type": "boolean", "default": True},
+                    },
+                    "required": ["target"],
+                },
+            },
+            {
+                "name": "repodna_history_diff",
+                "description": "Computes architectural evolution diff between base and head Git commits (added/removed modules, renames, cycles, coupling).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": {
+                            "type": "string",
+                            "description": "Local Git repository directory.",
+                        },
+                        "base_sha": {"type": "string", "default": "HEAD~1"},
+                        "head_sha": {"type": "string", "default": "HEAD"},
+                    },
+                    "required": ["target"],
+                },
+            },
+            {
+                "name": "repodna_history_timeline",
+                "description": "Builds historical architecture evolution timeline across a sequence of Git commits.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": {
+                            "type": "string",
+                            "description": "Local Git repository directory.",
+                        },
+                        "limit": {"type": "integer", "default": 20},
+                    },
+                    "required": ["target"],
+                },
+            },
+            {
+                "name": "repodna_history_evidence",
+                "description": "Retrieves historical source snippet directly from a Git commit blob with cryptographic provenance.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "target": {
+                            "type": "string",
+                            "description": "Local Git repository directory.",
+                        },
+                        "commit_sha": {"type": "string", "description": "Full 40-char commit SHA."},
+                        "file_path": {"type": "string", "description": "Relative file path."},
+                        "line_start": {"type": "integer", "default": 1},
+                        "line_end": {"type": "integer", "default": 50},
+                    },
+                    "required": ["target", "commit_sha", "file_path"],
                 },
             },
         ]
@@ -989,7 +1543,9 @@ class RepoDNAMCPServer:
         if not isinstance(arguments, dict):
             return {
                 "isError": True,
-                "content": [{"type": "text", "text": f"Invalid arguments for {name}: expected JSON object."}],
+                "content": [
+                    {"type": "text", "text": f"Invalid arguments for {name}: expected JSON object."}
+                ],
             }
         target = arguments.get("target", ".")
         force = bool(arguments.get("force", False))
@@ -1123,6 +1679,36 @@ class RepoDNAMCPServer:
                     format=arguments.get("format", "markdown"),
                     force=force,
                 )
+            elif name in ("repodna_history_snapshots", "repodna_history_snapshots_list"):
+                content = self.tool_history_snapshots(
+                    target=target,
+                    limit=int(arguments.get("limit", 30)),
+                )
+            elif name in ("repodna_history_analyze", "repodna_history_snapshot"):
+                content = self.tool_history_analyze(
+                    target=target,
+                    commit_sha=arguments.get("commit_sha", "HEAD"),
+                    use_cache=bool(arguments.get("use_cache", True)),
+                )
+            elif name in ("repodna_history_diff", "repodna_history_diff_snapshots"):
+                content = self.tool_history_diff(
+                    target=target,
+                    base_sha=arguments.get("base_sha", "HEAD~1"),
+                    head_sha=arguments.get("head_sha", "HEAD"),
+                )
+            elif name in ("repodna_history_timeline", "repodna_history_evolution_timeline"):
+                content = self.tool_history_timeline(
+                    target=target,
+                    limit=int(arguments.get("limit", 20)),
+                )
+            elif name in ("repodna_history_evidence", "repodna_history_evidence_blob"):
+                content = self.tool_history_evidence(
+                    target=target,
+                    commit_sha=arguments.get("commit_sha", "HEAD"),
+                    file_path=arguments.get("file_path", ""),
+                    line_start=int(arguments.get("line_start", 1)),
+                    line_end=int(arguments.get("line_end", 50)),
+                )
 
             else:
                 return {
@@ -1138,7 +1724,9 @@ class RepoDNAMCPServer:
             _log(f"Security error in tool '{name}': [{exc.code}] {exc}")
             return {
                 "isError": True,
-                "content": [{"type": "text", "text": f"Error executing {name}: [{exc.code}] {exc}"}],
+                "content": [
+                    {"type": "text", "text": f"Error executing {name}: [{exc.code}] {exc}"}
+                ],
             }
         except Exception as exc:
             _log(f"Error in tool '{name}': {exc}")
@@ -1164,14 +1752,20 @@ class RepoDNAMCPServer:
             return {
                 "jsonrpc": "2.0",
                 "id": msg_id,
-                "error": {"code": -32600, "message": "Invalid Request: 'jsonrpc' version must be '2.0'."},
+                "error": {
+                    "code": -32600,
+                    "message": "Invalid Request: 'jsonrpc' version must be '2.0'.",
+                },
             }
 
         if not method or not isinstance(method, str):
             return {
                 "jsonrpc": "2.0",
                 "id": msg_id,
-                "error": {"code": -32600, "message": "Invalid Request: 'method' string is required."},
+                "error": {
+                    "code": -32600,
+                    "message": "Invalid Request: 'method' string is required.",
+                },
             }
 
         if method == "initialize":

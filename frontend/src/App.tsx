@@ -24,6 +24,7 @@ import { Launchpad } from './components/Launchpad';
 import { OnboardingTour } from './components/OnboardingTour';
 import { PanelResizer } from './components/PanelResizer';
 import { PassportViewer } from './components/PassportViewer';
+import { TimeMachineWorkstation } from './components/TimeMachineWorkstation';
 import { readPreference, savePreference, type WorkstationMode } from './utils/preferences';
 import { SummaryStrip } from './components/SummaryStrip';
 import type {
@@ -71,7 +72,7 @@ export const App: React.FC = () => {
   );
   useEffect(() => { savePreference('mode', workstationMode); }, [workstationMode]);
 
-  const [activeTab, setActiveTab] = useState<'studio' | 'intelligence' | 'report' | 'guardian' | 'contract' | 'passport'>('studio');
+  const [activeTab, setActiveTab] = useState<'studio' | 'intelligence' | 'report' | 'guardian' | 'contract' | 'passport' | 'history'>('studio');
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [layoutMode, setLayoutMode] = useState(() => readPreference<LayoutMode>('layout', 'layered', (v): v is LayoutMode => v === 'layered' || v === 'cluster' || v === 'radial'));
   const [densityMode, setDensityMode] = useState(() => readPreference<GraphDensityMode>('density', 'balanced', (v): v is GraphDensityMode => v === 'compact' || v === 'balanced' || v === 'spacious'));
@@ -124,6 +125,15 @@ export const App: React.FC = () => {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        // Prevent opening palette if another modal dialog is already open (e.g. folder browser, evidence inspector)
+        if (typeof document !== 'undefined') {
+          const activeOtherDialog = document.querySelector<HTMLDialogElement>(
+            'dialog[open]:not([data-testid="command-palette-dialog"])'
+          );
+          if (activeOtherDialog) {
+            return;
+          }
+        }
         e.preventDefault();
         setCommandPaletteOpen((prev) => !prev);
       }
@@ -648,11 +658,17 @@ export const App: React.FC = () => {
             defaultWorkspacePath={defaultWorkspacePath}
             workstationMode={workstationMode}
           />
-        ) : (
+        ) : activeTab === 'passport' ? (
           <PassportViewer
             result={result}
             defaultWorkspacePath={defaultWorkspacePath}
             workstationMode={workstationMode}
+          />
+        ) : (
+          <TimeMachineWorkstation
+            result={result}
+            workstationMode={workstationMode}
+            onSelectFileInStudio={handleSelectFileFromReport}
           />
         )}
       </main>

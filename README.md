@@ -1,7 +1,7 @@
 # RepoDNA — Developer Repository Intelligence Platform
 
 [![CI](https://github.com/Cihanak1/RepoDNA/actions/workflows/ci.yml/badge.svg)](https://github.com/Cihanak1/RepoDNA/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.5.0-38bdf8)](https://github.com/Cihanak1/RepoDNA/releases)
+[![Release](https://img.shields.io/badge/release-v0.6.0-38bdf8)](https://github.com/Cihanak1/RepoDNA/releases)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776ab?logo=python&logoColor=white)](https://www.python.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-10b981.svg)](./LICENSE)
@@ -9,6 +9,20 @@
 **RepoDNA** is an evidence-based repository intelligence and code architecture platform for local source directories and public GitHub repositories.
 
 Built for AI coding agents, software architects, and engineering teams, RepoDNA combines deep Tree-sitter AST symbol indexing, deterministic cross-module reference tracing, architectural guardrails, and cryptographic evidence citations with a precision intelligence workstation.
+
+---
+
+## Architecture Time Machine (v0.6.0 Release)
+
+RepoDNA v0.6.0 introduces the **Architecture Time Machine** — a zero-execution, deterministic Git evolution intelligence engine that reconstructs, compares, and audits code architectures across arbitrary historical revisions without modifying active working trees:
+
+| Time Machine Scrubber & Snapshot | Historical Git Blob Evidence Inspector |
+| :---: | :---: |
+| ![Timeline & Snapshot](./docs/design/after/timemachine-1-timeline-snapshot.png) | ![Evidence Modal](./docs/design/after/timemachine-2-evidence-modal.png) |
+
+| Architectural Evolution Diff | Progression Trends (Zero Fake Zeros) | Turkish Localization |
+| :---: | :---: | :---: |
+| ![Evolution Diff](./docs/design/after/timemachine-3-evolution-diff.png) | ![Trends Table](./docs/design/after/timemachine-4-trends.png) | ![Turkish Localization](./docs/design/after/timemachine-5-turkish.png) |
 
 ---
 
@@ -309,6 +323,17 @@ repodna analyze . --format html --output repodna-report.html
 # Architectural diff between two Git revisions
 repodna diff HEAD~1 HEAD
 
+# Architecture Time Machine commands
+repodna history snapshots .
+repodna history analyze <commit_sha> .
+repodna history diff --base <base_sha> --head <head_sha> .
+repodna history timeline . --limit 30
+
+# Repository Brain code intelligence commands
+repodna search "auth token jwt" .
+repodna symbols . --name "HistoricalSnapshotEngine"
+repodna evidence . --file "backend/repodna/history/engine.py"
+
 # Generate token-budgeted architectural context for AI agents
 repodna context --mode compact
 
@@ -403,8 +428,9 @@ Add RepoDNA's local stdio server to your agent's MCP configuration (with optiona
   }
   ```
 
-### 4. Available MCP Tools
+### 4. Available MCP Tools (22 Tools Total)
 
+#### Architecture Core (8 Tools)
 | Tool Name | Parameters | Purpose |
 | :--- | :--- | :--- |
 | `repodna_repository_overview` | `target` | Returns executive health grade, AST coverage, and key architectural hubs. |
@@ -415,6 +441,32 @@ Add RepoDNA's local stdio server to your agent's MCP configuration (with optiona
 | `repodna_architecture_diff` | `target`, `base_ref`, `head_ref` | Compares two Git revisions for new cycles, removed edges, and score delta. |
 | `repodna_change_impact` | `target`, `changed_files` | Evaluates blast radius (direct & transitive dependents) before code edits. |
 | `repodna_analysis_coverage` | `target` | Reports AST coverage honesty, unverified rules, and language support. |
+
+#### Governance & Verification (4 Tools)
+| Tool Name | Parameters | Purpose |
+| :--- | :--- | :--- |
+| `repodna_get_passport` | `target` | Retrieves portable repository architecture passport (v2.0.0). |
+| `repodna_get_contract` | `target` | Inspects declarative architectural boundary rules and constraints. |
+| `repodna_check_contract` | `target` | Evaluates current architecture against contract rules with explainable violations. |
+| `repodna_pr_guardian` | `target`, `base_ref`, `head_ref` | Evaluates pull request drift, newly introduced cycles, and merge verdict. |
+
+#### Repository Brain & Symbol Intelligence (5 Tools)
+| Tool Name | Parameters | Purpose |
+| :--- | :--- | :--- |
+| `repodna_search_code` | `target`, `query`, `limit` | Multi-factor smart context retrieval with anti-hallucination comment guards. |
+| `repodna_find_symbol` | `target`, `name`, `kind`, `container` | Precision AST symbol queries with container hierarchy and signatures. |
+| `repodna_trace_symbol` | `target`, `symbol_name`, `file_path` | Blast radius tracer identifying callers, dependent modules, and cycle risk. |
+| `repodna_get_evidence` | `target`, `evidence_id`, `verify_staleness` | Cryptographic evidence retrieval (`ev_<sha256>`) with live staleness checks. |
+| `repodna_build_context` | `target`, `focus`, `token_budget`, `mode` | Token-budgeted architectural context builder for AI coding agents. |
+
+#### Architecture Time Machine (5 Tools)
+| Tool Name | Parameters | Purpose |
+| :--- | :--- | :--- |
+| `repodna_history_snapshots` | `target`, `limit` | Lists cached historical architecture snapshots and schema versions. |
+| `repodna_history_analyze` | `target`, `commit_sha`, `use_cache` | Extracts and analyzes immutable snapshot for any past Git commit. |
+| `repodna_history_diff` | `target`, `base_sha`, `head_sha` | Computes semantic evolution diff (added, removed, modified, renamed modules). |
+| `repodna_history_timeline` | `target`, `commits`, `limit` | Traces chronological architectural trajectory across commit sequences. |
+| `repodna_history_evidence` | `target`, `commit_sha`, `file_path`, `line_start`, `line_end` | Reads cryptographically verified historical Git blob snippet without modifying workspace. |
 
 ### 5. Troubleshooting & Diagnostics
 

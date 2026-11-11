@@ -9,6 +9,7 @@ import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from repodna import __version__
+from repodna.brain.evidence import extract_evidence_snippet
 from repodna.brain.indexer import SymbolIndexer
 from repodna.brain.models import (
     EvidenceLedgerResponse,
@@ -43,6 +45,15 @@ from repodna.diff.snapshot import SnapshotManager
 from repodna.git_insights.analyzer import compute_snapshot_identity
 from repodna.guardian.engine import PRArchitectureGuardian
 from repodna.guardian.models import GuardianReport
+from repodna.history.diff import EvolutionDiffEngine
+from repodna.history.engine import HistoricalSnapshotEngine
+from repodna.history.evidence import HistoricalEvidenceProvider
+from repodna.history.models import (
+    HistoricalDiffResult,
+    HistoricalSnapshot,
+    TimelineResult,
+)
+from repodna.history.timeline import TimelineEngine
 from repodna.parsers.treesitter_parser import get_parser_engine_summary
 from repodna.passport.generator import (
     generate_repository_passport,
@@ -79,7 +90,9 @@ app = FastAPI(
 
 
 @app.exception_handler(SecurityValidationError)
-def security_validation_error_handler(request: Request, exc: SecurityValidationError) -> JSONResponse:
+def security_validation_error_handler(
+    request: Request, exc: SecurityValidationError
+) -> JSONResponse:
     return JSONResponse(
         status_code=400,
         content={"code": exc.code, "message": exc.message},
@@ -153,7 +166,10 @@ def _get_or_create_indexer_for_analysis(analysis_id: str) -> tuple[SymbolIndexer
     if not res:
         raise HTTPException(
             status_code=404,
-            detail={"code": "ANALYSIS_NOT_FOUND", "message": f"Analysis '{analysis_id}' not found."},
+            detail={
+                "code": "ANALYSIS_NOT_FOUND",
+                "message": f"Analysis '{analysis_id}' not found.",
+            },
         )
 
     is_demo = (
@@ -189,7 +205,15 @@ def _get_or_create_indexer_for_analysis(analysis_id: str) -> tuple[SymbolIndexer
             def _git_cmd(args: list[str]) -> str | None:
                 try:
                     proc = subprocess.run(
-                        ["git", "--no-optional-locks", "-c", "core.quotepath=false", "-C", str(root), *args],
+                        [
+                            "git",
+                            "--no-optional-locks",
+                            "-c",
+                            "core.quotepath=false",
+                            "-C",
+                            str(root),
+                            *args,
+                        ],
                         stdin=subprocess.DEVNULL,
                         capture_output=True,
                         text=True,
@@ -204,7 +228,11 @@ def _get_or_create_indexer_for_analysis(analysis_id: str) -> tuple[SymbolIndexer
                     return None
 
             curr_sha = _git_cmd(["rev-parse", "HEAD"])
-            if curr_sha and len(curr_sha) == 40 and all(c in "0123456789abcdefABCDEF" for c in curr_sha):
+            if (
+                curr_sha
+                and len(curr_sha) == 40
+                and all(c in "0123456789abcdefABCDEF" for c in curr_sha)
+            ):
                 res.git_insights.commit_sha = curr_sha.lower()
 
             status_raw = _git_cmd(["status", "--porcelain"])
@@ -213,7 +241,9 @@ def _get_or_create_indexer_for_analysis(analysis_id: str) -> tuple[SymbolIndexer
             res.git_insights.dirty_files_count = len(dirty_lines)
 
             if res.git_insights.commit_sha:
-                res.git_insights.verification_status = "VERIFIED_DIRTY" if res.git_insights.is_dirty else "VERIFIED_CLEAN"
+                res.git_insights.verification_status = (
+                    "VERIFIED_DIRTY" if res.git_insights.is_dirty else "VERIFIED_CLEAN"
+                )
             else:
                 res.git_insights.verification_status = "UNVERIFIED_NON_GIT"
 
@@ -256,7 +286,6 @@ def _get_or_create_indexer_for_analysis(analysis_id: str) -> tuple[SymbolIndexer
         _INDEXER_CACHE[analysis_id] = (indexer, snapshot_id)
 
     return indexer, res
-
 
 
 class DirectoryEntryItem(BaseModel):
@@ -448,7 +477,9 @@ def get_scan_job_progress(job_id: str) -> ScanProgress:
     with _LOCK:
         job = _JOBS.get(job_id)
         if not job:
-            raise HTTPException(status_code=404, detail={"code": "JOB_NOT_FOUND", "message": "Scan job not found."})
+            raise HTTPException(
+                status_code=404, detail={"code": "JOB_NOT_FOUND", "message": "Scan job not found."}
+            )
         return job.model_copy()
 
 
@@ -458,7 +489,9 @@ def cancel_scan_job(job_id: str) -> ScanProgress:
         job = _JOBS.get(job_id)
         cancel_ev = _CANCEL_FLAGS.get(job_id)
         if not job or not cancel_ev:
-            raise HTTPException(status_code=404, detail={"code": "JOB_NOT_FOUND", "message": "Scan job not found."})
+            raise HTTPException(
+                status_code=404, detail={"code": "JOB_NOT_FOUND", "message": "Scan job not found."}
+            )
         cancel_ev.set()
         if job.status not in (ScanStatus.COMPLETED, ScanStatus.FAILED):
             job = job.model_copy(
@@ -480,7 +513,9 @@ def get_scan_job_result(job_id: str) -> AnalysisResult:
         job = _JOBS.get(job_id)
         res = _JOB_RESULTS.get(job_id)
     if not job:
-        raise HTTPException(status_code=404, detail={"code": "JOB_NOT_FOUND", "message": "Scan job not found."})
+        raise HTTPException(
+            status_code=404, detail={"code": "JOB_NOT_FOUND", "message": "Scan job not found."}
+        )
     if job.status != ScanStatus.COMPLETED or not res:
         raise HTTPException(
             status_code=409,
@@ -497,7 +532,9 @@ def export_json_endpoint(analysis_id: str) -> Response:
     with _LOCK:
         res = _RESULTS_BY_ID.get(analysis_id)
     if not res:
-        raise HTTPException(status_code=404, detail={"code": "ANALYSIS_NOT_FOUND", "message": "Analysis not found."})
+        raise HTTPException(
+            status_code=404, detail={"code": "ANALYSIS_NOT_FOUND", "message": "Analysis not found."}
+        )
     payload = export_analysis_to_json(res, indent=2)
     safe_name = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in res.repo_name)
     return Response(
@@ -512,7 +549,9 @@ def export_html_endpoint(analysis_id: str) -> HTMLResponse:
     with _LOCK:
         res = _RESULTS_BY_ID.get(analysis_id)
     if not res:
-        raise HTTPException(status_code=404, detail={"code": "ANALYSIS_NOT_FOUND", "message": "Analysis not found."})
+        raise HTTPException(
+            status_code=404, detail={"code": "ANALYSIS_NOT_FOUND", "message": "Analysis not found."}
+        )
     html_doc = export_analysis_to_html(res)
     safe_name = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in res.repo_name)
     return HTMLResponse(
@@ -523,7 +562,9 @@ def export_html_endpoint(analysis_id: str) -> HTMLResponse:
 
 @app.get("/api/fs/browse", response_model=DirectoryBrowseResponse)
 def browse_local_directories(
-    path: str | None = Query(default=None, description="Directory path to list subdirectories for selection."),
+    path: str | None = Query(
+        default=None, description="Directory path to list subdirectories for selection."
+    ),
 ) -> DirectoryBrowseResponse:
     """
     Safe directory-only browser used strictly when the user opens the folder selector modal.
@@ -533,7 +574,9 @@ def browse_local_directories(
     try:
         resolved = validate_local_directory(target_str)
     except SecurityValidationError as exc:
-        raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message}) from exc
+        raise HTTPException(
+            status_code=400, detail={"code": exc.code, "message": exc.message}
+        ) from exc
 
     parent_path: str | None = None
     if resolved.parent != resolved and resolved.parent.parent != resolved.parent:
@@ -585,7 +628,9 @@ def get_analysis_passport(
     with _LOCK:
         res = _RESULTS_BY_ID.get(analysis_id)
     if not res:
-        raise HTTPException(status_code=404, detail={"code": "ANALYSIS_NOT_FOUND", "message": "Analysis not found."})
+        raise HTTPException(
+            status_code=404, detail={"code": "ANALYSIS_NOT_FOUND", "message": "Analysis not found."}
+        )
 
     contract = None
     target_path = Path(res.target_display)
@@ -607,19 +652,26 @@ def get_analysis_passport(
 
 @app.get("/api/contract", response_model=ArchitectureContract)
 def get_architecture_contract(
-    path: str = Query(default=".", description="Target repository path to locate .repodna/architecture.yml"),
+    path: str = Query(
+        default=".", description="Target repository path to locate .repodna/architecture.yml"
+    ),
 ) -> ArchitectureContract:
     """Returns the parsed ArchitectureContract if .repodna/architecture.yml exists."""
     try:
         resolved = validate_local_directory(path)
     except SecurityValidationError as exc:
-        raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message}) from exc
+        raise HTTPException(
+            status_code=400, detail={"code": exc.code, "message": exc.message}
+        ) from exc
 
     c_file = find_contract_file(resolved)
     if not c_file:
         raise HTTPException(
             status_code=404,
-            detail={"code": "CONTRACT_NOT_FOUND", "message": "No architecture contract found in repository."},
+            detail={
+                "code": "CONTRACT_NOT_FOUND",
+                "message": "No architecture contract found in repository.",
+            },
         )
 
     try:
@@ -637,7 +689,9 @@ def assess_architecture_guardian(request: GuardianAssessRequest) -> GuardianRepo
     try:
         resolved = validate_local_directory(request.target)
     except SecurityValidationError as exc:
-        raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message}) from exc
+        raise HTTPException(
+            status_code=400, detail={"code": exc.code, "message": exc.message}
+        ) from exc
 
     try:
         snap_mgr = SnapshotManager(resolved)
@@ -645,9 +699,13 @@ def assess_architecture_guardian(request: GuardianAssessRequest) -> GuardianRepo
         head_analysis, head_sha, head_is_wt = snap_mgr.create_snapshot(request.head_ref)
         git_renames = snap_mgr.find_git_renames(request.base_ref, request.head_ref)
     except SecurityValidationError as exc:
-        raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message}) from exc
+        raise HTTPException(
+            status_code=400, detail={"code": exc.code, "message": exc.message}
+        ) from exc
     except Exception as exc:
-        raise HTTPException(status_code=400, detail={"code": "GIT_SNAPSHOT_ERROR", "message": str(exc)}) from exc
+        raise HTTPException(
+            status_code=400, detail={"code": "GIT_SNAPSHOT_ERROR", "message": str(exc)}
+        ) from exc
 
     contract = None
     c_file = find_contract_file(resolved)
@@ -731,17 +789,29 @@ def list_or_query_symbols(
     """Searches or filters symbol definitions across the repository."""
     indexer, _ = _get_or_create_indexer_for_analysis(analysis_id)
     if name:
-        syms = indexer.find_by_name(name=name, kind=kind, file_path=file_path, container=container, exact=False)
+        syms = indexer.find_by_name(
+            name=name, kind=kind, file_path=file_path, container=container, exact=False
+        )
         return SymbolQueryResponse(
             total_symbols=len(syms),
             symbols=syms[:limit],
             summary_text=f"Found {len(syms)} symbol(s) matching '{name}'.",
-            filter_criteria={"name": name, "kind": kind, "file_path": file_path, "container": container, "limit": limit},
+            filter_criteria={
+                "name": name,
+                "kind": kind,
+                "file_path": file_path,
+                "container": container,
+                "limit": limit,
+            },
         )
-    return indexer.list_symbols(kind=kind, language=language, file_path=file_path, container=container, limit=limit)
+    return indexer.list_symbols(
+        kind=kind, language=language, file_path=file_path, container=container, limit=limit
+    )
 
 
-@app.get("/api/analyses/{analysis_id}/brain/symbols/{symbol_id}/trace", response_model=SymbolTraceResult)
+@app.get(
+    "/api/analyses/{analysis_id}/brain/symbols/{symbol_id}/trace", response_model=SymbolTraceResult
+)
 def trace_repository_symbol(analysis_id: str, symbol_id: str) -> SymbolTraceResult:
     """Traces callers, callees, imports, container hierarchy, and downstream blast radius for a symbol."""
     indexer, analysis = _get_or_create_indexer_for_analysis(analysis_id)
@@ -786,7 +856,11 @@ def get_evidence_ledger(
         if check_staleness:
             try:
                 content, _, file_exists = safe_read_evidence_file(indexer.root_path, ev.file_path)
-                ledger.check_staleness(ev.file_path, current_content=content if file_exists else "", current_revision=indexer.revision)
+                ledger.check_staleness(
+                    ev.file_path,
+                    current_content=content if file_exists else "",
+                    current_revision=indexer.revision,
+                )
             except SecurityValidationError:
                 ev.is_stale = True
                 ev.staleness_reason = StalenessReason.FILE_DELETED
@@ -803,7 +877,11 @@ def get_evidence_ledger(
         evs = ledger.find_by_file(posix_rel)
         if check_staleness:
             content, _, file_exists = safe_read_evidence_file(indexer.root_path, posix_rel)
-            evs = ledger.check_staleness(posix_rel, current_content=content if file_exists else "", current_revision=indexer.revision)
+            evs = ledger.check_staleness(
+                posix_rel,
+                current_content=content if file_exists else "",
+                current_revision=indexer.revision,
+            )
         stale_c = sum(1 for e in evs if e.is_stale)
         return EvidenceLedgerResponse(
             total_evidence=len(evs),
@@ -839,7 +917,9 @@ def get_evidence_ledger(
     return ledger.to_response(limit=limit)
 
 
-@app.get("/api/analyses/{analysis_id}/brain/evidence/{evidence_id}", response_model=EvidenceReference)
+@app.get(
+    "/api/analyses/{analysis_id}/brain/evidence/{evidence_id}", response_model=EvidenceReference
+)
 def get_single_evidence(
     analysis_id: str,
     evidence_id: str,
@@ -851,12 +931,19 @@ def get_single_evidence(
     if not ev:
         raise HTTPException(
             status_code=404,
-            detail={"code": "EVIDENCE_NOT_FOUND", "message": f"Evidence citation '{evidence_id}' not found."},
+            detail={
+                "code": "EVIDENCE_NOT_FOUND",
+                "message": f"Evidence citation '{evidence_id}' not found.",
+            },
         )
     if check_staleness:
         try:
             content, _, file_exists = safe_read_evidence_file(indexer.root_path, ev.file_path)
-            indexer.ledger.check_staleness(ev.file_path, current_content=content if file_exists else "", current_revision=indexer.revision)
+            indexer.ledger.check_staleness(
+                ev.file_path,
+                current_content=content if file_exists else "",
+                current_revision=indexer.revision,
+            )
         except SecurityValidationError:
             ev.is_stale = True
             ev.staleness_reason = StalenessReason.FILE_DELETED
@@ -939,11 +1026,540 @@ def migrate_passport_manifest(request: PassportMigrateRequest) -> RepositoryPass
     """Migrates a v1.0 Repository Passport into a schema-compliant v2.0 manifest."""
     try:
         import json
+
         data = json.loads(request.manifest_json)
         return migrate_v1_to_v2(data)
     except Exception as exc:
         raise HTTPException(
             status_code=422,
-            detail={"code": "PASSPORT_MIGRATION_ERROR", "message": f"Failed to migrate passport manifest: {exc}"},
+            detail={
+                "code": "PASSPORT_MIGRATION_ERROR",
+                "message": f"Failed to migrate passport manifest: {exc}",
+            },
         ) from exc
 
+
+# =============================================================================
+# Historical Architecture Snapshot, Timeline, Diff & Job Endpoints
+# =============================================================================
+
+
+class HistoricalCommitItem(BaseModel):
+    sha: str
+    short_sha: str
+    author: str
+    timestamp: str
+    subject: str
+    is_cached: bool = False
+
+
+class HistoricalCommitsResponse(BaseModel):
+    total_commits: int
+    commits: list[HistoricalCommitItem]
+    is_shallow: bool = False
+
+
+class HistoricalSnapshotRequest(BaseModel):
+    commit_sha: str
+    use_cache: bool = True
+
+
+class HistoricalDiffRequest(BaseModel):
+    base_commit_sha: str
+    head_commit_sha: str
+
+
+class HistoricalTimelineRequest(BaseModel):
+    limit: int = 30
+    commits: list[str] | None = None
+
+
+class HistoricalEvidenceBlobResponse(BaseModel):
+    evidence_id: str
+    commit_sha: str
+    file_path: str
+    line_start: int
+    line_end: int
+    snippet: str
+    content_hash: str
+    is_provenance_valid: bool = True
+    revision_source: str = "git_blob"
+
+
+class HistoryJobAction(StrEnum):
+    SNAPSHOT = "snapshot"
+    DIFF = "diff"
+    TIMELINE = "timeline"
+
+
+class HistoryJobStatus(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class HistoryJobRequest(BaseModel):
+    action: HistoryJobAction
+    commit_sha: str | None = None
+    base_commit_sha: str | None = None
+    head_commit_sha: str | None = None
+    limit: int = 30
+    commits: list[str] | None = None
+
+
+class HistoryJobProgress(BaseModel):
+    job_id: str
+    analysis_id: str
+    action: HistoryJobAction
+    status: HistoryJobStatus
+    progress_pct: int = 0
+    current_step: str = ""
+    error_message: str | None = None
+    created_at: str
+    completed_at: str | None = None
+
+
+_HIST_JOBS: dict[str, HistoryJobProgress] = {}
+_HIST_CANCEL_FLAGS: dict[str, threading.Event] = {}
+_HIST_JOB_RESULTS: dict[str, Any] = {}
+
+
+def _get_history_engine_for_analysis(
+    analysis_id: str,
+) -> tuple[HistoricalSnapshotEngine, AnalysisResult, Path]:
+    with _LOCK:
+        res = _RESULTS_BY_ID.get(analysis_id)
+    if not res:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "ANALYSIS_NOT_FOUND",
+                "message": f"Analysis '{analysis_id}' not found.",
+            },
+        )
+
+    is_demo = (
+        getattr(res, "is_demo", False)
+        or res.source_type == SourceType.DEMO
+        or res.target_display in ("RepoDNA-Demo", "demo")
+        or analysis_id.startswith("demo-")
+    )
+    if is_demo:
+        root = Path(".").resolve()
+    else:
+        root = Path(res.target_display).resolve()
+
+    if not root.exists() or not root.is_dir():
+        raise HTTPException(
+            status_code=410,
+            detail={
+                "code": "ANALYSIS_SOURCE_UNAVAILABLE",
+                "message": f"Source directory '{root}' is no longer available on disk.",
+            },
+        )
+    if not (root / ".git").exists():
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "NOT_A_GIT_REPOSITORY",
+                "message": f"Target directory '{root}' is not a valid Git repository.",
+            },
+        )
+
+    engine = HistoricalSnapshotEngine(repo_path=root)
+    return engine, res, root
+
+
+def _run_history_job(
+    job_id: str,
+    action: HistoryJobAction,
+    engine: HistoricalSnapshotEngine,
+    root: Path,
+    req: HistoryJobRequest,
+    cancel_ev: threading.Event,
+) -> None:
+    try:
+        with _LOCK:
+            _HIST_JOBS[job_id].status = HistoryJobStatus.RUNNING
+            _HIST_JOBS[job_id].progress_pct = 10
+            _HIST_JOBS[job_id].current_step = f"Starting {action.value} analysis"
+
+        if cancel_ev.is_set():
+            with _LOCK:
+                _HIST_JOBS[job_id].status = HistoryJobStatus.CANCELLED
+                _HIST_JOBS[job_id].completed_at = datetime.now(UTC).isoformat()
+            return
+
+        result_payload: Any = None
+
+        if action == HistoryJobAction.SNAPSHOT:
+            if not req.commit_sha:
+                raise ValueError("commit_sha is required for snapshot job")
+            with _LOCK:
+                _HIST_JOBS[job_id].progress_pct = 40
+                _HIST_JOBS[job_id].current_step = f"Extracting commit {req.commit_sha[:10]}"
+            snap = engine.create_snapshot(req.commit_sha, use_cache=True)
+            if cancel_ev.is_set():
+                with _LOCK:
+                    _HIST_JOBS[job_id].status = HistoryJobStatus.CANCELLED
+                    _HIST_JOBS[job_id].completed_at = datetime.now(UTC).isoformat()
+                return
+            result_payload = snap
+
+        elif action == HistoryJobAction.DIFF:
+            if not req.base_commit_sha or not req.head_commit_sha:
+                raise ValueError("base_commit_sha and head_commit_sha are required for diff job")
+            with _LOCK:
+                _HIST_JOBS[job_id].progress_pct = 30
+                _HIST_JOBS[job_id].current_step = f"Extracting base {req.base_commit_sha[:10]}"
+            base_snap = engine.create_snapshot(req.base_commit_sha)
+            if cancel_ev.is_set():
+                with _LOCK:
+                    _HIST_JOBS[job_id].status = HistoryJobStatus.CANCELLED
+                    _HIST_JOBS[job_id].completed_at = datetime.now(UTC).isoformat()
+                return
+            with _LOCK:
+                _HIST_JOBS[job_id].progress_pct = 60
+                _HIST_JOBS[job_id].current_step = f"Extracting head {req.head_commit_sha[:10]}"
+            head_snap = engine.create_snapshot(req.head_commit_sha)
+            with _LOCK:
+                _HIST_JOBS[job_id].progress_pct = 80
+                _HIST_JOBS[job_id].current_step = "Computing architectural evolution diff"
+            diff_res = EvolutionDiffEngine.compare_snapshots(
+                base=base_snap, head=head_snap, repo_path=root
+            )
+            result_payload = diff_res
+
+        elif action == HistoryJobAction.TIMELINE:
+            if cancel_ev.is_set():
+                with _LOCK:
+                    _HIST_JOBS[job_id].status = HistoryJobStatus.CANCELLED
+                    _HIST_JOBS[job_id].current_step = "Cancelled by user request."
+                    _HIST_JOBS[job_id].completed_at = datetime.now(UTC).isoformat()
+                return
+            with _LOCK:
+                _HIST_JOBS[job_id].progress_pct = 25
+                _HIST_JOBS[job_id].current_step = "Analyzing commit progression timeline"
+            timeline_eng = TimelineEngine(engine=engine)
+            timeline_res = timeline_eng.build_timeline(
+                commits=req.commits, limit=req.limit, cancel_event=cancel_ev
+            )
+            result_payload = timeline_res
+
+        else:
+            raise ValueError(f"Unknown action: {action}")
+
+        if cancel_ev.is_set():
+            with _LOCK:
+                _HIST_JOBS[job_id].status = HistoryJobStatus.CANCELLED
+                _HIST_JOBS[job_id].current_step = "Cancelled by user request."
+                _HIST_JOBS[job_id].completed_at = datetime.now(UTC).isoformat()
+            return
+
+        with _LOCK:
+            _HIST_JOB_RESULTS[job_id] = result_payload
+            _HIST_JOBS[job_id].status = HistoryJobStatus.COMPLETED
+            _HIST_JOBS[job_id].progress_pct = 100
+            _HIST_JOBS[job_id].current_step = "Completed"
+            _HIST_JOBS[job_id].completed_at = datetime.now(UTC).isoformat()
+
+    except Exception as exc:
+        with _LOCK:
+            if cancel_ev.is_set() or isinstance(exc, InterruptedError):
+                _HIST_JOBS[job_id].status = HistoryJobStatus.CANCELLED
+                _HIST_JOBS[job_id].current_step = "Cancelled by user request."
+            else:
+                _HIST_JOBS[job_id].status = HistoryJobStatus.FAILED
+                _HIST_JOBS[job_id].error_message = str(exc)
+            _HIST_JOBS[job_id].completed_at = datetime.now(UTC).isoformat()
+
+
+@app.get("/api/analyses/{analysis_id}/history/commits", response_model=HistoricalCommitsResponse)
+def get_historical_commits(
+    analysis_id: str,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> HistoricalCommitsResponse:
+    """Retrieves paginated list of Git commits from the analyzed repository with cache status."""
+    engine, _, root = _get_history_engine_for_analysis(analysis_id)
+    cmd = [
+        "git",
+        "-C",
+        str(root),
+        "log",
+        f"-n{limit}",
+        f"--skip={offset}",
+        "--format=%H%x00%an%x00%aI%x00%s",
+    ]
+    try:
+        proc = subprocess.run(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10.0,
+            check=True,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "GIT_LOG_ERROR", "message": f"Failed to retrieve commits: {exc}"},
+        ) from exc
+
+    commits: list[HistoricalCommitItem] = []
+    for line in proc.stdout.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split("\x00")
+        if len(parts) >= 4:
+            sha, author, ts, subj = parts[0], parts[1], parts[2], parts[3]
+            key = engine.cache.generate_key(engine.repo_identity, sha)
+            is_cached = engine.cache._get_entry_path(key).exists()
+            commits.append(
+                HistoricalCommitItem(
+                    sha=sha,
+                    short_sha=sha[:10],
+                    author=author,
+                    timestamp=ts,
+                    subject=subj,
+                    is_cached=is_cached,
+                )
+            )
+
+    return HistoricalCommitsResponse(
+        total_commits=len(commits),
+        commits=commits,
+        is_shallow=engine.is_shallow_repository(),
+    )
+
+
+@app.post("/api/analyses/{analysis_id}/history/snapshots", response_model=HistoricalSnapshot)
+def create_historical_snapshot_endpoint(
+    analysis_id: str,
+    request: HistoricalSnapshotRequest,
+) -> HistoricalSnapshot:
+    """Extracts or retrieves a cached Historical Architecture Snapshot for a specific commit."""
+    engine, _, _ = _get_history_engine_for_analysis(analysis_id)
+    try:
+        return engine.create_snapshot(request.commit_sha, use_cache=request.use_cache)
+    except SecurityValidationError as exc:
+        raise HTTPException(
+            status_code=400, detail={"code": exc.code, "message": exc.message}
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail={"code": "SNAPSHOT_ERROR", "message": str(exc)}
+        ) from exc
+
+
+@app.post("/api/analyses/{analysis_id}/history/diff", response_model=HistoricalDiffResult)
+def create_historical_diff_endpoint(
+    analysis_id: str,
+    request: HistoricalDiffRequest,
+) -> HistoricalDiffResult:
+    """Computes architectural evolution diff between two historical snapshots."""
+    engine, _, root = _get_history_engine_for_analysis(analysis_id)
+    try:
+        base_snap = engine.create_snapshot(request.base_commit_sha)
+        head_snap = engine.create_snapshot(request.head_commit_sha)
+        return EvolutionDiffEngine.compare_snapshots(base=base_snap, head=head_snap, repo_path=root)
+    except SecurityValidationError as exc:
+        raise HTTPException(
+            status_code=400, detail={"code": exc.code, "message": exc.message}
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail={"code": "DIFF_ERROR", "message": str(exc)}
+        ) from exc
+
+
+@app.post("/api/analyses/{analysis_id}/history/timeline", response_model=TimelineResult)
+def build_historical_timeline_endpoint(
+    analysis_id: str,
+    request: HistoricalTimelineRequest,
+) -> TimelineResult:
+    """Builds architectural progression timeline across Git commits."""
+    engine, _, _ = _get_history_engine_for_analysis(analysis_id)
+    try:
+        timeline_eng = TimelineEngine(engine=engine)
+        return timeline_eng.build_timeline(commits=request.commits, limit=request.limit)
+    except SecurityValidationError as exc:
+        raise HTTPException(
+            status_code=400, detail={"code": exc.code, "message": exc.message}
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail={"code": "TIMELINE_ERROR", "message": str(exc)}
+        ) from exc
+
+
+@app.get(
+    "/api/analyses/{analysis_id}/history/evidence/{evidence_id}",
+    response_model=HistoricalEvidenceBlobResponse,
+)
+def get_historical_evidence_blob(
+    analysis_id: str,
+    evidence_id: str,
+    commit_sha: str = Query(..., description="Commit SHA where evidence was captured"),
+    file_path: str = Query(..., description="Relative file path"),
+    line_start: int = Query(default=1, ge=1),
+    line_end: int = Query(default=50, ge=1),
+) -> HistoricalEvidenceBlobResponse:
+    """Reads historical source snippet from the relevant Git blob without touching active working tree."""
+    engine, _, root = _get_history_engine_for_analysis(analysis_id)
+    if len(commit_sha) != 40 or not all(c in "0123456789abcdefABCDEF" for c in commit_sha):
+        try:
+            full_sha, _, _, _, _ = engine.resolve_commit(commit_sha)
+        except SecurityValidationError as exc:
+            raise HTTPException(
+                status_code=400, detail={"code": exc.code, "message": exc.message}
+            ) from exc
+    else:
+        full_sha = commit_sha.lower()
+
+    provider = HistoricalEvidenceProvider(repo_path=root)
+    try:
+        content = provider.read_historical_file(commit_sha=full_sha, file_path=file_path)
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "HISTORICAL_FILE_NOT_FOUND",
+                "message": f"File '{file_path}' not found at commit '{commit_sha}'.",
+            },
+        ) from exc
+    except SecurityValidationError as exc:
+        raise HTTPException(
+            status_code=400, detail={"code": exc.code, "message": exc.message}
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail={"code": "EVIDENCE_READ_ERROR", "message": str(exc)}
+        ) from exc
+
+    snippet, chash = extract_evidence_snippet(content, line_start, line_end)
+    return HistoricalEvidenceBlobResponse(
+        evidence_id=evidence_id,
+        commit_sha=full_sha,
+        file_path=file_path,
+        line_start=line_start,
+        line_end=line_end,
+        snippet=snippet,
+        content_hash=chash,
+        is_provenance_valid=True,
+        revision_source=f"git_blob:{full_sha[:10]}",
+    )
+
+
+@app.post("/api/analyses/{analysis_id}/history/jobs", response_model=HistoryJobProgress)
+def start_history_job_endpoint(
+    analysis_id: str,
+    request: HistoryJobRequest,
+) -> HistoryJobProgress:
+    """Starts an asynchronous background job for historical snapshot, diff, or timeline analysis."""
+    engine, _, root = _get_history_engine_for_analysis(analysis_id)
+    job_id = str(uuid.uuid4())
+    cancel_ev = threading.Event()
+    job = HistoryJobProgress(
+        job_id=job_id,
+        analysis_id=analysis_id,
+        action=request.action,
+        status=HistoryJobStatus.PENDING,
+        progress_pct=0,
+        current_step="Queued",
+        created_at=datetime.now(UTC).isoformat(),
+    )
+    with _LOCK:
+        _HIST_JOBS[job_id] = job
+        _HIST_CANCEL_FLAGS[job_id] = cancel_ev
+
+    _EXECUTOR.submit(_run_history_job, job_id, request.action, engine, root, request, cancel_ev)
+    return job
+
+
+@app.get("/api/analyses/{analysis_id}/history/jobs/{job_id}", response_model=HistoryJobProgress)
+def get_history_job_status_endpoint(
+    analysis_id: str,
+    job_id: str,
+) -> HistoryJobProgress:
+    """Retrieves progress and status of an asynchronous history job."""
+    with _LOCK:
+        job = _HIST_JOBS.get(job_id)
+        if not job or job.analysis_id != analysis_id:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "JOB_NOT_FOUND",
+                    "message": f"History job '{job_id}' not found for analysis '{analysis_id}'.",
+                },
+            )
+        return job.model_copy()
+
+
+@app.post(
+    "/api/analyses/{analysis_id}/history/jobs/{job_id}/cancel", response_model=HistoryJobProgress
+)
+def cancel_history_job_endpoint(
+    analysis_id: str,
+    job_id: str,
+) -> HistoryJobProgress:
+    """Requests cancellation of an ongoing history job."""
+    with _LOCK:
+        job = _HIST_JOBS.get(job_id)
+        cancel_ev = _HIST_CANCEL_FLAGS.get(job_id)
+        if not job or not cancel_ev or job.analysis_id != analysis_id:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "JOB_NOT_FOUND",
+                    "message": f"History job '{job_id}' not found for analysis '{analysis_id}'.",
+                },
+            )
+        # If job is already COMPLETED or FAILED, cancellation must NOT alter the status or clear results!
+        if job.status == HistoryJobStatus.COMPLETED:
+            return job.model_copy()
+        if job.status == HistoryJobStatus.FAILED:
+            return job.model_copy()
+
+        cancel_ev.set()
+        job = job.model_copy(
+            update={
+                "status": HistoryJobStatus.CANCELLED,
+                "current_step": "Cancelled by user request.",
+                "completed_at": datetime.now(UTC).isoformat(),
+            }
+        )
+        _HIST_JOBS[job_id] = job
+        return job.model_copy()
+
+
+@app.get("/api/analyses/{analysis_id}/history/jobs/{job_id}/result")
+def get_history_job_result_endpoint(
+    analysis_id: str,
+    job_id: str,
+) -> Any:
+    """Retrieves completed result of an asynchronous history job."""
+    with _LOCK:
+        job = _HIST_JOBS.get(job_id)
+        res = _HIST_JOB_RESULTS.get(job_id)
+    if not job or job.analysis_id != analysis_id:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "JOB_NOT_FOUND",
+                "message": f"History job '{job_id}' not found for analysis '{analysis_id}'.",
+            },
+        )
+    if job.status != HistoryJobStatus.COMPLETED or res is None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "JOB_NOT_READY",
+                "message": f"Job is in state '{job.status.value}'; result not available.",
+            },
+        )
+    return res.model_dump() if hasattr(res, "model_dump") else res

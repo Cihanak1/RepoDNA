@@ -28,8 +28,9 @@ Thumbs.db
 .env
 .env.*
 
-# RepoDNA temporary scan artifacts
+# RepoDNA temporary scan artifacts and cache
 .repodna_tmp/
+.repodna/
 
 # Local agent workspace directories
 .codex/
