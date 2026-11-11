@@ -97,9 +97,6 @@ def _make_sample_analysis(
             is_git_repo=True,
             commit_sha="abcd1234ef567890abcd1234ef567890abcd1234",
             default_branch="main",
-            author="Developer",
-            commit_timestamp="2026-11-11T12:00:00Z",
-            commit_message="feat: initial architecture",
             snapshot_identity="repo-snapshot-v1",
         ),
         transparency=TransparencyReport(
