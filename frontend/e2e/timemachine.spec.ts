@@ -100,7 +100,8 @@ test.describe('RepoDNA v0.6.0 — Architecture Time Machine E2E Audit', () => {
 
     // 7. Navigate to Architecture Trends Subtab
     await page.getByTestId('tm-subtab-trends-btn').click();
-    await expect(page.getByText(/Progression Timeline/i)).toBeVisible({ timeout: 25000 });
+    await expect(page.getByText('Historical Architectural Progression')).toBeVisible();
+    await expect(page.locator('table')).toBeVisible({ timeout: 60000 });
 
     // Screenshot 4: Architecture Trends
     await page.screenshot({ path: `${ARTIFACT_DIR}/timemachine-4-trends.png` });
