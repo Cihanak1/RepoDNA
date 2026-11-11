@@ -1,14 +1,30 @@
 # RepoDNA — Developer Repository Intelligence Platform
 
 [![CI](https://github.com/Cihanak1/RepoDNA/actions/workflows/ci.yml/badge.svg)](https://github.com/Cihanak1/RepoDNA/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.6.0-38bdf8)](https://github.com/Cihanak1/RepoDNA/releases)
+[![Release](https://img.shields.io/badge/release-v0.7.0-38bdf8)](https://github.com/Cihanak1/RepoDNA/releases)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776ab?logo=python&logoColor=white)](https://www.python.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-10b981.svg)](./LICENSE)
 
 **RepoDNA** is an evidence-based repository intelligence and code architecture platform for local source directories and public GitHub repositories.
 
-Built for AI coding agents, software architects, and engineering teams, RepoDNA combines deep Tree-sitter AST symbol indexing, deterministic cross-module reference tracing, architectural guardrails, and cryptographic evidence citations with a precision intelligence workstation.
+Built for AI coding agents, software architects, and engineering teams, RepoDNA combines deep Tree-sitter AST symbol indexing, deterministic cross-module reference tracing, architectural guardrails, graph-theoretic refactoring advisory, and cryptographic evidence citations with a precision intelligence workstation.
+
+---
+
+## Architecture Refactoring Advisor (v0.7.0 Final Product Release)
+
+RepoDNA v0.7.0 marks the completion of the RepoDNA platform, introducing the **Architecture Refactoring Advisor** — a deterministic, graph-theoretic advisory engine that transforms structural findings into actionable, prioritized architectural refactoring blueprints:
+
+| Refactoring Advisor Overview & Executive KPI Strip | Cross-Navigation to Dependency Graph |
+| :---: | :---: |
+| ![Advisor Overview](./docs/design/after/advisor-overview.png) | ![Cross Navigation Graph](./docs/design/after/advisor-cross-navigation-graph.png) |
+
+### Refactoring Advisor Core Pillars
+- **Zero Hallucination & Zero LLM Dependency**: All recommendations are computed deterministically using Tarjan SCCs, Johnson cycle enumeration, efferent coupling ($C_e$), instability ($I$), architectural layer hierarchies, and hub centrality.
+- **Cycle Breaking Optimization**: For circular dependencies, mathematically selects the candidate edge to break that minimizes symbol dependency weight while maximizing the instability reduction delta.
+- **Architectural Boundary Enforcement**: Detects layer boundary inversions (e.g. Domain directly importing Presentation/API tiers) and god file architectural hubs ($\ge 14$ connections or $\ge 300$ non-comment LOC).
+- **Workstation Cross-Navigation**: Jump directly from any refactoring recommendation card into the live 3-Pane Architecture Studio graph (`Inspect in Graph`), or copy prompt-ready instructions for AI agents (`Copy Prompt`).
 
 ---
 
@@ -265,6 +281,19 @@ RepoDNA/
 
 ## Installation & Quick Start
 
+### 0. Windows Quick-Start (Zero Friction)
+
+For Windows users, launch RepoDNA with a single click:
+- Double-click `start-repodna.bat`, or
+- Run in PowerShell: `.\start-repodna.ps1`
+
+The quick launcher validates Python/Node.js dependencies, starts the FastAPI daemon, and launches the interactive workstation in your default browser.
+
+Alternatively, launch via the built-in CLI command:
+```bash
+repodna start --open-browser
+```
+
 ### Prerequisites
 - **Python**: `3.12+`
 - **Node.js**: `20+` (tested with Node.js LTS)
@@ -313,6 +342,14 @@ RepoDNA's core analysis engine runs independently of the web UI via `python -m r
 ```bash
 # Analyze a local directory and print an executive summary table
 repodna analyze .
+
+# Architecture Refactoring Advisor recommendations
+repodna advisor .
+repodna advisor . --category circular_dependency_reduction --format markdown
+repodna advisor . --min-severity high --format json -o advisor-report.json
+
+# Start the full-stack workstation
+repodna start --port 8000 --open-browser
 
 # Export a deterministic JSON report
 repodna analyze . --format json --output repodna-report.json
@@ -428,7 +465,7 @@ Add RepoDNA's local stdio server to your agent's MCP configuration (with optiona
   }
   ```
 
-### 4. Available MCP Tools (22 Tools Total)
+### 4. Available MCP Tools (23 Tools Total)
 
 #### Architecture Core (8 Tools)
 | Tool Name | Parameters | Purpose |
@@ -449,6 +486,11 @@ Add RepoDNA's local stdio server to your agent's MCP configuration (with optiona
 | `repodna_get_contract` | `target` | Inspects declarative architectural boundary rules and constraints. |
 | `repodna_check_contract` | `target` | Evaluates current architecture against contract rules with explainable violations. |
 | `repodna_pr_guardian` | `target`, `base_ref`, `head_ref` | Evaluates pull request drift, newly introduced cycles, and merge verdict. |
+
+#### Architecture Refactoring Advisor (1 Tool)
+| Tool Name | Parameters | Purpose |
+| :--- | :--- | :--- |
+| `repodna_refactoring_advisor` | `target`, `category`, `min_severity`, `format`, `force` | Prescribes actionable refactoring blueprints, candidate cycle breaking edges, and decoupling steps. |
 
 #### Repository Brain & Symbol Intelligence (5 Tools)
 | Tool Name | Parameters | Purpose |

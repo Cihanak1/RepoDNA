@@ -19,6 +19,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from repodna import __version__
+from repodna.advisor.engine import RefactoringAdvisorEngine
+from repodna.advisor.models import AdvisorCategory, RefactoringAdvisorReport
 from repodna.brain.evidence import extract_evidence_snippet
 from repodna.brain.indexer import SymbolIndexer
 from repodna.brain.models import (
@@ -116,7 +118,7 @@ _JOB_RESULTS: dict[str, AnalysisResult] = {}
 _RESULTS_BY_ID: dict[str, AnalysisResult] = {}
 _INDEXERS_BY_ID: dict[str, SymbolIndexer] = {}
 _INDEXER_CACHE: dict[str, tuple[SymbolIndexer, str]] = {}
-_MAX_STORED_RESULTS = 25
+_MAX_STORED_RESULTS = 100
 
 
 def _store_result(result: AnalysisResult, job_id: str | None = None) -> None:
@@ -1037,6 +1039,58 @@ def migrate_passport_manifest(request: PassportMigrateRequest) -> RepositoryPass
                 "message": f"Failed to migrate passport manifest: {exc}",
             },
         ) from exc
+
+
+# =============================================================================
+# Architecture Refactoring Advisor Endpoints (v0.7.0)
+# =============================================================================
+
+
+@app.get("/api/analyses/{analysis_id}/advisor", response_model=RefactoringAdvisorReport)
+def get_analysis_refactoring_advisor(
+    analysis_id: str,
+    category: str | None = Query(default=None, description="Filter by advisor category"),
+    min_severity: str | None = Query(
+        default=None, description="Filter by minimum severity (low, medium, high, critical)"
+    ),
+) -> RefactoringAdvisorReport:
+    """Returns deterministic architectural refactoring recommendations grounded in dependency graphs and contracts."""
+    _indexer, res = _get_or_create_indexer_for_analysis(analysis_id)
+    contract = None
+    target_path = Path(res.target_display)
+    if target_path.exists() and target_path.is_dir():
+        c_file = find_contract_file(target_path)
+        if c_file:
+            try:
+                contract = load_contract_file(c_file)
+            except Exception:
+                pass
+
+    cat_filter: AdvisorCategory | None = None
+    if category:
+        try:
+            cat_filter = AdvisorCategory(category)
+        except ValueError as exc:
+            valid_cats = [c.value for c in AdvisorCategory]
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "INVALID_ADVISOR_CATEGORY",
+                    "message": f"Category '{category}' is invalid. Expected one of: {valid_cats}",
+                },
+            ) from exc
+
+    if min_severity and min_severity not in ("low", "medium", "high", "critical"):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "INVALID_MIN_SEVERITY",
+                "message": f"Minimum severity '{min_severity}' is invalid. Expected low, medium, high, or critical.",
+            },
+        )
+
+    engine = RefactoringAdvisorEngine(analysis=res, contract=contract)
+    return engine.generate_report(category_filter=cat_filter, min_severity=min_severity)
 
 
 # =============================================================================

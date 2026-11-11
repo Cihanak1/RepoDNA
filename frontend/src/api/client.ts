@@ -5,6 +5,7 @@ import type {
   HistoricalSnapshot,
   TimelineResult,
 } from '../types/history';
+import type { RefactoringAdvisorReport } from '../types/advisor';
 import type {
   AgentContextResponse,
   AnalysisResult,
@@ -405,5 +406,20 @@ export async function fetchHistoricalEvidenceBlob(
     `${API_BASE}/analyses/${encodeURIComponent(analysisId)}/history/evidence/${encodeURIComponent(evidenceId)}?${params.toString()}`
   );
   return handleResponse<HistoricalEvidenceBlobResponse>(resp);
+}
+
+export async function fetchRefactoringRecommendations(
+  analysisId: string,
+  category?: string,
+  minSeverity?: string
+): Promise<RefactoringAdvisorReport> {
+  const params = new URLSearchParams();
+  if (category) params.set('category', category);
+  if (minSeverity) params.set('min_severity', minSeverity);
+  const q = params.toString() ? `?${params.toString()}` : '';
+  const resp = await fetch(
+    `${API_BASE}/analyses/${encodeURIComponent(analysisId)}/advisor${q}`
+  );
+  return handleResponse<RefactoringAdvisorReport>(resp);
 }
 

@@ -8,6 +8,7 @@ import {
   GitCommitHorizontal,
   Package,
   RefreshCcw,
+  Sparkles,
 } from 'lucide-react';
 import type { CycleGroup, FileNode, RuleFinding } from '../types/repodna';
 import type { WorkstationMode } from '../utils/preferences';
@@ -21,6 +22,7 @@ interface InspectorPanelProps {
   packageFiles?: FileNode[];
   onExpandPackage?: () => void;
   workstationMode?: WorkstationMode;
+  onOpenAdvisor?: () => void;
 }
 
 export const InspectorPanel: React.FC<InspectorPanelProps> = ({
@@ -31,6 +33,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
   packageFiles,
   onExpandPackage,
   workstationMode = 'simple',
+  onOpenAdvisor,
 }) => {
   const { t } = useTranslation();
   const [copyStatus, setCopyStatus] = useState('');
@@ -175,6 +178,18 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
           <span>&bull;</span>
           <span>{(selectedFile.size_bytes / 1024).toFixed(1)} KB</span>
         </div>
+
+        {onOpenAdvisor && (selectedFile.in_cycle || selectedFile.is_hub || fileFindings.length > 0) && (
+          <button
+            type="button"
+            data-testid="inspector-open-advisor-btn"
+            onClick={onOpenAdvisor}
+            className="w-full mt-2.5 py-1.5 px-3 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-medium flex items-center justify-center gap-1.5 transition cursor-pointer"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Open in Refactoring Advisor</span>
+          </button>
+        )}
       </div>
 
       <div className="inspector-body p-3.5 space-y-3.5 text-xs">

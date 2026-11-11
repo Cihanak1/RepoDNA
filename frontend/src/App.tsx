@@ -24,6 +24,7 @@ import { Launchpad } from './components/Launchpad';
 import { OnboardingTour } from './components/OnboardingTour';
 import { PanelResizer } from './components/PanelResizer';
 import { PassportViewer } from './components/PassportViewer';
+import { RefactoringAdvisorView } from './components/RefactoringAdvisorView';
 import { TimeMachineWorkstation } from './components/TimeMachineWorkstation';
 import { readPreference, savePreference, type WorkstationMode } from './utils/preferences';
 import { SummaryStrip } from './components/SummaryStrip';
@@ -72,7 +73,16 @@ export const App: React.FC = () => {
   );
   useEffect(() => { savePreference('mode', workstationMode); }, [workstationMode]);
 
-  const [activeTab, setActiveTab] = useState<'studio' | 'intelligence' | 'report' | 'guardian' | 'contract' | 'passport' | 'history'>('studio');
+  const [activeTab, setActiveTab] = useState<
+    | 'studio'
+    | 'intelligence'
+    | 'report'
+    | 'guardian'
+    | 'contract'
+    | 'passport'
+    | 'history'
+    | 'advisor'
+  >('studio');
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [layoutMode, setLayoutMode] = useState(() => readPreference<LayoutMode>('layout', 'layered', (v): v is LayoutMode => v === 'layered' || v === 'cluster' || v === 'radial'));
   const [densityMode, setDensityMode] = useState(() => readPreference<GraphDensityMode>('density', 'balanced', (v): v is GraphDensityMode => v === 'compact' || v === 'balanced' || v === 'spacious'));
@@ -629,6 +639,7 @@ export const App: React.FC = () => {
                 allFindings={result.health_report.findings}
                 onSelectFile={selectFile}
                 workstationMode={workstationMode}
+                onOpenAdvisor={() => setActiveTab('advisor')}
               />
             </div>
           </>
@@ -663,6 +674,25 @@ export const App: React.FC = () => {
             result={result}
             defaultWorkspacePath={defaultWorkspacePath}
             workstationMode={workstationMode}
+          />
+        ) : activeTab === 'advisor' ? (
+          <RefactoringAdvisorView
+            result={result}
+            workstationMode={workstationMode}
+            onSelectFileInStudio={handleSelectFileFromReport}
+            onNavigateTab={(tab) =>
+              setActiveTab(
+                tab as
+                  | 'studio'
+                  | 'intelligence'
+                  | 'report'
+                  | 'guardian'
+                  | 'contract'
+                  | 'passport'
+                  | 'history'
+                  | 'advisor'
+              )
+            }
           />
         ) : (
           <TimeMachineWorkstation
