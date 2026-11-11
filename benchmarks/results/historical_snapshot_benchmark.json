@@ -1,126 +1,115 @@
 {
-  "timestamp": "2026-11-10T22:56:54.566852+00:00",
+  "timestamp": "2026-11-11T10:15:23.739235+00:00",
   "repository": "https://github.com/Cihanak1/RepoDNA",
   "evaluated_commits_count": 10,
   "metrics": {
-    "avg_cold_snapshot_sec": 17.499,
-    "min_cold_snapshot_sec": 10.693,
-    "max_cold_snapshot_sec": 20.886,
-    "avg_cached_snapshot_sec": 0.2495,
-    "cached_speedup_factor": 70.1,
-    "avg_pairwise_diff_ms": 61.86,
-    "peak_ram_mb": 92.15,
+    "avg_cold_snapshot_sec": 17.729,
+    "min_cold_snapshot_sec": 14.573,
+    "max_cold_snapshot_sec": 20.082,
+    "avg_cached_snapshot_sec": 0.2273,
+    "cached_speedup_factor": 78.0,
+    "avg_pairwise_diff_ms": 78.32,
+    "peak_ram_mb": 94.71,
     "total_cache_entries": 10,
-    "total_cache_size_kb": 8827.6
+    "total_cache_size_kb": 9059.6
   },
   "per_commit_benchmarks": [
-    {
-      "commit_sha": "000222b0f4",
-      "subject": "feat(brain): optimize retrieval with symbol definition boosts and calibrated abstention",
-      "files": 155,
-      "loc": 28860,
-      "cold_time_sec": 11.067,
-      "cached_time_sec": 0.2171,
-      "peak_ram_mb": 63.06
-    },
     {
       "commit_sha": "2d7ed726b5",
       "subject": "test(benchmarks): add independent 2nd repository evaluation and update official phase 2 benchmark artifacts",
       "files": 156,
       "loc": 28880,
-      "cold_time_sec": 15.993,
-      "cached_time_sec": 0.2296,
-      "peak_ram_mb": 67.8
+      "cold_time_sec": 14.573,
+      "cached_time_sec": 0.1805,
+      "peak_ram_mb": 63.28
     },
     {
       "commit_sha": "81fa9b7492",
       "subject": "fix(benchmarks): use newline-normalized canonical SHA-256 for dataset integrity",
       "files": 156,
       "loc": 28880,
-      "cold_time_sec": 10.693,
-      "cached_time_sec": 0.3274,
-      "peak_ram_mb": 69.87
+      "cold_time_sec": 15.771,
+      "cached_time_sec": 0.2421,
+      "peak_ram_mb": 67.45
     },
     {
       "commit_sha": "6deeb09fc8",
       "subject": "feat(brain): implement intelligence workstation, passport v2, and agent integrations",
       "files": 165,
       "loc": 32922,
-      "cold_time_sec": 17.998,
-      "cached_time_sec": 0.2133,
-      "peak_ram_mb": 74.98
+      "cold_time_sec": 16.666,
+      "cached_time_sec": 0.2563,
+      "peak_ram_mb": 72.51
     },
     {
       "commit_sha": "5b0d22ada5",
       "subject": "feat(hardening): path boundary security, git provenance, filter correctness, and e2e validation",
       "files": 169,
       "loc": 33877,
-      "cold_time_sec": 19.448,
-      "cached_time_sec": 0.2647,
-      "peak_ram_mb": 78.49
+      "cold_time_sec": 17.848,
+      "cached_time_sec": 0.1714,
+      "peak_ram_mb": 76.67
     },
     {
       "commit_sha": "99559a92a4",
       "subject": "feat(release-gate): real external repo validation, payflow symbol fix, toctou hardening, and playwright ci",
       "files": 170,
       "loc": 34455,
-      "cold_time_sec": 20.449,
-      "cached_time_sec": 0.2432,
-      "peak_ram_mb": 81.96
+      "cold_time_sec": 18.269,
+      "cached_time_sec": 0.2626,
+      "peak_ram_mb": 79.48
     },
     {
       "commit_sha": "8371819b0d",
       "subject": "fix(security): resolve cross-platform getattr for windows handle checks in mypy",
       "files": 170,
       "loc": 34458,
-      "cold_time_sec": 19.907,
-      "cached_time_sec": 0.2269,
-      "peak_ram_mb": 85.62
+      "cold_time_sec": 19.378,
+      "cached_time_sec": 0.2101,
+      "peak_ram_mb": 83.36
     },
     {
       "commit_sha": "f5b9c2cfe2",
       "subject": "fix(cache): introduce deterministic content hashing for dirty snapshot identity",
       "files": 170,
       "loc": 34519,
-      "cold_time_sec": 20.886,
-      "cached_time_sec": 0.2575,
-      "peak_ram_mb": 86.91
+      "cold_time_sec": 19.006,
+      "cached_time_sec": 0.2157,
+      "peak_ram_mb": 84.45
     },
     {
       "commit_sha": "6527c64b18",
       "subject": "Merge pull request #4 from Cihanak1/feat/v0.5-repository-brain",
       "files": 170,
       "loc": 34519,
-      "cold_time_sec": 19.707,
-      "cached_time_sec": 0.2752,
-      "peak_ram_mb": 89.46
+      "cold_time_sec": 18.006,
+      "cached_time_sec": 0.2482,
+      "peak_ram_mb": 87.36
     },
     {
       "commit_sha": "a3fbcd7efe",
       "subject": "chore(release): prepare RepoDNA v0.5.0",
       "files": 170,
       "loc": 34615,
-      "cold_time_sec": 18.839,
-      "cached_time_sec": 0.2403,
-      "peak_ram_mb": 92.15
+      "cold_time_sec": 17.693,
+      "cached_time_sec": 0.2719,
+      "peak_ram_mb": 92.46
+    },
+    {
+      "commit_sha": "b2e76d67ce",
+      "subject": "feat(history): implement historical architecture snapshot engine, evolution diff, and cache",
+      "files": 179,
+      "loc": 36999,
+      "cold_time_sec": 20.082,
+      "cached_time_sec": 0.2145,
+      "peak_ram_mb": 94.71
     }
   ],
   "pairwise_diffs": [
     {
-      "base_sha": "000222b0f4",
-      "head_sha": "2d7ed726b5",
-      "diff_time_ms": 56.46,
-      "changed_files_git": 26,
-      "added_modules": 1,
-      "removed_modules": 0,
-      "renamed_modules": 0,
-      "added_edges": 0,
-      "removed_edges": 0
-    },
-    {
       "base_sha": "2d7ed726b5",
       "head_sha": "81fa9b7492",
-      "diff_time_ms": 49.09,
+      "diff_time_ms": 65.04,
       "changed_files_git": 2,
       "added_modules": 0,
       "removed_modules": 0,
@@ -131,7 +120,7 @@
     {
       "base_sha": "81fa9b7492",
       "head_sha": "6deeb09fc8",
-      "diff_time_ms": 53.03,
+      "diff_time_ms": 87.01,
       "changed_files_git": 29,
       "added_modules": 9,
       "removed_modules": 0,
@@ -142,7 +131,7 @@
     {
       "base_sha": "6deeb09fc8",
       "head_sha": "5b0d22ada5",
-      "diff_time_ms": 56.5,
+      "diff_time_ms": 97.9,
       "changed_files_git": 30,
       "added_modules": 4,
       "removed_modules": 0,
@@ -153,7 +142,7 @@
     {
       "base_sha": "5b0d22ada5",
       "head_sha": "99559a92a4",
-      "diff_time_ms": 59.64,
+      "diff_time_ms": 63.15,
       "changed_files_git": 19,
       "added_modules": 1,
       "removed_modules": 0,
@@ -164,7 +153,7 @@
     {
       "base_sha": "99559a92a4",
       "head_sha": "8371819b0d",
-      "diff_time_ms": 56.29,
+      "diff_time_ms": 58.54,
       "changed_files_git": 1,
       "added_modules": 0,
       "removed_modules": 0,
@@ -175,7 +164,7 @@
     {
       "base_sha": "8371819b0d",
       "head_sha": "f5b9c2cfe2",
-      "diff_time_ms": 97.5,
+      "diff_time_ms": 82.79,
       "changed_files_git": 3,
       "added_modules": 0,
       "removed_modules": 0,
@@ -186,7 +175,7 @@
     {
       "base_sha": "f5b9c2cfe2",
       "head_sha": "6527c64b18",
-      "diff_time_ms": 60.06,
+      "diff_time_ms": 74.59,
       "changed_files_git": 0,
       "added_modules": 0,
       "removed_modules": 0,
@@ -197,12 +186,23 @@
     {
       "base_sha": "6527c64b18",
       "head_sha": "a3fbcd7efe",
-      "diff_time_ms": 68.14,
+      "diff_time_ms": 71.63,
       "changed_files_git": 7,
       "added_modules": 0,
       "removed_modules": 0,
       "renamed_modules": 0,
       "added_edges": 0,
+      "removed_edges": 0
+    },
+    {
+      "base_sha": "a3fbcd7efe",
+      "head_sha": "b2e76d67ce",
+      "diff_time_ms": 104.24,
+      "changed_files_git": 13,
+      "added_modules": 9,
+      "removed_modules": 0,
+      "renamed_modules": 0,
+      "added_edges": 42,
       "removed_edges": 0
     }
   ]

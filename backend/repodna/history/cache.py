@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import tempfile
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,17 @@ from repodna.history.models import (
     CacheEnvelope,
     HistoricalSnapshot,
 )
+
+
+def get_parser_fingerprint() -> str:
+    """Returns fingerprint of tree-sitter parser and grammar runtime."""
+    try:
+        import tree_sitter
+
+        ts_ver = getattr(tree_sitter, "__version__", "0.26.0")
+    except Exception:
+        ts_ver = "unknown"
+    return f"ts:{ts_ver}:g:v1"
 
 
 class HistoricalCache:
@@ -40,10 +52,12 @@ class HistoricalCache:
         repo_identity: str,
         commit_sha: str,
         analyzer_version: str = "0.6.0",
+        parser_version: str | None = None,
         config_fingerprint: str = "default-v1",
     ) -> str:
         """Computes a deterministic 64-character SHA-256 cache key."""
-        raw = f"{repo_identity.strip()}:{commit_sha.strip().lower()}:{analyzer_version.strip()}:{config_fingerprint.strip()}"
+        p_ver = parser_version or get_parser_fingerprint()
+        raw = f"{repo_identity.strip()}:{commit_sha.strip().lower()}:{analyzer_version.strip()}:{p_ver.strip()}:{config_fingerprint.strip()}"
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
     def _get_entry_path(self, cache_key: str) -> Path:
@@ -133,8 +147,18 @@ class HistoricalCache:
             with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
                 f.write(envelope_json)
 
-            # Atomic replace
-            os.replace(tmp_path, target_path)
+            # Atomic replace with retry for Windows concurrent file locks
+            max_retries = 5
+            for attempt in range(max_retries):
+                try:
+                    os.replace(tmp_path, target_path)
+                    break
+                except PermissionError:
+                    if attempt < max_retries - 1:
+                        time.sleep(0.02 * (attempt + 1))
+                    else:
+                        self._safe_unlink(tmp_path)
+                        raise
 
             # Check and enforce cache bounds
             self._enforce_bounds()
@@ -175,12 +199,19 @@ class HistoricalCache:
             self._safe_unlink(p)
 
     def _enforce_bounds(self) -> None:
-        """Enforces max_entries and max_size_bytes using LRU eviction."""
+        """Enforces max_entries and max_size_bytes using LRU eviction, and purges stale temp files."""
         entries: list[tuple[Path, os.stat_result]] = []
         total_size = 0
+        now = time.time()
 
         for p in self.cache_dir.glob("*.json"):
             if p.name.startswith(".tmp_"):
+                # Clean up abandoned temporary files older than 5 minutes
+                try:
+                    if now - p.stat().st_mtime > 300:
+                        self._safe_unlink(p)
+                except OSError:
+                    pass
                 continue
             try:
                 st = p.stat()

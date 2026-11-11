@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -19,6 +22,17 @@ from repodna.schemas.models import RuleFinding, SeverityLevel
 
 SNAPSHOT_SCHEMA_VERSION = "1.0.0"
 CACHE_SCHEMA_VERSION = "1.0.0"
+
+
+class SnapshotRuntimeMetadata(BaseModel):
+    """Runtime execution and cache metadata, excluded from deterministic architectural hashing."""
+
+    analyzed_at: str
+    analysis_duration_ms: float = 0.0
+    cache_hit: bool = False
+    analyzer_version: str = "0.6.0"
+    parser_version: str = "0.26.0"
+    config_fingerprint: str = "default-v1"
 
 
 class HistoricalModuleSummary(BaseModel):
@@ -106,9 +120,8 @@ class HistoricalSnapshot(BaseModel):
     commit_timestamp: str = Field(description="ISO-8601 commit timestamp.")
     commit_author: str = Field(default="unknown")
     commit_message: str = Field(default="")
-    analyzed_at: str = Field(description="ISO-8601 timestamp when analysis was performed.")
-    analyzer_version: str = Field(default="0.6.0")
 
+    # Deterministic architectural data
     total_files: int = 0
     total_lines_code: int = 0
     ast_loc_coverage_pct: float = 0.0
@@ -122,9 +135,59 @@ class HistoricalSnapshot(BaseModel):
     findings: list[RuleFinding] = Field(default_factory=list)
     evidence: list[HistoricalEvidenceItem] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
-
     is_shallow: bool = False
+
+    # Separated runtime execution metadata
+    runtime_metadata: SnapshotRuntimeMetadata = Field(
+        default_factory=lambda: SnapshotRuntimeMetadata(
+            analyzed_at=datetime.now(UTC).isoformat()
+        )
+    )
+
+    # Backwards-compatible fields (synced with runtime_metadata)
+    analyzed_at: str = ""
+    analyzer_version: str = "0.6.0"
     cache_hit: bool = False
+
+    def model_post_init(self, __context: Any) -> None:
+        if self.runtime_metadata:
+            if not self.analyzed_at and self.runtime_metadata.analyzed_at:
+                self.analyzed_at = self.runtime_metadata.analyzed_at
+            elif self.analyzed_at and not self.runtime_metadata.analyzed_at:
+                self.runtime_metadata.analyzed_at = self.analyzed_at
+
+            if self.cache_hit and not self.runtime_metadata.cache_hit:
+                self.runtime_metadata.cache_hit = self.cache_hit
+            elif self.runtime_metadata.cache_hit and not self.cache_hit:
+                self.cache_hit = self.runtime_metadata.cache_hit
+
+            if self.analyzer_version:
+                self.runtime_metadata.analyzer_version = self.analyzer_version
+
+    def architectural_fingerprint(self) -> str:
+        """
+        Computes a deterministic cryptographic SHA-256 fingerprint exclusively from
+        architectural properties, unaffected by runtime execution timestamp or cache hits.
+        """
+        arch_data = {
+            "commit_sha": self.commit_sha,
+            "parent_shas": sorted(self.parent_shas),
+            "repo_identity": self.repo_identity,
+            "total_files": self.total_files,
+            "total_lines_code": self.total_lines_code,
+            "ast_loc_coverage_pct": round(self.ast_loc_coverage_pct, 4),
+            "languages": {k: v.model_dump() for k, v in sorted(self.languages.items())},
+            "modules": [m.model_dump() for m in sorted(self.modules, key=lambda x: x.path)],
+            "dependencies": [
+                d.model_dump()
+                for d in sorted(self.dependencies, key=lambda x: (x.source, x.target))
+            ],
+            "cycles": [c.model_dump() for c in sorted(self.cycles, key=lambda x: x.id)],
+            "health": self.health.model_dump(),
+            "limitations": sorted(self.limitations),
+        }
+        encoded = json.dumps(arch_data, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
 
 
 class HistoricalDiffResult(BaseModel):
@@ -156,13 +219,18 @@ class TimelineEntry(BaseModel):
     commit_timestamp: str
     commit_author: str
     commit_message: str
-    total_files: int
-    total_lines_code: int
-    health_score: float | None
-    health_grade: str
-    cycles_count: int
-    modules_count: int
-    ast_coverage_pct: float
+    status: str = Field(
+        default="success", description="Status of analysis: success, failed, or partial."
+    )
+    error_message: str | None = None
+    total_files: int = 0
+    total_lines_code: int = 0
+    health_score: float | None = None
+    health_grade: str = "N/A"
+    cycles_count: int = 0
+    modules_count: int = 0
+    ast_coverage_pct: float = 0.0
+    cache_hit: bool = False
 
 
 class TimelineResult(BaseModel):
@@ -171,6 +239,9 @@ class TimelineResult(BaseModel):
     schema_version: str = SNAPSHOT_SCHEMA_VERSION
     repo_identity: str
     total_commits: int
+    successful_commits: int = 0
+    failed_commits: int = 0
+    missing_commits: list[str] = Field(default_factory=list)
     entries: list[TimelineEntry] = Field(default_factory=list)
     summary_text: str = ""
 

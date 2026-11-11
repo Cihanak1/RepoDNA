@@ -70,15 +70,15 @@ class EvolutionDiffEngine:
         confirmed_added: list[str] = []
         confirmed_removed: list[str] = sorted(raw_removed)
 
-        # 1a. Verified renames from Git
+        # 1a. Verified renames from Git (content similarity match, not semantic proof)
         for old_p, new_p in git_renames.items():
             if old_p in confirmed_removed and new_p in raw_added:
                 renamed.append(
                     RenamedModule(
                         old_path=old_p,
                         new_path=new_p,
-                        confidence=1.0,
-                        reason="Verified by Git history rename detection",
+                        confidence=0.90,
+                        reason="Git history rename detection based on content similarity (syntactic match, not semantic identity)",
                         is_verified_by_git=True,
                     )
                 )
@@ -109,6 +109,15 @@ class EvolutionDiffEngine:
                     break
             if not match_found:
                 confirmed_added.append(a_p)
+
+        if any(r.is_verified_by_git for r in renamed):
+            caveats.append(
+                "Git-detected renames are based on content similarity heuristics and do not imply semantic identity."
+            )
+        if any(not r.is_verified_by_git for r in renamed):
+            caveats.append(
+                "Candidate renames are heuristic filename matches without Git tracking confirmation."
+            )
 
         # 2. Dependency edges diff
         base_edge_map = {(e.source, e.target): e.import_names for e in base.dependencies}

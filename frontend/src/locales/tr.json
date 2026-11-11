@@ -45,6 +45,7 @@
     "guardianTab": "Mimari Koruyucu",
     "contractTab": "Sözleşme Denetçisi",
     "passportTab": "Pasaport Görüntüleyici",
+    "historyTab": "Zaman Tüneli",
     "commandPalette": "Komut Paleti",
     "sampleBadge": "Örnek analiz",
     "demoBadge": "Demo Modu — Örnek Veri Seti",
@@ -268,6 +269,8 @@
     "actStudioSub": "Etkileşimli modül bağımlılık grafı ve denetçi paneli",
     "actReportTitle": "Sağlık ve Şeffaflık Raporunu Aç",
     "actReportSub": "Kural tabanlı mimari puan kırılımları, döngüler ve git analizi",
+    "actHistoryTitle": "Mimari Zaman Tüneline Geç",
+    "actHistorySub": "Commit geçmişi, zaman kaydırıcı ve evrimsel farkı incele",
     "actThemeTitle": "Karanlık / Aydınlık Temayı Değiştir",
     "actThemeSub": "Tüm paneller ve tuval için renk temasını değiştir",
     "actModeTitle": "Basit / İleri Düzey Çalışma Modunu Değiştir",
@@ -486,5 +489,20 @@
     "contextOutputTokens": "Bağlam Boyutu",
     "tokenReduction": "kod tabanına kıyasla tasarruf",
     "contextEmptyTitle": "Modu ve token bütçesini yapılandırıp \"Bağlam Oluştur\"a tıklayın."
+  },
+  "history": {
+    "timelineTab": "Commit Zaman Çizelgesi ve Kaydırıcı",
+    "diffTab": "Evrimsel Fark",
+    "trendsTab": "Mimari Trendleri",
+    "commitHistory": "Git Commitleri",
+    "searchPlaceholder": "Commit veya yazar filtrele...",
+    "scrubber": "Zaman Kaydırıcı",
+    "loadingCommits": "Git commit geçmişi okunuyor...",
+    "noCommitsFound": "Eşleşen commit bulunamadı.",
+    "cached": "Önbellekte",
+    "calculatingDiff": "Karşılaştırılıyor...",
+    "compareCommits": "Mimariyi Karşılaştır",
+    "shallowWarning": "Sığ (shallow) depo algılandı. Geçmiş derinliği sınırlı olabilir.",
+    "extractingSnapshot": "Tarihsel mimari anlık görüntüsü çıkarılıyor..."
   }
 }

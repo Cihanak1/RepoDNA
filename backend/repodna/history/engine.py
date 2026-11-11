@@ -16,7 +16,7 @@ from pathlib import Path
 
 from repodna.brain.indexer import SymbolIndexer
 from repodna.core.analyzer import run_repository_analysis
-from repodna.history.cache import HistoricalCache
+from repodna.history.cache import HistoricalCache, get_parser_fingerprint
 from repodna.history.models import (
     SNAPSHOT_SCHEMA_VERSION,
     HistoricalCouplingMetrics,
@@ -27,6 +27,7 @@ from repodna.history.models import (
     HistoricalLanguageSummary,
     HistoricalModuleSummary,
     HistoricalSnapshot,
+    SnapshotRuntimeMetadata,
 )
 from repodna.schemas.models import (
     AnalysisResult,
@@ -520,6 +521,14 @@ class HistoricalSnapshotEngine:
         for sf in analysis.transparency.skipped_files:
             limitations.append(f"Skipped file '{sf.path}': {sf.reason}")
 
+        now_iso = datetime.now(UTC).isoformat()
+        runtime_meta = SnapshotRuntimeMetadata(
+            analyzed_at=now_iso,
+            analyzer_version=analyzer_version,
+            parser_version=get_parser_fingerprint(),
+            cache_hit=False,
+        )
+
         return HistoricalSnapshot(
             schema_version=SNAPSHOT_SCHEMA_VERSION,
             commit_sha=commit_sha,
@@ -528,7 +537,8 @@ class HistoricalSnapshotEngine:
             commit_timestamp=iso_date,
             commit_author=author,
             commit_message=subject,
-            analyzed_at=datetime.now(UTC).isoformat(),
+            runtime_metadata=runtime_meta,
+            analyzed_at=now_iso,
             analyzer_version=analyzer_version,
             total_files=analysis.total_files,
             total_lines_code=analysis.total_lines_code,

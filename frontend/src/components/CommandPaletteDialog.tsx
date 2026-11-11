@@ -6,6 +6,7 @@ import {
   Download,
   FileCode2,
   FolderTree,
+  History,
   Languages,
   Layers,
   RefreshCcw,
@@ -25,7 +26,7 @@ interface CommandPaletteDialogProps {
   onClose: () => void;
   files: FileNode[];
   onSelectFile: (fileId: string) => void;
-  onSwitchTab: (tab: 'studio' | 'report') => void;
+  onSwitchTab: (tab: 'studio' | 'intelligence' | 'report' | 'guardian' | 'contract' | 'passport' | 'history') => void;
   onToggleTheme: () => void;
   onChangeLayout: (mode: LayoutMode) => void;
   onChangeGrouping: (mode: GraphGroupingMode) => void;
@@ -160,6 +161,18 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
         badge: 'View',
         onRun: () => {
           onSwitchTab('report');
+          onClose();
+        },
+      },
+      {
+        id: 'act-history',
+        category: navCategory,
+        title: t('palette.actHistoryTitle', 'Switch to Architecture Time Machine'),
+        subtitle: t('palette.actHistorySub', 'Explore commit history, timeline scrubber, and evolution diff'),
+        icon: <History className="w-4 h-4 text-accent" aria-hidden="true" />,
+        badge: 'View',
+        onRun: () => {
+          onSwitchTab('history');
           onClose();
         },
       },

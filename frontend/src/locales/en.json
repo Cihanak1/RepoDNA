@@ -45,6 +45,7 @@
     "guardianTab": "Architecture Guardian",
     "contractTab": "Contract Inspector",
     "passportTab": "Passport Viewer",
+    "historyTab": "Time Machine",
     "commandPalette": "Command Palette",
     "sampleBadge": "Sample analysis",
     "demoBadge": "Demo Mode — Sample Dataset",
@@ -268,6 +269,8 @@
     "actStudioSub": "Interactive module dependency graph and inspector",
     "actReportTitle": "Open Health & Transparency Report",
     "actReportSub": "Rule-based architectural deductions, circular chains, and git churn",
+    "actHistoryTitle": "Switch to Architecture Time Machine",
+    "actHistorySub": "Explore commit history, timeline scrubber, and evolution diff",
     "actThemeTitle": "Toggle Dark / Light Workstation Theme",
     "actThemeSub": "Switch color scheme across all panels and canvas",
     "actModeTitle": "Toggle Simple / Advanced Workstation Mode",
@@ -486,5 +489,20 @@
     "contextOutputTokens": "Context Size",
     "tokenReduction": "reduction vs codebase",
     "contextEmptyTitle": "Configure mode & token budget and click \"Build Context\"."
+  },
+  "history": {
+    "timelineTab": "Commit Timeline & Scrubber",
+    "diffTab": "Evolution Diff",
+    "trendsTab": "Architecture Trends",
+    "commitHistory": "Git Commits",
+    "searchPlaceholder": "Filter commits or authors...",
+    "scrubber": "Time Scrubber",
+    "loadingCommits": "Reading Git commit history...",
+    "noCommitsFound": "No matching commits.",
+    "cached": "Cached",
+    "calculatingDiff": "Comparing...",
+    "compareCommits": "Compare Architecture",
+    "shallowWarning": "Shallow repository detected. History depth may be limited.",
+    "extractingSnapshot": "Extracting historical architecture snapshot..."
   }
 }

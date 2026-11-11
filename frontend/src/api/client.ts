@@ -1,4 +1,11 @@
 import type {
+  HistoricalCommitsResponse,
+  HistoricalDiffResult,
+  HistoricalEvidenceBlobResponse,
+  HistoricalSnapshot,
+  TimelineResult,
+} from '../types/history';
+import type {
   AgentContextResponse,
   AnalysisResult,
   ArchitectureContract,
@@ -316,5 +323,87 @@ export async function migratePassportV1ToV2(manifestJson: string): Promise<Repos
     body: JSON.stringify({ manifest_json: manifestJson }),
   });
   return handleResponse<RepositoryPassportV2>(resp);
+}
+
+export async function fetchHistoricalCommits(
+  analysisId: string,
+  limit: number = 50,
+  offset: number = 0
+): Promise<HistoricalCommitsResponse> {
+  const resp = await fetch(
+    `${API_BASE}/analyses/${encodeURIComponent(analysisId)}/history/commits?limit=${limit}&offset=${offset}`
+  );
+  return handleResponse<HistoricalCommitsResponse>(resp);
+}
+
+export async function fetchHistoricalSnapshot(
+  analysisId: string,
+  commitSha: string,
+  useCache: boolean = true
+): Promise<HistoricalSnapshot> {
+  const resp = await fetch(
+    `${API_BASE}/analyses/${encodeURIComponent(analysisId)}/history/snapshots`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commit_sha: commitSha, use_cache: useCache }),
+    }
+  );
+  return handleResponse<HistoricalSnapshot>(resp);
+}
+
+export async function fetchHistoricalDiff(
+  analysisId: string,
+  baseCommitSha: string,
+  headCommitSha: string
+): Promise<HistoricalDiffResult> {
+  const resp = await fetch(
+    `${API_BASE}/analyses/${encodeURIComponent(analysisId)}/history/diff`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        base_commit_sha: baseCommitSha,
+        head_commit_sha: headCommitSha,
+      }),
+    }
+  );
+  return handleResponse<HistoricalDiffResult>(resp);
+}
+
+export async function fetchHistoricalTimeline(
+  analysisId: string,
+  limit: number = 30,
+  commits?: string[]
+): Promise<TimelineResult> {
+  const resp = await fetch(
+    `${API_BASE}/analyses/${encodeURIComponent(analysisId)}/history/timeline`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ limit, commits }),
+    }
+  );
+  return handleResponse<TimelineResult>(resp);
+}
+
+export async function fetchHistoricalEvidenceBlob(
+  analysisId: string,
+  evidenceId: string,
+  commitSha: string,
+  filePath: string,
+  lineStart: number = 1,
+  lineEnd: number = 50
+): Promise<HistoricalEvidenceBlobResponse> {
+  const params = new URLSearchParams({
+    commit_sha: commitSha,
+    file_path: filePath,
+    line_start: String(lineStart),
+    line_end: String(lineEnd),
+  });
+  const resp = await fetch(
+    `${API_BASE}/analyses/${encodeURIComponent(analysisId)}/history/evidence/${encodeURIComponent(evidenceId)}?${params.toString()}`
+  );
+  return handleResponse<HistoricalEvidenceBlobResponse>(resp);
 }
 

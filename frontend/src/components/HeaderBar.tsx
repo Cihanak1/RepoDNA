@@ -11,6 +11,7 @@ import {
   GitBranch,
   Github,
   Globe,
+  History,
   Moon,
   Play,
   Settings2,
@@ -40,8 +41,8 @@ interface HeaderBarProps {
   activeJob: ScanProgress | null;
   onCancelJob: () => void;
   result: AnalysisResult | null;
-  activeTab: 'studio' | 'intelligence' | 'report' | 'guardian' | 'contract' | 'passport';
-  onTabChange: (tab: 'studio' | 'intelligence' | 'report' | 'guardian' | 'contract' | 'passport') => void;
+  activeTab: 'studio' | 'intelligence' | 'report' | 'guardian' | 'contract' | 'passport' | 'history';
+  onTabChange: (tab: 'studio' | 'intelligence' | 'report' | 'guardian' | 'contract' | 'passport' | 'history') => void;
   defaultWorkspacePath: string;
   onOpenCommandPalette: () => void;
   workstationMode?: WorkstationMode;
@@ -399,6 +400,20 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             >
               <Globe className="w-3.5 h-3.5" aria-hidden="true" />
               <span className="hidden md:inline">{t('header.passportTab', 'Passport')}</span>
+            </button>
+            <button
+              type="button"
+              data-testid="tab-history-btn"
+              onClick={() => onTabChange('history')}
+              aria-pressed={activeTab === 'history'}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
+                activeTab === 'history'
+                  ? 'bg-accent-solid text-white shadow-xs'
+                  : 'text-muted hover:text-ink'
+              }`}
+            >
+              <History className="w-3.5 h-3.5" aria-hidden="true" />
+              <span className="hidden md:inline">{t('header.historyTab', 'Time Machine')}</span>
             </button>
           </nav>
 
