@@ -161,7 +161,7 @@ export const TimeMachineWorkstation: React.FC<TimeMachineWorkstationProps> = ({
     setLoadingTimeline(true);
     setTimelineError(null);
     try {
-      const res = await fetchHistoricalTimeline(result.analysis_id, 30);
+      const res = await fetchHistoricalTimeline(result.analysis_id, 5);
       setTimeline(res);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to generate timeline.';

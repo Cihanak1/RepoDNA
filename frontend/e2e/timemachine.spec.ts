@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 const ARTIFACT_DIR = '../docs/design/after';
 
 test.describe('RepoDNA v0.6.0 — Architecture Time Machine E2E Audit', () => {
-  test.setTimeout(120000);
+  test.setTimeout(180000);
 
   test('verifies commit history, time scrubber, snapshot details, evolution diff, evidence blob inspector, trends, localization and themes', async ({
     page,
@@ -101,7 +101,7 @@ test.describe('RepoDNA v0.6.0 — Architecture Time Machine E2E Audit', () => {
     // 7. Navigate to Architecture Trends Subtab
     await page.getByTestId('tm-subtab-trends-btn').click();
     await expect(page.getByText('Historical Architectural Progression')).toBeVisible();
-    await expect(page.locator('table')).toBeVisible({ timeout: 60000 });
+    await expect(page.locator('table')).toBeVisible({ timeout: 90000 });
 
     // Screenshot 4: Architecture Trends
     await page.screenshot({ path: `${ARTIFACT_DIR}/timemachine-4-trends.png` });

@@ -429,8 +429,10 @@ export const CommandPaletteDialog: React.FC<CommandPaletteDialogProps> = ({
     onClose();
     act.onRun();
     window.setTimeout(() => {
-      const trigger = document.querySelector<HTMLElement>('[data-testid="open-command-palette-btn"]');
-      trigger?.focus();
+      if (typeof document !== 'undefined') {
+        const trigger = document.querySelector<HTMLElement>('[data-testid="open-command-palette-btn"]');
+        trigger?.focus();
+      }
     }, 50);
   };
 
